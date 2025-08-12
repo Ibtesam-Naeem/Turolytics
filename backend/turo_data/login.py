@@ -1,12 +1,11 @@
 # ------------------------------ IMPORTS ------------------------------
-import asyncio
-from playwright.async_api import Page, Frame
+from playwright.async_api import Page
 
 from dotenv import load_dotenv
 
 from utils.logger import logger
 from utils.browser_helpers import get_iframe_content
-from config.browser_settings import launch_browser
+from config import launch_browser
 
 # ------------------------------ CONFIGURATION ------------------------------
 load_dotenv()
@@ -22,7 +21,7 @@ CODE_INPUT_SELECTOR = '#challengeCode'
 FINAL_CONTINUE_BUTTON = 'button:has-text("Submit")'
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
-async def click_continue_button_with_retry(page, iframe_content):
+async def click_continue_button_with_retry(page: Page, iframe_content):
     """
     Click the continue button with retry logic for iframe reloads.
 
@@ -48,7 +47,7 @@ async def click_continue_button_with_retry(page, iframe_content):
         await page.wait_for_timeout(1500)
 
 # ------------------------------ STEP 1: OPEN LOGIN PAGE ------------------------------
-async def open_turo_login(page):
+async def open_turo_login(page: Page):
     """
     Navigates to Turo login page and clicks 'Continue with email' button 
     if user signs in with email.
@@ -81,7 +80,7 @@ async def open_turo_login(page):
         return False
 
 # ------------------------------ STEP 2: SUBMIT CREDENTIALS ------------------------------
-async def login_with_credentials(page):
+async def login_with_credentials(page: Page):
     """
     Prompts user for email & password, fills the login form, and submits.
     Validates that 2FA prompt appears before proceeding.
@@ -167,7 +166,7 @@ async def login_with_credentials(page):
         return False
 
 # ------------------------------ STEP 3: HANDLE 2FA ------------------------------
-async def handle_two_factor_auth(page):
+async def handle_two_factor_auth(page: Page):
     """
     Handles the Turo two-factor authentication (2FA) step.
 
@@ -269,3 +268,5 @@ async def complete_turo_login(headless: bool = False):
         except Exception as cleanup_error:
             logger.warning(f"Error during browser cleanup: {cleanup_error}")
         return None
+
+# ------------------------------ END OF FILE ------------------------------
