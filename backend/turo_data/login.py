@@ -1,18 +1,14 @@
 # ------------------------------ IMPORTS ------------------------------
-from playwright.async_api import Page
+import getpass
 
-from dotenv import load_dotenv
+from playwright.async_api import Page
 
 from utils.logger import logger
 from utils.browser_helpers import get_iframe_content
 from config import launch_browser
 
-# ------------------------------ CONFIGURATION ------------------------------
-load_dotenv()
-
-LOGIN_URL = "https://turo.com/ca/en/login"
-
 # ------------------------------ SELECTORS ------------------------------
+LOGIN_URL = "https://turo.com/ca/en/login"
 CONTINUE_BUTTON_SELECTOR = ".css-131npuy"
 EMAIL_SELECTOR = 'input[type="email"][name="email"], #email'
 PASSWORD_SELECTOR = 'input[type="password"][name="password"], #password'
@@ -82,7 +78,8 @@ async def open_turo_login(page: Page):
 # ------------------------------ STEP 2: SUBMIT CREDENTIALS ------------------------------
 async def login_with_credentials(page: Page):
     """
-    Prompts user for email & password, fills the login form, and submits.
+    Securely prompts user for email & password, fills the login form, and submits.
+    Uses input() for email and getpass.getpass() for secure password input.
     Validates that 2FA prompt appears before proceeding.
     Clears input fields on failure to ensure no stale credentials are used.
 
@@ -95,7 +92,7 @@ async def login_with_credentials(page: Page):
     try:
         for attempt in range(3):
             email = input("Enter your Turo email: ").strip()
-            password = input("Enter your Turo password: ").strip()
+            password = getpass.getpass("Enter your Turo password: ").strip()
 
             if not email or not password:
                 logger.warning("Email and password cannot be empty. Please try again.")
@@ -227,14 +224,15 @@ async def handle_two_factor_auth(page: Page):
 # ------------------------------ MAIN LOGIN FUNCTION ------------------------------
 async def complete_turo_login(headless: bool = False):
     """
-    Automates the full Turo login process using manual input for credentials and 2FA.
+    Logs into Turo using manual email/password and 2FA input.
 
     Args:
-        headless: Whether to run browser in headless mode.
+        headless (bool): Run browser in headless mode.
 
     Returns:
-        tuple[Page, Any, Any] | None: Tuple of (page, context, browser) if login successful, otherwise None.
+        tuple | None: (page, context, browser) if login succeeds, Otherwise None.
     """
+
     try:
         logger.info("Starting Turo login automation...")
 
@@ -253,11 +251,62 @@ async def complete_turo_login(headless: bool = False):
         if not await handle_two_factor_auth(page):
             return None
 
-        logger.info("Waiting for dashboard page to load...")
-        await page.wait_for_url("**/dashboard", timeout=30000)
-        logger.info("Login successful, dashboard loaded.")
+        logger.info("Waiting for successful login page to load...")
+        
+        success_indicators = [
+            "**/dashboard",
+            "**/trips",
+            "**/trips/booked",
+            "**/trips/booked?recentUpdates=true",
+            "**/account",
+            "**/profile"
+        ]
+        
+        success_detected = False
+        for indicator in success_indicators:
+            try:
+                await page.wait_for_url(indicator, timeout=5000)
+                logger.info(f"Login successful! Redirected to: {indicator}")
+                success_detected = True
+                break
 
-        return page, context, browser
+            except:
+                continue
+        
+        if not success_detected:
+            try:
+                await page.wait_for_timeout(3000)
+                
+                success_selectors = [
+                    '[data-testid="user-menu"]',
+                    '.user-menu',
+                    '.account-menu',
+                    '[aria-label*="Account"]',
+                    '[aria-label*="Profile"]',
+                    '.avatar',
+                    '.user-avatar'
+                ]
+                
+                for selector in success_selectors:
+                    try:
+                        element = await page.wait_for_selector(selector, timeout=2000)
+                        if element:
+                            logger.info(f"Login successful! Found success indicator: {selector}")
+                            success_detected = True
+                            break
+
+                    except:
+                        continue
+                        
+            except Exception as e:
+                logger.warning(f"Could not check for success elements: {e}")
+        
+        if success_detected:
+            logger.info("Login successful, user is authenticated.")
+            return page, context, browser
+        else:
+            logger.error("Could not confirm successful login - no success indicators found.")
+            return None
 
     except Exception as e:
         logger.exception(f"Error in complete_turo_login: {e}")
