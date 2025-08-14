@@ -122,7 +122,7 @@ async def login_with_credentials(page: Page):
             
             except:
                 try:
-                    await page.wait_for_timeout(2000)  # Wait for page transition
+                    await page.wait_for_timeout(2000)
                     text_button = await page.wait_for_selector(TEXT_CODE_BUTTON, timeout=5000)
                     if text_button:
                         logger.info("Login successful. Found 2FA button on main page.")
