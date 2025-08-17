@@ -1,10 +1,11 @@
 # ------------------------------ IMPORTS ------------------------------
 import getpass
 
+
 from playwright.async_api import Page
 
 from utils.logger import logger
-from utils.browser_helpers import get_iframe_content
+from utils.browser_helpers import get_iframe_content, search_for_error_messages, clear_form_inputs, check_for_success_element
 from config import launch_browser
 
 # ------------------------------ SELECTORS ------------------------------
@@ -82,6 +83,7 @@ async def login_with_credentials(page: Page):
     Uses input() for email and getpass.getpass() for secure password input.
     Validates that 2FA prompt appears before proceeding.
     Clears input fields on failure to ensure no stale credentials are used.
+    Searches for specific error messages and handles them appropriately.
 
     Args:
         page: The active browser page.
@@ -115,44 +117,25 @@ async def login_with_credentials(page: Page):
 
             await click_continue_button_with_retry(page, iframe_content)
 
-            try:
-                await iframe_content.wait_for_selector(TEXT_CODE_BUTTON, timeout=8000)
+            await page.wait_for_timeout(2000)
+
+            error_message = await search_for_error_messages(page, iframe_content)
+            if error_message:
+                logger.error(f"Login failed with error: '{error_message}'")
+                await clear_form_inputs(page, [EMAIL_SELECTOR, PASSWORD_SELECTOR], iframe_content)
+                
+                if attempt < 2:
+                    logger.warning(f"Retrying login (Attempt {attempt + 2}/3)...")
+                continue
+
+            if await check_for_success_element(page, [TEXT_CODE_BUTTON], iframe_content):
                 logger.info("Login successful. Proceeding to 2FA.")
                 return True
             
-            except:
-                try:
-                    await page.wait_for_timeout(2000)
-                    text_button = await page.wait_for_selector(TEXT_CODE_BUTTON, timeout=5000)
-                    if text_button:
-                        logger.info("Login successful. Found 2FA button on main page.")
-                        return True
-                except:
-                    pass
-                
-                try:
-                    email_input = await iframe_content.query_selector(EMAIL_SELECTOR)
-                    password_input = await iframe_content.query_selector(PASSWORD_SELECTOR)
-                    if email_input and password_input:
-                        await email_input.fill('')
-                        await password_input.fill('')
-                        await page.wait_for_timeout(500)
-
-                except Exception:
-                    logger.warning("Could not clear inputs — elements may have been detached.")
-
-                try:
-                    error_selector = 'div[role="alert"], .error-message'
-                    error_elem = await iframe_content.query_selector(error_selector)
-                    if error_elem:
-                        error_text = await error_elem.text_content()
-                        logger.error(f"Login failed: {error_text.strip()}")
-                    else:
-                        logger.error("Login failed: 2FA not triggered and no error message found.")
-
-                except Exception:
-                    logger.error("Login failed: Could not check for error messages (iframe detached).")
-                
+            logger.error("Login failed: No error message found and 2FA not triggered.")
+            await clear_form_inputs(page, [EMAIL_SELECTOR, PASSWORD_SELECTOR], iframe_content)
+            
+            if attempt < 2:
                 logger.warning(f"Retrying login (Attempt {attempt + 2}/3)...")
 
         logger.error("All login attempts failed.")
@@ -251,7 +234,7 @@ async def complete_turo_login(headless: bool = False):
         if not await handle_two_factor_auth(page):
             return None
 
-        logger.info("Waiting for successful login page to load...")
+        logger.info("Checking if login was successful...")
         
         success_indicators = [
             "**/dashboard",
