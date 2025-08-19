@@ -1,7 +1,6 @@
 # ------------------------------ IMPORTS ------------------------------
 import getpass
 
-
 from playwright.async_api import Page
 
 from utils.logger import logger
@@ -36,7 +35,6 @@ async def click_continue_button_with_retry(page: Page, iframe_content):
 
     except Exception:
         logger.warning("Retrying button click after iframe reload...")
-
         iframe = await page.wait_for_selector('iframe[data-testid="managedIframe"]', timeout=8000)
         iframe_content = await iframe.content_frame()
         submit_btn = await iframe_content.wait_for_selector('button:has-text("Continue")', timeout=8000)
@@ -173,6 +171,7 @@ async def handle_two_factor_auth(page: Page):
                 await text_button.click()
                 logger.info("'Text code' button clicked in iframe.")
                 main_page_2fa = False
+
             except Exception as e:
                 logger.error(f"Could not find 2FA text button: {e}")
                 return False
@@ -215,7 +214,6 @@ async def complete_turo_login(headless: bool = False):
     Returns:
         tuple | None: (page, context, browser) if login succeeds, Otherwise None.
     """
-
     try:
         logger.info("Starting Turo login automation...")
 
