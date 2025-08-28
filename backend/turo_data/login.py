@@ -215,7 +215,7 @@ async def complete_turo_login(headless: bool = False):
         tuple | None: (page, context, browser) if login succeeds, Otherwise None.
     """
     try:
-        logger.info("Starting Turo login automation...")
+        logger.info("Initiating Turo login automation...")
 
         page, context, browser = await launch_browser(headless=headless)
         if not await open_turo_login(page):
@@ -272,7 +272,7 @@ async def complete_turo_login(headless: bool = False):
                     try:
                         element = await page.wait_for_selector(selector, timeout=2000)
                         if element:
-                            logger.info(f"Login successful! Found success indicator: {selector}")
+                            logger.info(f"Login successful - Found success indicator: {selector}")
                             success_detected = True
                             break
 
@@ -286,7 +286,7 @@ async def complete_turo_login(headless: bool = False):
             logger.info("Login successful, user is authenticated.")
             return page, context, browser
         else:
-            logger.error("Could not confirm successful login - no success indicators found.")
+            logger.error("Unable to confirm a successful login - no success indicators located.")
             return None
 
     except Exception as e:
