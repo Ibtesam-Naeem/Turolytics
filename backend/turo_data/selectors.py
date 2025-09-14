@@ -14,6 +14,10 @@ TRIP_HISTORY_LIST = '[data-testid="trip-history-list"]'
 
 TRIP_CARD = '[data-testid="baseTripCard"]'
 
+VEHICLES_LISTINGS_GRID = '.css-3j7pzn-VehicleListingsGrid'
+VEHICLE_CARD = '[data-testid="vehicle-listing-details-card"]'
+VEHICLES_VIEW = '.css-7r5omw-VehiclesView'
+
 MONTH_HEADER = '.css-4pg9bw-StyledText'
 DATE_HEADER = '.css-14bos0l-StyledText'
 
@@ -38,10 +42,8 @@ CUSTOMER_SELECTORS = [
     'p'                                        # fallback
 ]
 
-# Trip status and cancellation
 CANCELLATION_SELECTOR = '.css-x4dp90-StyledText'
 
-# License plate
 LICENSE_PLATE_SELECTORS = [
     '.css-15h68s2-StyledText',                # Primary license plate
     'p:last-child',                           # fallback
@@ -55,7 +57,51 @@ CUSTOMER_PROFILE_IMAGE = '[data-testid="profilePhoto-image"]'
 # ------------------------------ BOOKED TRIPS SELECTORS ------------------------------
 
 TIME_INFO = '.css-18fknbt' 
-LOCATION = '.css-j2jl8y-StyledText' 
+LOCATION = '.css-j2jl8y-StyledText'
+
+# ------------------------------ VEHICLE CARD SELECTORS ------------------------------
+
+VEHICLE_STATUS_SELECTORS = [
+    '.css-116zd9t-VehicleDetailsCard div',  # Snoozed/Listed status
+    '.css-1fx8k8t',                         # Listed status
+    '.css-1h7k5xv'                          # Snoozed status
+]
+
+VEHICLE_IMAGE_SELECTORS = [
+    '.css-uev5fr-StyledImage-StyledVehicleImage-vehicleImage',
+    'img[alt*="vehicle"]',
+    '.css-yu07v3-vehicleImageContainer img'
+]
+
+VEHICLE_NAME_SELECTORS = [
+    '.css-1s9awq7-StyledText',
+    'p[title*="2017"]',
+    'p[title*="2018"]',
+    'p[title*="2019"]',
+    'p[title*="2020"]',
+    'p[title*="2021"]',
+    'p[title*="2022"]',
+    'p[title*="2023"]',
+    'p[title*="2024"]',
+    'p[title*="2025"]'
+]
+
+VEHICLE_DETAILS_SELECTORS = [
+    '.css-1u90aiw-StyledText-VehicleDetailsCard',
+    '.css-sivu8m-VehicleDetailsCard p'
+]
+
+VEHICLE_TRIP_INFO_SELECTORS = [
+    '.css-j2jl8y-StyledText',
+    '.css-s1wb9o-spaceBetween p:first-child'
+]
+
+VEHICLE_RATINGS_SELECTORS = [
+    '.css-1xs83q-StyledText-VehicleListingRatingsText',
+    '.css-s1wb9o-spaceBetween p:last-child'
+]
+
+VEHICLE_LISTINGS_COUNT = '.css-18mfln5-StyledText' 
 
 # ------------------------------ IMAGE CLASSIFICATION ------------------------------
 
