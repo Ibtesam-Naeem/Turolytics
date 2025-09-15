@@ -194,3 +194,23 @@ def contains_vehicle_brand(text):
         return False
     
     return any(brand in text for brand in VEHICLE_BRANDS)
+
+# ------------------------------ EARNINGS SELECTORS ------------------------------
+
+EARNINGS_TOTAL_SELECTOR = 'h2[data-testid="earningsFilterSummary-total"] span'
+EARNINGS_TOTAL_TEXT_SELECTOR = 'h2[data-testid="earningsFilterSummary-total"]'
+
+EARNINGS_LEGEND_SELECTOR = '.legend'
+EARNINGS_LEGEND_TAG_SELECTOR = '.legend-tag'
+
+EARNINGS_AMOUNT_SELECTOR = '.css-bgx7g9-StyledText'
+EARNINGS_TYPE_SELECTOR = '.css-foqw77-StyledText'
+EARNINGS_TOOLTIP_SELECTOR = 'span[data-testid="tooltipPanel-content"] span.css-1afgvk6-StyledText'
+
+VEHICLE_EARNINGS_HEADER_SELECTOR = '.css-1wmkkoy-StyledTableHeaderRow'
+VEHICLE_EARNINGS_ROW_SELECTOR = '.css-4a2atv-StyledTableRow'
+
+VEHICLE_EARNINGS_IMAGE_SELECTOR = 'div.css-q4kmj6-MediaObjectWrapper img'
+VEHICLE_EARNINGS_NAME_SELECTOR = 'p.css-nmsfeq-StyledText-StyledMakeModelYear'
+VEHICLE_EARNINGS_DETAILS_SELECTOR = 'p.css-47w2m9-StyledText-StyledMakeModelYear-StyledLicenseAndTrim'
+VEHICLE_EARNINGS_AMOUNT_SELECTOR = 'p.css-14bos0l-StyledText span'
