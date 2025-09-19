@@ -5,6 +5,7 @@ TRIPS_HISTORY_URL = "https://turo.com/ca/en/trips/history"
 
 VEHICLES_LISTINGS_URL = "https://turo.com/ca/en/vehicles/listings"
 BUSINESS_EARNINGS_URL = "https://turo.com/ca/en/business/earnings"
+BUSINESS_RATINGS_URL = "https://turo.com/ca/en/business/reviews"
 INBOX_MESSAGES_URL = "https://turo.com/ca/en/inbox/messages/thread"
 
 # ------------------------------ PAGE SELECTORS ------------------------------
@@ -214,3 +215,33 @@ VEHICLE_EARNINGS_IMAGE_SELECTOR = 'div.css-q4kmj6-MediaObjectWrapper img'
 VEHICLE_EARNINGS_NAME_SELECTOR = 'p.css-nmsfeq-StyledText-StyledMakeModelYear'
 VEHICLE_EARNINGS_DETAILS_SELECTOR = 'p.css-47w2m9-StyledText-StyledMakeModelYear-StyledLicenseAndTrim'
 VEHICLE_EARNINGS_AMOUNT_SELECTOR = 'p.css-14bos0l-StyledText span'
+
+# ------------------------------ RATINGS SELECTORS ------------------------------
+
+RATINGS_OVERALL_SELECTOR = '[data-testid="cardAccordion-headerSuffix"] p.css-1vmc2vr-StyledText'
+RATINGS_OVERALL_CATEGORY_SELECTOR = '[data-testid="cardAccordion-header"] p.css-1vmc2vr-StyledText'
+
+RATINGS_TRIPS_COUNT_SELECTOR = '[data-testid="ratingsDetails-trips"] p.css-13mmra7-StyledText'
+RATINGS_RATINGS_COUNT_SELECTOR = '[data-testid="ratingsDetails-ratings"] p.css-13mmra7-StyledText'
+RATINGS_AVERAGE_SELECTOR = '[data-testid="ratingsDetails-average"] .css-xbnzaw-StyledText-categoryAverageMetricStyles'
+
+REVIEWS_HEADER_SELECTOR = '.css-1rqnw09-reviewsColumnHeaderStyles h2'
+REVIEWS_COUNT_SELECTOR = '.css-1rqnw09-reviewsColumnHeaderStyles h2'
+REVIEWS_CATEGORY_SELECTOR = '.css-1rqnw09-reviewsColumnHeaderStyles p.css-v7tkns-StyledText'
+
+REVIEW_LIST_CONTAINER_SELECTOR = '[data-testid="reviewList-container"]'
+REVIEW_ITEM_SELECTOR = '[data-testid="reviewList-review"]'
+
+REVIEW_CUSTOMER_LINK_SELECTOR = 'a[rel="nofollow"][href*="/drivers/"]'
+REVIEW_CUSTOMER_IMAGE_SELECTOR = 'a[rel="nofollow"][href*="/drivers/"] svg, a[rel="nofollow"][href*="/drivers/"] img'
+REVIEW_STAR_RATING_SELECTOR = '.css-1qr3nc0-StarRating-Container [aria-label*="Rating:"]'
+REVIEW_CUSTOMER_NAME_SELECTOR = '.css-ov1ktg p.css-j2jl8y-StyledText span:first-child'
+REVIEW_DATE_SELECTOR = '.css-ov1ktg p.css-j2jl8y-StyledText span.css-s0p4kp-StyledText'
+REVIEW_VEHICLE_INFO_SELECTOR = '.css-1e0dz7l-ReviewBody p.css-j2jl8y-StyledText:not(.css-ov1ktg p)'
+REVIEW_TEXT_SELECTOR = '.css-1e0dz7l-ReviewBody p.css-14bos0l-StyledText'
+
+REVIEW_AREAS_IMPROVEMENT_SELECTOR = '[data-testid="reviewsAreasOfImprovement-badge"]'
+REVIEW_HOST_RESPONSE_SELECTOR = '.css-1ojqf3u-Well-ReviewReplyContainer'
+
+REVIEW_SEE_FULL_BUTTON_SELECTOR = 'button:has-text("See full review")'
+REVIEW_RESPOND_BUTTON_SELECTOR = '[data-testid="respondToReviewView-showForm"]'
