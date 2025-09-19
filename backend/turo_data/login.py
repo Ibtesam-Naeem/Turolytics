@@ -1,11 +1,13 @@
 # ------------------------------ IMPORTS ------------------------------
 import getpass
+import os
 
 from playwright.async_api import Page
 
 from utils.logger import logger
 from utils.browser_helpers import get_iframe_content, search_for_error_messages, clear_form_inputs, check_for_success_element
 from config import launch_browser
+from utils.session import get_storage_state_path, verify_session_authenticated, save_storage_state
 
 # ------------------------------ SELECTORS ------------------------------
 LOGIN_URL = "https://turo.com/ca/en/login"
@@ -209,7 +211,7 @@ async def complete_turo_login(headless: bool = False):
     Logs into Turo using manual email/password and 2FA input.
 
     Args:
-        headless (bool): Run browser in headless mode.
+        headless (bool): Run browser in headless mode. # For testing purposes
 
     Returns:
         tuple | None: (page, context, browser) if login succeeds, Otherwise None.
@@ -217,7 +219,20 @@ async def complete_turo_login(headless: bool = False):
     try:
         logger.info("Initiating Turo login automation...")
 
-        page, context, browser = await launch_browser(headless=headless)
+        storage_path = get_storage_state_path()
+
+        page, context, browser = await launch_browser(
+            headless=headless,
+            storage_state_path=storage_path if os.path.exists(storage_path) else None,
+        )
+
+        if os.path.exists(storage_path):
+            logger.info("Attempting session restore via storage state...")
+            if await verify_session_authenticated(page):
+                logger.info("Session restored successfully - no login required!")
+                return page, context, browser
+            else:
+                logger.info("Stored session invalid or expired. Proceeding with interactive login.")
         if not await open_turo_login(page):
             return None
 
@@ -283,7 +298,8 @@ async def complete_turo_login(headless: bool = False):
                 logger.warning(f"Could not check for success elements: {e}")
         
         if success_detected:
-            logger.info("Login successful, user is authenticated.")
+            logger.info("Login successful, user has been successfully authenticated.")
+            await save_storage_state(context)
             return page, context, browser
         else:
             logger.error("Unable to confirm a successful login - no success indicators located.")
