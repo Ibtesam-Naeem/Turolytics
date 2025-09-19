@@ -5,3 +5,5 @@ __pycache__/
 
 .env
 test.py
+backend/session/
+test_results/
