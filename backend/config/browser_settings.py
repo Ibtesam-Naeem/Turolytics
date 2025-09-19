@@ -26,7 +26,7 @@ ANTI_DETECTION_SCRIPT: str = (
 )
 
 # ------------------------------ VALIDATION FUNCTIONS ------------------------------
-def validate_viewport(viewport: dict[str, int]) -> bool:
+def validate_viewport(viewport: dict[str, int]):
     """
     Validate viewport dimensions.
     
@@ -66,7 +66,8 @@ async def launch_browser(
     user_agent: str = USER_AGENT,
     viewport: dict[str, int] = DEFAULT_VIEWPORT,
     timeout: int = DEFAULT_TIMEOUT,
-) -> tuple[Page, BrowserContext, Browser]:
+    storage_state_path: Optional[str] = None,   
+):
     """
     Launch a Chromium browser with standardized settings.
 
@@ -107,15 +108,14 @@ async def launch_browser(
         context = await browser.new_context(
             user_agent=user_agent,
             viewport=viewport,
+            storage_state=storage_state_path if storage_state_path else None,
         )
         
         logger.debug("Creating new page")
         page = await context.new_page()
         
-        # Set default timeout for page operations
         page.set_default_timeout(timeout)
         
-        # Add anti-detection script
         logger.debug("Adding anti-detection script")
         await page.add_init_script(ANTI_DETECTION_SCRIPT)
         
