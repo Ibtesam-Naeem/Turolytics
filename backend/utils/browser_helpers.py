@@ -1,5 +1,9 @@
 # ------------------------------ IMPORTS ------------------------------
 from playwright.async_api import Page, Frame
+from typing import Optional
+from functools import wraps
+import re
+from utils.logger import logger
 
 # ------------------------------ BROWSER HELPER FUNCTIONS ------------------------------
 async def get_iframe_content(page, timeout: int = 8000):
@@ -15,6 +19,43 @@ async def get_iframe_content(page, timeout: int = 8000):
     """
     iframe = await page.wait_for_selector('iframe[data-testid="managedIframe"]', timeout=timeout)
     return await iframe.content_frame()
+
+# ------------------------------ TEXT EXTRACTION HELPERS ------------------------------
+async def safe_text(element, default: Optional[str] = None) -> Optional[str]:
+    """Safely extract and strip text content from an element."""
+    if not element:
+        return default
+    text = await element.text_content()
+    return text.strip() if text else default
+
+def normalize_currency(amount_str: str) -> float:
+    """Normalize currency string to float value."""
+    if not amount_str:
+        return 0.0
+    
+    cleaned = re.sub(r"[^\d.]", "", amount_str)
+    
+    try:
+        return float(cleaned)
+
+    except ValueError:
+        return 0.0
+
+# ------------------------------ DECORATORS ------------------------------
+def safe_scrape(default_return):
+    """Decorator for safe scraping functions with consistent error handling."""
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            try:
+                return await func(*args, **kwargs)
+
+            except Exception as e:
+                logger.debug(f"Error in {func.__name__}: {e}")
+                return default_return
+
+        return wrapper
+    return decorator
 
 # ------------------------------ ERROR DETECTION HELPER FUNCTIONS ------------------------------
 async def search_for_error_messages(page: Page, iframe_content=None, error_messages=None):
@@ -57,8 +98,10 @@ async def search_for_error_messages(page: Page, iframe_content=None, error_messa
                 return error_msg
                 
             element = await page.query_selector(f'text*="{error_msg}"')
+
             if element:
                 return error_msg
+                
         except Exception:
             continue
     
