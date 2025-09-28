@@ -1,30 +1,24 @@
 # ------------------------------ IMPORTS ------------------------------
 import re
+from datetime import datetime
+from typing import Any
 from playwright.async_api import Page
 
 from utils.logger import logger
 from .selectors import (
     BUSINESS_RATINGS_URL, RATINGS_OVERALL_SELECTOR, RATINGS_OVERALL_CATEGORY_SELECTOR,
     RATINGS_TRIPS_COUNT_SELECTOR, RATINGS_RATINGS_COUNT_SELECTOR, RATINGS_AVERAGE_SELECTOR,
-    REVIEWS_HEADER_SELECTOR, REVIEWS_COUNT_SELECTOR, REVIEWS_CATEGORY_SELECTOR,
+    REVIEWS_HEADER_SELECTOR, REVIEWS_CATEGORY_SELECTOR,
     REVIEW_LIST_CONTAINER_SELECTOR, REVIEW_ITEM_SELECTOR, REVIEW_CUSTOMER_LINK_SELECTOR,
     REVIEW_CUSTOMER_IMAGE_SELECTOR, REVIEW_STAR_RATING_SELECTOR, REVIEW_CUSTOMER_NAME_SELECTOR,
     REVIEW_DATE_SELECTOR, REVIEW_VEHICLE_INFO_SELECTOR, REVIEW_TEXT_SELECTOR,
-    REVIEW_AREAS_IMPROVEMENT_SELECTOR, REVIEW_HOST_RESPONSE_SELECTOR
+    REVIEW_AREAS_IMPROVEMENT_SELECTOR, REVIEW_HOST_RESPONSE_SELECTOR, REVIEW_FILLED_STAR_SELECTOR
 )
 
 # ------------------------------ RATINGS PAGE SCRAPING ------------------------------
 
-async def navigate_to_ratings_page(page: Page):
-    """
-    Navigate to the business ratings page.
-    
-    Args:
-        page: Playwright page object.
-        
-    Returns:
-        bool: True if navigation successful, Otherwise False.
-    """
+async def navigate_to_ratings_page(page: Page) -> bool:
+    """Navigate to the business ratings page."""
     try:
         logger.info("Navigating to Business Reviews page...")
         await page.goto(BUSINESS_RATINGS_URL, wait_until="domcontentloaded")
@@ -41,16 +35,8 @@ async def navigate_to_ratings_page(page: Page):
         logger.exception(f"Error navigating to Business Reviews: {e}")
         return False
 
-async def extract_overall_rating(page: Page):
-    """
-    Extract overall rating percentage and category.
-    
-    Args:
-        page: Playwright page object.
-        
-    Returns:
-        dict: Dictionary containing overall rating data
-    """
+async def extract_overall_rating(page: Page) -> dict[str, str | None]:
+    """Extract overall rating percentage and category."""
     try:
         overall_rating = {
             'percentage': None,
@@ -75,16 +61,8 @@ async def extract_overall_rating(page: Page):
         logger.debug(f"Error extracting overall rating: {e}")
         return {'percentage': None, 'category': None}
 
-async def extract_trip_metrics(page: Page):
-    """
-    Extract trip metrics including trips count, ratings count, and average rating.
-    
-    Args:
-        page: Playwright page object.
-        
-    Returns:
-        dict: Dictionary containing trip metrics data
-    """
+async def extract_trip_metrics(page: Page) -> dict[str, int | float | None]:
+    """Extract trip counts, ratings count, and average rating."""
     try:
         trip_metrics = {
             'trips_count': None,
@@ -118,16 +96,8 @@ async def extract_trip_metrics(page: Page):
         logger.debug(f"Error extracting trip metrics: {e}")
         return {'trips_count': None, 'ratings_count': None, 'average_rating': None}
 
-async def extract_reviews_header(page: Page):
-    """
-    Extract reviews section header information.
-    
-    Args:
-        page: Playwright page object.
-        
-    Returns:
-        dict: Dictionary containing reviews header data
-    """
+async def extract_reviews_header(page: Page) -> dict[str, str | int | None]:
+    """Extract reviews section header information."""
     try:
         reviews_header = {
             'title': None,
@@ -156,16 +126,8 @@ async def extract_reviews_header(page: Page):
         logger.debug(f"Error extracting reviews header: {e}")
         return {'title': None, 'count': None, 'category': None}
 
-async def extract_star_rating(review_element):
-    """
-    Extract star rating from a review element.
-    
-    Args:
-        review_element: The review element containing star rating.
-        
-    Returns:
-        int: Star rating (1-5) or None if not found
-    """
+async def extract_star_rating(review_element) -> int | None:
+    """Extract star rating from a review element."""
     try:
         rating_element = await review_element.query_selector(REVIEW_STAR_RATING_SELECTOR)
         if rating_element:
@@ -175,7 +137,7 @@ async def extract_star_rating(review_element):
                 if rating_match:
                     return int(rating_match.group(1))
         
-        filled_stars = await review_element.query_selector_all('.css-10pswck svg[fill="#121214"]')
+        filled_stars = await review_element.query_selector_all(REVIEW_FILLED_STAR_SELECTOR)
         if filled_stars:
             return len(filled_stars)
         
@@ -185,17 +147,8 @@ async def extract_star_rating(review_element):
         logger.debug(f"Error extracting star rating: {e}")
         return None
 
-async def extract_individual_review(review_element, review_index: int):
-    """
-    Extract individual review data from a review element.
-    
-    Args:
-        review_element: The review element.
-        review_index: Index of the review for logging.
-        
-    Returns:
-        dict: Dictionary containing individual review data
-    """
+async def extract_individual_review(review_element, review_index: int) -> dict[str, Any]:
+    """Extract individual review data from a review element."""
     try:
         review_data = {
             'customer_name': None,
@@ -286,16 +239,8 @@ async def extract_individual_review(review_element, review_index: int):
             'has_host_response': False
         }
 
-async def extract_all_reviews(page: Page):
-    """
-    Extract all reviews from the reviews section.
-    
-    Args:
-        page: Playwright page object.
-        
-    Returns:
-        list: List of dictionaries containing all review data
-    """
+async def extract_all_reviews(page: Page) -> list[dict[str, Any]]:
+    """Extract all reviews from the reviews section."""
     try:
         reviews = []
         
@@ -309,12 +254,12 @@ async def extract_all_reviews(page: Page):
                 review_data = await extract_individual_review(review_element, i)
                 reviews.append(review_data)
                 
-                customer_name = review_data.get('customer_name', 'Unknown')
-                rating = review_data.get('rating', 'N/A')
-                logger.info(f"Scraped review {i+1}: {customer_name} - {rating} stars")
+                customer_name = review_data.get('customer_name') or 'Unknown'
+                rating = review_data.get('rating') or 'N/A'
+                logger.info(f"Scraped review {i+1}: {customer_name} - {rating}")
                 
             except Exception as e:
-                logger.warning(f"Error extracting review {i+1}: {e}")
+                logger.debug(f"Error extracting review {i+1}: {e}")
                 continue
         
         return reviews
@@ -323,16 +268,8 @@ async def extract_all_reviews(page: Page):
         logger.debug(f"Error extracting all reviews: {e}")
         return []
 
-async def scrape_ratings_data(page: Page):
-    """
-    Scrape all ratings and reviews data from the business ratings page.
-    
-    Args:
-        page: Playwright page object.
-        
-    Returns:
-        dict: Dictionary containing all ratings data, or None if failed.
-    """
+async def scrape_ratings_data(page: Page) -> dict[str, Any] | None:
+    """Scrape all ratings and reviews data from the business ratings page."""
     try:
         logger.info("Starting to scrape ratings data...")
         
@@ -365,7 +302,7 @@ async def scrape_ratings_data(page: Page):
                 'reviews_with_ratings': reviews_with_ratings,
                 'reviews_with_responses': reviews_with_responses,
                 'calculated_average_rating': calculated_average,
-                'scraped_at': None
+                'scraped_at': datetime.utcnow().isoformat()
             }
         }
         
@@ -378,16 +315,8 @@ async def scrape_ratings_data(page: Page):
 
 # ------------------------------ COMBINED RATINGS SCRAPING ------------------------------
 
-async def scrape_all_ratings_data(page: Page):
-    """
-    Scrape all ratings and reviews data including overall rating, metrics, and individual reviews.
-    
-    Args:
-        page: Playwright page object.
-        
-    Returns:
-        dict: Dictionary containing all ratings data, or None if failed.
-    """
+async def scrape_all_ratings_data(page: Page) -> dict[str, Any] | None:
+    """Scrape all ratings and reviews data including overall rating, metrics, and individual reviews."""
     try:
         logger.info("Starting to scrape all ratings data...")
         
@@ -401,7 +330,7 @@ async def scrape_all_ratings_data(page: Page):
                 'trip_metrics': {'trips_count': None, 'ratings_count': None, 'average_rating': None},
                 'reviews_header': {'title': None, 'count': None, 'category': None},
                 'reviews': [],
-                'summary': {'total_reviews': 0, 'reviews_with_ratings': 0, 'reviews_with_responses': 0, 'calculated_average_rating': None, 'scraped_at': None}
+                'summary': {'total_reviews': 0, 'reviews_with_ratings': 0, 'reviews_with_responses': 0, 'calculated_average_rating': None, 'scraped_at': datetime.utcnow().isoformat()}
             },
             'scraping_success': {
                 'ratings': ratings_data is not None
