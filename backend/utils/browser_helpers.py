@@ -1,11 +1,28 @@
 # ------------------------------ IMPORTS ------------------------------
 from playwright.async_api import Page, Frame
-from typing import Optional
+from typing import Optional, Callable, Awaitable
 from functools import wraps
 import re
 from utils.logger import logger
 
 # ------------------------------ BROWSER HELPER FUNCTIONS ------------------------------
+async def retry_operation(func: Callable[..., Awaitable[bool]], attempts: int = 3, *args, **kwargs) -> bool:
+    """Retry an operation with specified number of attempts."""
+    for attempt in range(attempts):
+        if await func(*args, **kwargs):
+            return True
+        logger.debug(f"Attempt {attempt+1}/{attempts} failed.")
+    return False
+
+async def close_browser_safely(browser) -> None:
+    """Safely close browser with error handling."""
+    try:
+        if browser:
+            await browser.close()
+            
+    except Exception as e:
+        logger.warning(f"Error during browser cleanup: {e}")
+
 async def get_iframe_content(page, timeout: int = 8000):
     """
     Get the iframe content frame for login forms.
@@ -19,6 +36,29 @@ async def get_iframe_content(page, timeout: int = 8000):
     """
     iframe = await page.wait_for_selector('iframe[data-testid="managedIframe"]', timeout=timeout)
     return await iframe.content_frame()
+
+async def click_continue_button_with_retry(page: Page, iframe_content, continue_button_selector: str = "button:has-text('Continue')") -> bool:
+    """Click the continue button with retry logic for iframe reloads."""
+    try:
+        submit_btn = await iframe_content.wait_for_selector(continue_button_selector, timeout=8000)
+        await submit_btn.click(force=True, delay=100)
+        await page.wait_for_timeout(1500)
+        return True
+
+    except Exception as e:
+        logger.debug("Retrying button click after iframe reload...")
+
+        try:
+            iframe = await page.wait_for_selector('iframe[data-testid="managedIframe"]', timeout=8000)
+            iframe_content = await iframe.content_frame()
+            submit_btn = await iframe_content.wait_for_selector(continue_button_selector, timeout=8000)
+            await submit_btn.click(force=True, delay=100)
+            await page.wait_for_timeout(1500)
+            return True
+            
+        except Exception as retry_error:
+            logger.error(f"Failed to click 'Continue' button: {retry_error}")
+            return False
 
 # ------------------------------ TEXT EXTRACTION HELPERS ------------------------------
 async def safe_text(element, default: Optional[str] = None) -> Optional[str]:
