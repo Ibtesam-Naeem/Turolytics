@@ -12,7 +12,7 @@ USER_AGENT = (
 
 DEFAULT_VIEWPORT = {"width": 1366, "height": 768}
 DEFAULT_TIMEOUT = 30000
-DEFAULT_HEADLESS = True
+DEFAULT_HEADLESS = False
 
 BROWSER_LAUNCH_ARGS = [
     "--no-sandbox",
