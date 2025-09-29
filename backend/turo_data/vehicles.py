@@ -5,7 +5,8 @@ from playwright.async_api import Page
 
 from utils.logger import logger
 from .selectors import (
-    VEHICLES_LISTINGS_URL, VEHICLES_VIEW_SELECTORS, VEHICLE_CARD, VEHICLE_LISTINGS_COUNT_SELECTORS
+    VEHICLES_LISTINGS_URL, VEHICLES_VIEW_SELECTORS, VEHICLE_CARD, VEHICLE_LISTINGS_COUNT_SELECTORS,
+    VEHICLES_LISTINGS_GRID_SELECTORS
 )
 from .extraction_helpers import extract_complete_vehicle_data
 
@@ -54,7 +55,19 @@ async def scrape_vehicle_listings(page: Page):
             logger.error("Failed to navigate to vehicle listings page")
             return None
             
-        await page.wait_for_selector(VEHICLES_VIEW_SELECTORS[0], timeout=10000)
+        found_selector = None
+        for sel in VEHICLES_VIEW_SELECTORS + VEHICLES_LISTINGS_GRID_SELECTORS + [VEHICLE_CARD]:
+            try:
+                await page.wait_for_selector(sel, timeout=4000)
+                found_selector = sel
+                logger.info(f"Vehicles container found using selector: {sel}")
+                break
+
+            except Exception:
+                continue
+            
+        if not found_selector:
+            logger.error("Vehicles container not found; proceeding with best-effort scraping")
         
         total_listings = 0
         try:
