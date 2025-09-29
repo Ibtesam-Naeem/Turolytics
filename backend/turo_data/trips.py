@@ -1,7 +1,9 @@
 # ------------------------------ IMPORTS ------------------------------
+from datetime import datetime
 from playwright.async_api import Page
 
 from utils.logger import logger
+from utils.browser_helpers import scroll_to_bottom_and_wait
 from .selectors import (
     TRIPS_BOOKED_URL, TRIPS_HISTORY_URL,
     TRIPS_UPCOMING_LIST, TRIP_HISTORY_LIST, TRIP_CARD,
@@ -12,15 +14,7 @@ from .extraction_helpers import extract_complete_trip_data, extract_month_header
 # ------------------------------ BOOKED TRIPS SCRAPING ------------------------------
 
 async def navigate_to_booked_trips(page: Page):
-    """
-    Navigate to the booked trips page under the Trips section.
-    
-    Args:
-        page: Playwright page object.
-        
-    Returns:
-        bool: True if navigation successful, Otherwise False.
-    """
+    """Navigate to the booked trips page under the Trips section."""
     try:
         logger.info("Navigating to Trips -> Booked page...")
         await page.goto(TRIPS_BOOKED_URL, wait_until="domcontentloaded")
@@ -38,15 +32,7 @@ async def navigate_to_booked_trips(page: Page):
         return False
 
 async def scrape_booked_trips(page: Page):
-    """
-    Scrape all booked/upcoming trips data from the booked trips page.
-    
-    Args:
-        page: Playwright page object.
-        
-    Returns:
-        dict: Dictionary containing booked trips data, or None if failed.
-    """
+    """Scrape all booked/upcoming trips data from the booked trips page."""
     try:
         logger.info("Starting to scrape booked trips data...")
         
@@ -63,16 +49,13 @@ async def scrape_booked_trips(page: Page):
             try:
                 trip_data = await extract_complete_trip_data(card, i)
                 
-                try:
-                    location_element = await card.query_selector(LOCATION)
-                    if location_element:
-                        trip_data['location'] = await location_element.text_content()
-                    
-                    time_element = await card.query_selector(TIME_INFO)
-                    if time_element:
-                        trip_data['time_info'] = await time_element.text_content()
-                except:
-                    pass
+                location_element = await card.query_selector(LOCATION)
+                if location_element:
+                    trip_data['location'] = await location_element.text_content()
+                
+                time_element = await card.query_selector(TIME_INFO)
+                if time_element:
+                    trip_data['time_info'] = await time_element.text_content()
                 
                 trips_list.append(trip_data)
                 logger.info(f"Scraped booked trip: {trip_data.get('trip_id', 'Unknown ID')}")
@@ -82,23 +65,17 @@ async def scrape_booked_trips(page: Page):
                 continue
         
         dates_list = []
-        try:
-            date_headers = await page.query_selector_all(DATE_HEADER)
-            for header in date_headers:
-                try:
-                    date_text = await header.text_content()
-                    if date_text:
-                        dates_list.append(date_text)
-                except:
-                    continue
-        except:
-            pass
+        date_headers = await page.query_selector_all(DATE_HEADER)
+        for header in date_headers:
+            date_text = await header.text_content()
+            if date_text:
+                dates_list.append(date_text)
         
         booked_trips_data = {
             "trips": trips_list,
             "total_trips": len(trips_list),
             "dates": dates_list,
-            "scraped_at": None
+            "scraped_at": datetime.utcnow().isoformat()
         }
         
         logger.info("Booked trips scraping completed successfully!")
@@ -111,15 +88,7 @@ async def scrape_booked_trips(page: Page):
 # ------------------------------ HISTORY TRIPS SCRAPING ------------------------------
 
 async def navigate_to_trip_history(page: Page):
-    """
-    Navigate to the trip history page under the Trips section.
-    
-    Args:
-        page: Playwright page object.
-        
-    Returns:
-        bool: True if navigation successful, Otherwise False.
-    """
+    """Navigate to the trip history page under the Trips section."""
     try:
         logger.info("Navigating to Trips -> History page...")
         await page.goto(TRIPS_HISTORY_URL, wait_until="domcontentloaded")
@@ -137,15 +106,7 @@ async def navigate_to_trip_history(page: Page):
         return False
 
 async def scrape_trip_history(page: Page):
-    """
-    Scrape all completed trips data from the trip history page.
-    
-    Args:
-        page: Playwright page object.
-        
-    Returns:
-        dict: Dictionary containing trip history data, or None if failed.
-    """
+    """Scrape all completed trips data from the trip history page."""
     try:
         logger.info("Starting to scrape trip history data...")
         
@@ -155,12 +116,7 @@ async def scrape_trip_history(page: Page):
             
         await page.wait_for_selector(TRIP_HISTORY_LIST, timeout=10000)
         
-        await page.wait_for_timeout(3000)
-        try:
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            await page.wait_for_timeout(2000)
-        except:
-            pass
+        await scroll_to_bottom_and_wait(page)
         
         trip_cards = await page.query_selector_all(TRIP_CARD)
         logger.info(f"Found {len(trip_cards)} trip cards on history page")
@@ -191,7 +147,7 @@ async def scrape_trip_history(page: Page):
             "completed_trips": len(completed_trips),
             "cancelled_trips": len(cancelled_trips),
             "months": months_list,
-            "scraped_at": None
+            "scraped_at": datetime.utcnow().isoformat()
         }
         
         logger.info("Trip history scraping completed successfully!")
@@ -204,15 +160,7 @@ async def scrape_trip_history(page: Page):
 # ------------------------------ COMBINED TRIPS SCRAPING ------------------------------
 
 async def scrape_all_trips(page: Page):
-    """
-    Scrape both booked trips and trip history data.
-    
-    Args:
-        page: Playwright page object.
-        
-    Returns:
-        dict: Dictionary containing all trips data, or None if failed.
-    """
+    """Scrape both booked trips and trip history data."""
     try:
         logger.info("Starting to scrape all trips data...")
         
@@ -225,8 +173,20 @@ async def scrape_all_trips(page: Page):
             logger.warning("Failed to scrape trip history data")
             
         all_trips_data = {
-            "booked_trips": booked_data if booked_data else {"trips": [], "total_trips": 0},
-            "trip_history": history_data if history_data else {"trips": [], "total_trips": 0},
+            "booked_trips": booked_data if booked_data else {
+                "trips": [], 
+                "total_trips": 0,
+                "dates": [],
+                "scraped_at": None
+            },
+            "trip_history": history_data if history_data else {
+                "trips": [], 
+                "total_trips": 0,
+                "completed_trips": 0,
+                "cancelled_trips": 0,
+                "months": [],
+                "scraped_at": None
+            },
             "scraping_success": {
                 "booked": booked_data is not None,
                 "history": history_data is not None
