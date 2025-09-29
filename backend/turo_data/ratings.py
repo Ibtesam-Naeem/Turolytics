@@ -8,7 +8,7 @@ from utils.logger import logger
 from .selectors import (
     BUSINESS_RATINGS_URL, RATINGS_OVERALL_SELECTOR, RATINGS_OVERALL_CATEGORY_SELECTOR,
     RATINGS_TRIPS_COUNT_SELECTOR, RATINGS_RATINGS_COUNT_SELECTOR, RATINGS_AVERAGE_SELECTOR,
-    REVIEWS_HEADER_SELECTOR, REVIEWS_CATEGORY_SELECTOR,
+    REVIEWS_HEADER_SELECTORS, REVIEWS_CATEGORY_SELECTOR,
     REVIEW_LIST_CONTAINER_SELECTOR, REVIEW_ITEM_SELECTOR, REVIEW_CUSTOMER_LINK_SELECTOR,
     REVIEW_CUSTOMER_IMAGE_SELECTOR, REVIEW_STAR_RATING_SELECTOR, REVIEW_CUSTOMER_NAME_SELECTOR,
     REVIEW_DATE_SELECTOR, REVIEW_VEHICLE_INFO_SELECTOR, REVIEW_TEXT_SELECTOR,
@@ -105,7 +105,7 @@ async def extract_reviews_header(page: Page) -> dict[str, str | int | None]:
             'category': None
         }
         
-        title_element = await page.query_selector(REVIEWS_HEADER_SELECTOR)
+        title_element = await page.query_selector(REVIEWS_HEADER_SELECTORS[0])
         if title_element:
             title_text = await title_element.text_content()
             if title_text:

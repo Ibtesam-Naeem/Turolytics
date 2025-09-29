@@ -7,7 +7,7 @@ from utils.browser_helpers import scroll_to_bottom_and_wait
 from .selectors import (
     TRIPS_BOOKED_URL, TRIPS_HISTORY_URL,
     TRIPS_UPCOMING_LIST, TRIP_HISTORY_LIST, TRIP_CARD,
-    DATE_HEADER, TIME_INFO, LOCATION
+    DATE_HEADER_SELECTORS, TIME_INFO, LOCATION
 )
 from .extraction_helpers import extract_complete_trip_data, extract_month_headers
 
@@ -65,7 +65,7 @@ async def scrape_booked_trips(page: Page):
                 continue
         
         dates_list = []
-        date_headers = await page.query_selector_all(DATE_HEADER)
+        date_headers = await page.query_selector_all(DATE_HEADER_SELECTORS[0])
         for header in date_headers:
             date_text = await header.text_content()
             if date_text:

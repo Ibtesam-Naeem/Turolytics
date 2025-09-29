@@ -6,7 +6,7 @@ from utils.logger import logger
 from .selectors import (
     TRIP_DATE_SELECTORS, VEHICLE_SELECTORS, CUSTOMER_SELECTORS,
     CANCELLATION_SELECTOR, LICENSE_PLATE_SELECTORS, ALL_IMAGES,
-    MONTH_HEADER, is_vehicle_related, is_customer_related,
+    MONTH_HEADER_SELECTORS, is_vehicle_related, is_customer_related,
     contains_month_name, contains_vehicle_brand,
     VEHICLE_STATUS_SELECTORS, VEHICLE_IMAGE_SELECTORS, VEHICLE_NAME_SELECTORS,
     VEHICLE_DETAILS_SELECTORS, VEHICLE_TRIP_INFO_SELECTORS, VEHICLE_RATINGS_SELECTORS
@@ -366,7 +366,7 @@ async def extract_month_headers(page):
     months_list = []
     
     try:
-        month_headers = await page.query_selector_all(MONTH_HEADER)
+        month_headers = await page.query_selector_all(MONTH_HEADER_SELECTORS[0])
         
         for header in month_headers:
             try:
