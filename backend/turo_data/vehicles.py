@@ -1,4 +1,6 @@
 # ------------------------------ IMPORTS ------------------------------
+import re
+from datetime import datetime
 from playwright.async_api import Page
 
 from utils.logger import logger
@@ -60,7 +62,6 @@ async def scrape_vehicle_listings(page: Page):
             if count_element:
                 count_text = await count_element.text_content()
                 if count_text:
-                    import re
                     count_match = re.search(r'(\d+)\s*Listings?', count_text)
                     if count_match:
                         total_listings = int(count_match.group(1))
@@ -101,7 +102,7 @@ async def scrape_vehicle_listings(page: Page):
             "listed_vehicles": len(listed_vehicles),
             "snoozed_vehicles": len(snoozed_vehicles),
             "other_status_vehicles": len(other_status_vehicles),
-            "scraped_at": None
+            "scraped_at": datetime.utcnow().isoformat()
         }
         
         logger.info("Vehicle listings scraping completed successfully!")
@@ -134,7 +135,7 @@ async def scrape_vehicle_details(page: Page, vehicle_id: str):
         vehicle_details = {
             "vehicle_id": vehicle_id,
             "details_url": vehicle_details_url,
-            "scraped_at": None
+            "scraped_at": datetime.utcnow().isoformat()
         }
         
         logger.info(f"Vehicle details scraping completed for vehicle {vehicle_id}")
@@ -164,7 +165,15 @@ async def scrape_all_vehicle_data(page: Page):
             logger.warning("Failed to scrape vehicle listings data")
             
         all_vehicle_data = {
-            "listings": listings_data if listings_data else {"vehicles": [], "total_vehicles": 0},
+            "listings": listings_data if listings_data else {
+                "vehicles": [], 
+                "total_vehicles": 0,
+                "total_listings": 0,
+                "listed_vehicles": 0,
+                "snoozed_vehicles": 0,
+                "other_status_vehicles": 0,
+                "scraped_at": None
+            },
             "scraping_success": {
                 "listings": listings_data is not None
             }
