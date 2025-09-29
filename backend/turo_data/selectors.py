@@ -15,12 +15,24 @@ TRIP_HISTORY_LIST = '[data-testid="trip-history-list"]'
 
 TRIP_CARD = '[data-testid="baseTripCard"]'
 
-VEHICLES_LISTINGS_GRID = '.css-3j7pzn-VehicleListingsGrid'
+VEHICLES_LISTINGS_GRID_SELECTORS = [
+    '[data-testid="vehicles-listings-grid"]',  # Primary
+    '.css-3j7pzn-VehicleListingsGrid'          # Fallback
+]
 VEHICLE_CARD = '[data-testid="vehicle-listing-details-card"]'
-VEHICLES_VIEW = '.css-7r5omw-VehiclesView'
+VEHICLES_VIEW_SELECTORS = [
+    '[data-testid="vehicles-view"]',  # Primary
+    '.css-7r5omw-VehiclesView'        # Fallback
+]
 
-MONTH_HEADER = '.css-4pg9bw-StyledText'
-DATE_HEADER = '.css-14bos0l-StyledText'
+MONTH_HEADER_SELECTORS = [
+    '[data-testid="month-header"]',  # Primary
+    '.css-4pg9bw-StyledText'         # Fallback
+]
+DATE_HEADER_SELECTORS = [
+    '[data-testid="date-header"]',  # Primary
+    '.css-14bos0l-StyledText'       # Fallback
+]
 
 # ------------------------------ TRIP CARD SELECTORS ------------------------------
 
@@ -28,27 +40,27 @@ TRIP_DATE_SELECTORS = [
     '.css-uhvnse-StyledText-TripHistoryCard',  # Completed trips
     '.css-iinurx-StyledText-TripHistoryCard',  # Cancelled trips
     '[class*="TripHistoryCard"]',              # Fallback
-    'p:first-child'                            # Generic fallback
+    'p:first-child'                            # Fallback
 ]
 
 VEHICLE_SELECTORS = [
-    '.css-1s9awq7-StyledText',                 # Standard vehicle text
+    '.css-1s9awq7-StyledText',                 # Primary
     '[class*="StyledText"]:not([class*="TripHistoryCard"])',  # Alternative
-    'p:nth-child(2)'                          # fallback
+    'p:nth-child(2)'                          # Fallback
 ]
 
 CUSTOMER_SELECTORS = [
-    '.css-sc8osv-StyledText',                  # Primary customer selector
-    '[class*="StyledText"]',                   # Broader search
-    'p'                                        # fallback
+    '.css-sc8osv-StyledText',                  # Primary
+    '[class*="StyledText"]',                   # Alternative
+    'p'                                        # Fallback
 ]
 
 CANCELLATION_SELECTOR = '.css-x4dp90-StyledText'
 
 LICENSE_PLATE_SELECTORS = [
-    '.css-15h68s2-StyledText',                # Primary license plate
-    'p:last-child',                           # fallback
-    '[class*="StyledText"]:last-child'        # fallback
+    '.css-15h68s2-StyledText',                # Primary
+    'p:last-child',                           # Fallback
+    '[class*="StyledText"]:last-child'        # Fallback
 ]
 
 ALL_IMAGES = 'img'
@@ -74,17 +86,8 @@ VEHICLE_IMAGE_SELECTORS = [
     '.css-yu07v3-vehicleImageContainer img'
 ]
 
-VEHICLE_NAME_SELECTORS = [
-    '.css-1s9awq7-StyledText',
-    'p[title*="2017"]',
-    'p[title*="2018"]',
-    'p[title*="2019"]',
-    'p[title*="2020"]',
-    'p[title*="2021"]',
-    'p[title*="2022"]',
-    'p[title*="2023"]',
-    'p[title*="2024"]',
-    'p[title*="2025"]'
+VEHICLE_NAME_SELECTORS = ['.css-1s9awq7-StyledText'] + [
+    f'p[title*="{year}"]' for year in range(2017, 2026)
 ]
 
 VEHICLE_DETAILS_SELECTORS = [
@@ -102,7 +105,10 @@ VEHICLE_RATINGS_SELECTORS = [
     '.css-s1wb9o-spaceBetween p:last-child'
 ]
 
-VEHICLE_LISTINGS_COUNT = '.css-18mfln5-StyledText' 
+VEHICLE_LISTINGS_COUNT_SELECTORS = [
+    '[data-testid="vehicle-listings-count"]',  # Primary
+    '.css-18mfln5-StyledText'                  # Fallback
+] 
 
 # ------------------------------ IMAGE CLASSIFICATION ------------------------------
 
@@ -123,78 +129,6 @@ MONTH_NAMES = [
 
 DATE_SEPARATORS = ['-', 'to', '–', '—']
 
-# ------------------------------ HELPER FUNCTIONS ------------------------------
-
-def is_vehicle_related(text, src_url):
-    """
-    Check if an image is vehicle-related based on alt text or URL.
-    
-    Args:
-        text: Alt text of the image
-        src_url: Source URL of the image
-        
-    Returns:
-        bool: True if image is vehicle-related, False otherwise
-    """
-    if not text and not src_url:
-        return False
-    
-    text_lower = (text or '').lower()
-    url_lower = (src_url or '').lower()
-    
-    return any(keyword in text_lower or keyword in url_lower 
-              for keyword in VEHICLE_IMAGE_KEYWORDS)
-
-def is_customer_related(data_testid, src_url):
-    """
-    Check if an image is customer-related based on attributes.
-    
-    Args:
-        data_testid: Data-testid attribute of the image
-        src_url: Source URL of the image
-        
-    Returns:
-        bool: True if image is customer-related, False otherwise
-    """
-    if not data_testid and not src_url:
-        return False
-    
-    testid_check = data_testid and any(keyword in data_testid 
-                                      for keyword in CUSTOMER_IMAGE_KEYWORDS)
-    url_check = src_url and any(keyword in src_url.lower() 
-                               for keyword in CUSTOMER_IMAGE_KEYWORDS)
-    
-    return testid_check or url_check
-
-def contains_month_name(text):
-    """
-    Check if text contains any month name.
-    
-    Args:
-        text: Text to check for month names
-        
-    Returns:
-        bool: True if text contains any month name, False otherwise
-    """
-    if not text:
-        return False
-    
-    return any(month in text for month in MONTH_NAMES)
-
-def contains_vehicle_brand(text):
-    """
-    Check if text contains any vehicle brand.
-    
-    Args:
-        text: Text to check for vehicle brands
-        
-    Returns:
-        bool: True if text contains any vehicle brand, False otherwise
-    """
-    if not text:
-        return False
-    
-    return any(brand in text for brand in VEHICLE_BRANDS)
 
 # ------------------------------ EARNINGS SELECTORS ------------------------------
 
@@ -225,8 +159,11 @@ RATINGS_TRIPS_COUNT_SELECTOR = '[data-testid="ratingsDetails-trips"] p.css-13mmr
 RATINGS_RATINGS_COUNT_SELECTOR = '[data-testid="ratingsDetails-ratings"] p.css-13mmra7-StyledText'
 RATINGS_AVERAGE_SELECTOR = '[data-testid="ratingsDetails-average"] .css-xbnzaw-StyledText-categoryAverageMetricStyles'
 
-REVIEWS_HEADER_SELECTOR = '.css-1rqnw09-reviewsColumnHeaderStyles h2'
-REVIEWS_COUNT_SELECTOR = '.css-1rqnw09-reviewsColumnHeaderStyles h2'
+REVIEWS_HEADER_SELECTORS = [
+    '[data-testid="reviews-header"]',                    # Primary
+    '.css-1rqnw09-reviewsColumnHeaderStyles h2'          # Fallback
+]
+REVIEWS_COUNT_SELECTORS = REVIEWS_HEADER_SELECTORS
 REVIEWS_CATEGORY_SELECTOR = '.css-1rqnw09-reviewsColumnHeaderStyles p.css-v7tkns-StyledText'
 
 REVIEW_LIST_CONTAINER_SELECTOR = '[data-testid="reviewList-container"]'
@@ -245,3 +182,44 @@ REVIEW_HOST_RESPONSE_SELECTOR = '.css-1ojqf3u-Well-ReviewReplyContainer'
 
 REVIEW_SEE_FULL_BUTTON_SELECTOR = 'button:has-text("See full review")'
 REVIEW_RESPOND_BUTTON_SELECTOR = '[data-testid="respondToReviewView-showForm"]'
+
+REVIEW_FILLED_STAR_SELECTOR = '.css-10pswck svg[fill="#121214"]'
+
+# ------------------------------ HELPER FUNCTIONS ------------------------------
+
+def is_vehicle_related(text: str | None, src_url: str | None) -> bool:
+    """Return True if the image is vehicle-related based on alt text or URL."""
+    if not text and not src_url:
+        return False
+    
+    text_lower = (text or '').lower()
+    url_lower = (src_url or '').lower()
+    
+    return any(keyword in text_lower or keyword in url_lower 
+              for keyword in VEHICLE_IMAGE_KEYWORDS)
+
+def is_customer_related(data_testid: str | None, src_url: str | None) -> bool:
+    """Return True if the image is customer-related based on attributes."""
+    if not data_testid and not src_url:
+        return False
+    
+    testid_check = data_testid and any(keyword in data_testid 
+                                      for keyword in CUSTOMER_IMAGE_KEYWORDS)
+    url_check = src_url and any(keyword in src_url.lower() 
+                               for keyword in CUSTOMER_IMAGE_KEYWORDS)
+    
+    return testid_check or url_check
+
+def contains_month_name(text: str | None) -> bool:
+    """Return True if the text contains any month name."""
+    if not text:
+        return False
+    
+    return any(month in text for month in MONTH_NAMES)
+
+def contains_vehicle_brand(text: str | None) -> bool:
+    """Return True if the given text contains a known vehicle brand."""
+    if not text:
+        return False
+    
+    return any(brand in text for brand in VEHICLE_BRANDS)
