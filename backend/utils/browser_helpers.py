@@ -245,3 +245,9 @@ async def check_for_success_element(page: Page, success_selectors: list, iframe_
         
     except Exception as e:
         return False
+
+async def scroll_to_bottom_and_wait(page: Page, scroll_wait: int = 3000, final_wait: int = 2000) -> None:
+    """Scroll to bottom of page and wait for content to load."""
+    await page.wait_for_timeout(scroll_wait)
+    await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+    await page.wait_for_timeout(final_wait)
