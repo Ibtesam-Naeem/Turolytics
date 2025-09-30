@@ -7,3 +7,5 @@ __pycache__/
 test.py
 backend/session/
 test_results/
+ds_store/
+.DS_Store
