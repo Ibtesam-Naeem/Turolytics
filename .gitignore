@@ -1,11 +1,66 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 
+# Virtual Environment
 .venv/
+venv/
+env/
+ENV/
+.Python
 
+# Environment Variables
 .env
-test.py
-backend/session/
-test_results/
-ds_store/
+.env.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
 .DS_Store
+ehthumbs.db
+Thumbs.db
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Scraping artifacts
+scraped_data/
+screenshots/
+downloads/
+sessions/
+
+# Tests
+tests/
+test_*.py
+*_test.py
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+
+# Jupyter
+.ipynb_checkpoints
+
+# pyenv
+.python-version
