@@ -1,5 +1,6 @@
 # ------------------------------ IMPORTS ------------------------------
 import re
+from typing import Optional, Dict, Any
 from playwright.async_api import ElementHandle
 
 from utils.logger import logger
@@ -12,19 +13,46 @@ from .selectors import (
     VEHICLE_DETAILS_SELECTORS, VEHICLE_TRIP_INFO_SELECTORS, VEHICLE_RATINGS_SELECTORS
 )
 
+# ------------------------------ HELPER FUNCTIONS ------------------------------
+
+async def safe_text(element: ElementHandle, selector: Optional[str] = None, timeout: Optional[int] = None) -> Optional[str]:
+    """Safely extract text content from an element using a selector."""
+    try:
+        el = await element.query_selector(selector) if selector else element
+        if el:
+            txt = await el.text_content()
+            return txt.strip() if txt else None
+    except Exception as e:
+        logger.debug(f"Error with selector {selector}: {e}")
+    return None
+
+def parse_cancellation_from_text(raw_text: str) -> Dict[str, Optional[str]]:
+    """Parse cancellation information from raw text."""
+    cancellation_data = {
+        'cancellation_info': None,
+        'cancelled_by': None,
+        'cancelled_date': None
+    }
+    
+    if 'cancelled' not in raw_text.lower():
+        return cancellation_data
+    
+    lines = raw_text.split('\n')
+    for line in lines:
+        if 'cancelled' in line.lower():
+            cancellation_data['cancellation_info'] = line.strip()
+            if ' cancelled on ' in line:
+                parts = line.split(' cancelled on ')
+                cancellation_data['cancelled_by'] = parts[0].strip()
+                cancellation_data['cancelled_date'] = parts[1].strip()
+            break
+    
+    return cancellation_data
+
 # ------------------------------ CUSTOMER EXTRACTION ------------------------------
 
 async def extract_customer_info(card: ElementHandle, card_index: int):
-    """
-    Extract customer information from a trip card.
-    
-    Args:
-        card: The trip card element
-        card_index: Index of the card for logging
-        
-    Returns:
-        Dict containing customer_info, customer_name, and customer_found flag
-    """
+    """Extract customer information from a trip card."""
     customer_data = {
         'customer_info': None,
         'customer_name': None,
@@ -38,17 +66,12 @@ async def extract_customer_info(card: ElementHandle, card_index: int):
         try:
             customer_elements = await card.query_selector_all(selector)
             for element in customer_elements:
-                try:
-                    text = await element.text_content()
-                    if text and '#' in text:
-                        customer_data['customer_info'] = text.strip()
-                        customer_data['customer_name'] = text.split('#')[0].strip()
-                        customer_data['customer_found'] = True
-                        break
-                
-                except Exception as e:
-                    logger.debug(f"Error extracting customer text on card {card_index}: {e}")
-                    continue
+                text = await safe_text(element)
+                if text and '#' in text:
+                    customer_data['customer_info'] = text
+                    customer_data['customer_name'] = text.split('#')[0].strip()
+                    customer_data['customer_found'] = True
+                    break
         
         except Exception as e:
             logger.debug(f"Error extracting customer info with selectors on card {card_index}: {e}")
@@ -68,76 +91,37 @@ async def extract_customer_info(card: ElementHandle, card_index: int):
         
         except Exception as e:
             logger.debug(f"Error extracting customer info from raw text on card {card_index}: {e}")
-            pass
     
     return customer_data
 
 # ------------------------------ DATE EXTRACTION ------------------------------
 
-async def extract_trip_dates(card: ElementHandle):
-    """
-    Extract trip dates from a trip card.
-    
-    Args:
-        card: The trip card element
-        
-    Returns:
-        Trip dates string or None if not found
-    """
+async def extract_trip_dates(card: ElementHandle) -> Optional[str]:
+    """Extract trip dates string from a trip card, or None if not found."""
     for selector in TRIP_DATE_SELECTORS:
-        try:
-            date_element = await card.query_selector(selector)
-            if date_element:
-                date_text = await date_element.text_content()
-                if date_text and contains_month_name(date_text):
-                    return date_text.strip()
-        
-        except Exception as e:
-            logger.debug(f"Error extracting trip date with selector: {e}")
-            continue
+        date_text = await safe_text(card, selector)
+        if date_text and contains_month_name(date_text):
+            return date_text
     
     return None
 
 # ------------------------------ VEHICLE EXTRACTION ------------------------------
 
-async def extract_vehicle_info(card: ElementHandle):
-    """
-    Extract vehicle information from a trip card.
-    
-    Args:
-        card: The trip card element
-        
-    Returns:
-        Vehicle info string or None if not found
-    """
+async def extract_vehicle_info(card: ElementHandle) -> Optional[str]:
+    """Extract vehicle info string from a trip card, or None if not found."""
     for selector in VEHICLE_SELECTORS:
-        try:
-            vehicle_element = await card.query_selector(selector)
-            if vehicle_element:
-                vehicle_text = await vehicle_element.text_content()
-                if vehicle_text and contains_vehicle_brand(vehicle_text):
-                    return vehicle_text.strip()
-        
-        except Exception as e:
-            logger.debug(f"Error extracting vehicle info with selector: {e}")
-            continue
+        vehicle_text = await safe_text(card, selector)
+        if vehicle_text and contains_vehicle_brand(vehicle_text):
+            return vehicle_text
     
     return None
 
 # ------------------------------ STATUS EXTRACTION ------------------------------
 
-async def extract_trip_status(card: ElementHandle):
-    """
-    Extract trip status and cancellation information.
-    
-    Args:
-        card: The trip card element
-        
-    Returns:
-        Dict containing status, cancellation_info, cancelled_by, cancelled_date
-    """
+async def extract_trip_status(card: ElementHandle) -> Dict[str, Any]:
+    """Extract trip status and cancellation information."""
     status_data = {
-        'status': 'completed',
+        'status': 'COMPLETED',
         'cancellation_info': None,
         'cancelled_by': None,
         'cancelled_date': None
@@ -147,53 +131,29 @@ async def extract_trip_status(card: ElementHandle):
         raw_text = await card.text_content() or ''
         
         if 'cancelled' in raw_text.lower():
-            status_data['status'] = 'cancelled'
+            status_data['status'] = 'CANCELLED'
             
-            try:
-                cancel_element = await card.query_selector(CANCELLATION_SELECTOR)
-                if cancel_element:
-                    cancel_text = await cancel_element.text_content()
-                    if cancel_text:
-                        status_data['cancellation_info'] = cancel_text.strip()
-                        
-                        if ' cancelled on ' in cancel_text:
-                            parts = cancel_text.split(' cancelled on ')
-                            status_data['cancelled_by'] = parts[0].strip()
-                            status_data['cancelled_date'] = parts[1].strip()
-
-            except Exception as e:
-                logger.debug(f"Error extracting cancellation info: {e}")
-                pass
+            cancel_text = await safe_text(card, CANCELLATION_SELECTOR)
+            if cancel_text:
+                status_data['cancellation_info'] = cancel_text
+                if ' cancelled on ' in cancel_text:
+                    parts = cancel_text.split(' cancelled on ')
+                    status_data['cancelled_by'] = parts[0].strip()
+                    status_data['cancelled_date'] = parts[1].strip()
             
             if not status_data['cancellation_info']:
-                lines = raw_text.split('\n')
-                for line in lines:
-                    if 'cancelled' in line.lower():
-                        status_data['cancellation_info'] = line.strip()
-                        if ' cancelled on ' in line:
-                            parts = line.split(' cancelled on ')
-                            status_data['cancelled_by'] = parts[0].strip()
-                            status_data['cancelled_date'] = parts[1].strip()
-                        break
+                cancellation_data = parse_cancellation_from_text(raw_text)
+                status_data.update(cancellation_data)
 
     except Exception as e:
         logger.debug(f"Error extracting status info from raw text: {e}")
-        pass
     
     return status_data
 
 # ------------------------------ IMAGE EXTRACTION ------------------------------
 
-async def extract_trip_images(card: ElementHandle):
-    """
-    Extract all images from a trip card and classify them.
-    
-    Args:
-        card: The trip card element
-        
-    Returns:
-        Dict containing vehicle_images, customer_images, and other_images lists
-    """
+async def extract_trip_images(card: ElementHandle) -> Dict[str, list]:
+    """Extract all images from a trip card and classify them."""
     images_data = {
         'vehicle_images': [],
         'customer_images': [],
@@ -234,51 +194,27 @@ async def extract_trip_images(card: ElementHandle):
                 
     except Exception as e:
         logger.debug(f"Error extracting images: {e}")
-        pass
     
     return images_data
 
 # ------------------------------ LICENSE PLATE EXTRACTION ------------------------------
 
-async def extract_license_plate(card: ElementHandle):
-    """
-    Extract license plate from a trip card.
-    
-    Args:
-        card: The trip card element
-        
-    Returns:
-        License plate string or None if not found
-    """
+async def extract_license_plate(card: ElementHandle) -> Optional[str]:
+    """Extract license plate from a trip card, or None if not found."""
     for selector in LICENSE_PLATE_SELECTORS:
-        try:
-            license_element = await card.query_selector(selector)
-            if license_element:
-                license_text = await license_element.text_content()
-                if license_text:
-                    # Normalize license plate: remove spaces, convert to uppercase
-                    normalized = license_text.strip().replace(" ", "").replace("-", "").upper()
-                    if len(normalized) <= 10 and normalized.isalnum():
-                        return normalized
-        
-        except Exception as e:
-            logger.debug(f"Error extracting license plate with selector: {e}")
-            continue
+        license_text = await safe_text(card, selector)
+
+        if license_text:
+            normalized = license_text.replace(" ", "").replace("-", "").upper()
+            if len(normalized) <= 10 and normalized.isalnum():
+                return normalized
     
     return None
 
 # ------------------------------ TRIP ID EXTRACTION ------------------------------
 
-async def extract_trip_id_and_url(card: ElementHandle):
-    """
-    Extract trip ID and URL from a trip card.
-    
-    Args:
-        card: The trip card element
-        
-    Returns:
-        Dict containing trip_id and trip_url
-    """
+async def extract_trip_id_and_url(card: ElementHandle) -> Dict[str, Optional[str]]:
+    """Extract trip ID and URL from a trip card."""
     try:
         href = await card.get_attribute('href')
         if href:
@@ -290,7 +226,6 @@ async def extract_trip_id_and_url(card: ElementHandle):
     
     except Exception as e:
         logger.debug(f"Error extracting trip ID from href: {e}")
-        pass
     
     return {
         'trip_id': None,
@@ -299,17 +234,8 @@ async def extract_trip_id_and_url(card: ElementHandle):
 
 # ------------------------------ COMPREHENSIVE EXTRACTION ------------------------------
 
-async def extract_complete_trip_data(card: ElementHandle, card_index: int):
-    """
-    Extract all available data from a trip card.
-    
-    Args:
-        card: The trip card element
-        card_index: Index of the card for logging
-        
-    Returns:
-        Complete trip data dictionary
-    """
+async def extract_complete_trip_data(card: ElementHandle, card_index: int) -> Dict[str, Any]:
+    """Extract all available data from a trip card."""
     try:
         raw_text = await card.text_content() or ''
         
@@ -353,30 +279,17 @@ async def extract_complete_trip_data(card: ElementHandle, card_index: int):
 
 # ------------------------------ MONTH HEADERS EXTRACTION ------------------------------
 
-async def extract_month_headers(page):
-    """
-    Extract month headers from the page.
-    
-    Args:
-        page: Playwright page object
-        
-    Returns:
-        List of month headers
-    """
+async def extract_month_headers(page) -> list:
+    """Extract month headers from the page."""
     months_list = []
     
     try:
         month_headers = await page.query_selector_all(MONTH_HEADER_SELECTORS[0])
         
         for header in month_headers:
-            try:
-                month_text = await header.text_content()
-                if month_text and ('2024' in month_text or '2025' in month_text):
-                    months_list.append(month_text)
-            
-            except Exception as e:
-                logger.debug(f"Error extracting month header: {e}")
-                continue
+            month_text = await safe_text(header)
+            if month_text and ('2024' in month_text or '2025' in month_text):
+                months_list.append(month_text)
                 
     except Exception as e:
         logger.warning(f"Error extracting month headers: {e}")
@@ -385,42 +298,17 @@ async def extract_month_headers(page):
 
 # ------------------------------ VEHICLE EXTRACTION ------------------------------
 
-async def extract_vehicle_status(card: ElementHandle, card_index: int):
-    """
-    Extract vehicle status (Listed, Snoozed) from a vehicle card.
-    
-    Args:
-        card: The vehicle card element
-        card_index: Index of the card for logging
-        
-    Returns:
-        str: Vehicle status or None if not found
-    """
+async def extract_vehicle_status(card: ElementHandle, card_index: int) -> Optional[str]:
+    """Extract vehicle status from a vehicle card, or None if not found."""
     for selector in VEHICLE_STATUS_SELECTORS:
-        try:
-            status_element = await card.query_selector(selector)
-            if status_element:
-                status_text = await status_element.text_content()
-                if status_text and status_text.strip():
-                    return status_text.strip()
-        
-        except Exception as e:
-            logger.debug(f"Error extracting vehicle status with selector on card {card_index}: {e}")
-            continue
+        status_text = await safe_text(card, selector)
+        if status_text:
+            return status_text
     
     return None
 
-async def extract_vehicle_image(card: ElementHandle, card_index: int):
-    """
-    Extract vehicle image information from a vehicle card.
-    
-    Args:
-        card: The vehicle card element
-        card_index: Index of the card for logging
-        
-    Returns:
-        dict: Dictionary containing image URL, alt text, and srcset
-    """
+async def extract_vehicle_image(card: ElementHandle, card_index: int) -> Dict[str, Optional[str]]:
+    """Extract vehicle image information from a vehicle card."""
     image_data = {
         'url': None,
         'alt': None,
@@ -442,42 +330,17 @@ async def extract_vehicle_image(card: ElementHandle, card_index: int):
     
     return image_data
 
-async def extract_vehicle_name(card: ElementHandle, card_index: int):
-    """
-    Extract vehicle name from a vehicle card.
-    
-    Args:
-        card: The vehicle card element
-        card_index: Index of the card for logging
-        
-    Returns:
-        str: Vehicle name or None if not found
-    """
+async def extract_vehicle_name(card: ElementHandle, card_index: int) -> Optional[str]:
+    """Extract vehicle name from a vehicle card, or None if not found."""
     for selector in VEHICLE_NAME_SELECTORS:
-        try:
-            name_element = await card.query_selector(selector)
-            if name_element:
-                name_text = await name_element.text_content()
-                if name_text and name_text.strip():
-                    return name_text.strip()
-        
-        except Exception as e:
-            logger.debug(f"Error extracting vehicle name with selector on card {card_index}: {e}")
-            continue
+        name_text = await safe_text(card, selector)
+        if name_text:
+            return name_text
     
     return None
 
-async def extract_vehicle_details(card: ElementHandle, card_index: int):
-    """
-    Extract vehicle details (trim, license plate) from a vehicle card.
-    
-    Args:
-        card: The vehicle card element
-        card_index: Index of the card for logging
-        
-    Returns:
-        dict: Dictionary containing trim and license_plate
-    """
+async def extract_vehicle_details(card: ElementHandle, card_index: int) -> Dict[str, Optional[str]]:
+    """Extract vehicle details (trim, license plate) from a vehicle card."""
     details_data = {
         'trim': None,
         'license_plate': None
@@ -486,101 +349,50 @@ async def extract_vehicle_details(card: ElementHandle, card_index: int):
     try:
         detail_elements = await card.query_selector_all(VEHICLE_DETAILS_SELECTORS[0])
         for element in detail_elements:
-            try:
-                text = await element.text_content()
-                if text and text.strip():
-                    text = text.strip()
-                    # Check if it looks like a license plate (contains letters and numbers)
-                    if any(char.isdigit() for char in text) and any(char.isalpha() for char in text) and len(text) <= 10:
-                        details_data['license_plate'] = text
-                    else:
-                        details_data['trim'] = text
-            
-            except Exception as e:
-                logger.debug(f"Error processing vehicle detail text on card {card_index}: {e}")
-                continue
+            text = await safe_text(element)
+            if text:
+                if any(char.isdigit() for char in text) and any(char.isalpha() for char in text) and len(text) <= 10:
+                    details_data['license_plate'] = text
+                else:
+                    details_data['trim'] = text
     
     except Exception as e:
         logger.debug(f"Error extracting vehicle details on card {card_index}: {e}")
-        pass
     
     return details_data
 
-async def extract_vehicle_trip_info(card: ElementHandle, card_index: int):
-    """
-    Extract trip information from a vehicle card.
-    
-    Args:
-        card: The vehicle card element
-        card_index: Index of the card for logging
-        
-    Returns:
-        str: Trip information or None if not found
-    """
+async def extract_vehicle_trip_info(card: ElementHandle, card_index: int) -> Optional[str]:
+    """Extract trip information from a vehicle card, or None if not found."""
     for selector in VEHICLE_TRIP_INFO_SELECTORS:
-        try:
-            trip_element = await card.query_selector(selector)
-            if trip_element:
-                trip_text = await trip_element.text_content()
-                if trip_text and trip_text.strip():
-                    return trip_text.strip()
-        
-        except Exception as e:
-            logger.debug(f"Error extracting vehicle trip info with selector on card {card_index}: {e}")
-            continue
+        trip_text = await safe_text(card, selector)
+        if trip_text:
+            return trip_text
     
     return None
 
-async def extract_vehicle_ratings(card: ElementHandle, card_index: int):
-    """
-    Extract ratings and trip count from a vehicle card.
-    
-    Args:
-        card: The vehicle card element
-        card_index: Index of the card for logging
-        
-    Returns:
-        dict: Dictionary containing rating and trip_count
-    """
+async def extract_vehicle_ratings(card: ElementHandle, card_index: int) -> Dict[str, Optional[float]]:
+    """Extract ratings and trip count from a vehicle card."""
     ratings_data = {
         'rating': None,
         'trip_count': None
     }
     
     for selector in VEHICLE_RATINGS_SELECTORS:
-        try:
-            rating_element = await card.query_selector(selector)
-            if rating_element:
-                rating_text = await rating_element.text_content()
-                if rating_text and rating_text.strip():
-                    rating_text = rating_text.strip()
-                    
-                    rating_match = re.search(r'(\d+\.?\d*)', rating_text)
-                    if rating_match:
-                        ratings_data['rating'] = float(rating_match.group(1))
-                    
-                    trip_match = re.search(r'(\d+)\s*trips?', rating_text)
-                    if trip_match:
-                        ratings_data['trip_count'] = int(trip_match.group(1))
-                    break
-        
-        except Exception as e:
-            logger.debug(f"Error extracting vehicle ratings with selector on card {card_index}: {e}")
-            continue
+        rating_text = await safe_text(card, selector)
+        if rating_text:
+            rating_match = re.search(r'(\d+\.?\d*)', rating_text)
+            if rating_match:
+                ratings_data['rating'] = float(rating_match.group(1))
+            
+            trip_match = re.search(r'(\d+)\s*trips?', rating_text)
+            if trip_match:
+                ratings_data['trip_count'] = int(trip_match.group(1))
+            break
     
     return ratings_data
 
-async def extract_complete_vehicle_data(card: ElementHandle, card_index: int):
-    """
-    Extract complete vehicle data from a vehicle card.
-    
-    Args:
-        card: The vehicle card element
-        card_index: Index of the card for logging
-        
-    Returns:
-        dict: Dictionary containing all vehicle information
-    """
+async def extract_complete_vehicle_data(card: ElementHandle, card_index: int) -> Dict[str, Any]:
+    """Extract complete vehicle data from a vehicle card."""
     try:
         status = await extract_vehicle_status(card, card_index)
         image_data = await extract_vehicle_image(card, card_index)
@@ -601,7 +413,6 @@ async def extract_complete_vehicle_data(card: ElementHandle, card_index: int):
         
         except Exception as e:
             logger.debug(f"Error extracting vehicle ID from href on card {card_index}: {e}")
-            pass
         
         vehicle_data = {
             'vehicle_id': vehicle_id,
@@ -612,8 +423,7 @@ async def extract_complete_vehicle_data(card: ElementHandle, card_index: int):
             'trip_info': trip_info,
             'rating': ratings.get('rating'),
             'trip_count': ratings.get('trip_count'),
-            'image': image_data,
-            'scraped_at': None
+            'image': image_data
         }
         
         return vehicle_data
@@ -629,6 +439,5 @@ async def extract_complete_vehicle_data(card: ElementHandle, card_index: int):
             'trip_info': None,
             'rating': None,
             'trip_count': None,
-            'image': {'url': None, 'alt': None, 'srcset': None},
-            'scraped_at': None
+            'image': {'url': None, 'alt': None, 'srcset': None}
         }
