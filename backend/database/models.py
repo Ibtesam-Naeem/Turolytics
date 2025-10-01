@@ -27,6 +27,7 @@ class PayoutType(Enum):
     VEHICLE_EARNINGS = "Vehicle earnings"
     BONUS = "Bonus"
     REFUND = "Refund"
+    UPCOMING_EARNINGS = "Upcoming earnings"
 
 
 class VehicleStatus(Enum):

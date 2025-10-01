@@ -1,5 +1,6 @@
 # ------------------------------ IMPORTS ------------------------------
-from datetime import datetime
+from datetime import datetime, timezone
+import re
 from typing import Any, Optional
 import logging
 import traceback
@@ -7,14 +8,47 @@ import hashlib
 from contextlib import contextmanager
 
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, desc
+from sqlalchemy import and_, desc, text
 
 from ..config import SessionLocal
-from ..models import Account, Vehicle, Trip, Payout, PayoutItem, Review, PayoutType
+from ..models import Account, Vehicle, Trip, Payout, PayoutItem, Review, PayoutType, VehicleStatus, TripStatus
 from utils.data_helpers import parse_amount, extract_vehicle_info
 
 logger = logging.getLogger(__name__)
 
+# ------------------------------ HELPER FUNCTIONS ------------------------------
+
+def parse_turo_date(date_str: str) -> Optional[datetime]:
+    """Parse Turo date strings like 'Sep 25', 'Jul 12' into datetime objects.
+    
+    Args:
+        date_str: Date string from Turo (e.g., 'Sep 25', 'Jul 12')
+        
+    Returns:
+        datetime object or None if parsing fails
+    """
+    if not date_str:
+        return None
+    
+    try:
+        month_map = {
+            'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+            'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+        }
+        
+        match = re.match(r'([A-Za-z]{3})\s+(\d+)', date_str.strip())
+        if match:
+            month_name, day = match.groups()
+            month = month_map.get(month_name)
+            if month:
+                current_year = datetime.now().year
+                return datetime(current_year, month, int(day), tzinfo=timezone.utc)
+        
+        return None
+
+    except Exception as e:
+        logger.warning(f"Failed to parse date '{date_str}': {e}")
+        return None
 
 # ------------------------------ SESSION MANAGEMENT ------------------------------
 
@@ -22,6 +56,7 @@ logger = logging.getLogger(__name__)
 def get_session():
     """Context manager for database sessions with automatic commit/rollback."""
     db = SessionLocal()
+
     try:
         yield db
         db.commit()
@@ -30,7 +65,6 @@ def get_session():
         raise
     finally:
         db.close()
-
 
 def bulk_save_objects(db: Session, objects: list[Any]) -> int:
     """Bulk save objects to database for better performance.
@@ -48,11 +82,11 @@ def bulk_save_objects(db: Session, objects: list[Any]) -> int:
     try:
         db.bulk_save_objects(objects)
         return len(objects)
+
     except Exception as e:
         logger.error(f"Error in bulk save: {e}")
         logger.debug(traceback.format_exc())
         raise
-
 
 # ------------------------------ ACCOUNT OPERATIONS ------------------------------
 
@@ -66,11 +100,11 @@ def get_account_by_email(email: str) -> Optional[Account]:
         Account object if found, None otherwise.
     """
     db = SessionLocal()
+
     try:
         return db.query(Account).filter(Account.turo_email == email).first()
     finally:
         db.close()
-
 
 def get_or_create_account(email: str, account_name: str = None) -> Account:
     """Get existing account or create new one.
@@ -86,6 +120,7 @@ def get_or_create_account(email: str, account_name: str = None) -> Account:
         Exception: If database error occurs during account creation.
     """
     db = SessionLocal()
+
     try:
         account = get_account_by_email(email)
         if not account:
@@ -98,13 +133,14 @@ def get_or_create_account(email: str, account_name: str = None) -> Account:
             db.refresh(account)
             logger.info(f"Created new account for {email}")
         return account
+
     except Exception as e:
         logger.error(f"Error getting/creating account: {e}")
         db.rollback()
         raise
+
     finally:
         db.close()
-
 
 # ------------------------------ VEHICLE OPERATIONS ------------------------------
 
@@ -127,7 +163,6 @@ def get_vehicle_by_turo_id(account_id: int, turo_vehicle_id: str) -> Optional[Ve
     finally:
         db.close()
 
-
 def get_vehicles_by_account(account_id: int) -> list[Vehicle]:
     """Get all vehicles for an account.
     
@@ -142,7 +177,6 @@ def get_vehicles_by_account(account_id: int) -> list[Vehicle]:
         return db.query(Vehicle).filter(Vehicle.account_id == account_id).all()
     finally:
         db.close()
-
 
 def save_vehicles_data(account_id: int, vehicles_data: dict[str, Any]) -> int:
     """Save vehicles data to database.
@@ -167,8 +201,23 @@ def save_vehicles_data(account_id: int, vehicles_data: dict[str, Any]) -> int:
         for vehicle_data in vehicles:
             turo_vehicle_id = vehicle_data.get('vehicle_id')
             if not turo_vehicle_id:
-                continue
+                vehicle_name = vehicle_data.get('name', 'Unknown')
+                turo_vehicle_id = f"generated_{hash(vehicle_name) % 1000000}"
                 
+            status_str = vehicle_data.get('status')
+            status_enum = None
+            if status_str:
+                try:
+                    status_mapping = {
+                        'Listed': VehicleStatus.LISTED,
+                        'Snoozed': VehicleStatus.SNOOZED,
+                        'Unavailable': VehicleStatus.UNAVAILABLE,
+                        'Maintenance': VehicleStatus.MAINTENANCE
+                    }
+                    status_enum = status_mapping.get(status_str)
+                except (ValueError, KeyError):
+                    logger.warning(f"Unknown vehicle status: {status_str}")
+            
             vehicle = db.query(Vehicle).filter(
                 and_(Vehicle.account_id == account_id, 
                      Vehicle.turo_vehicle_id == turo_vehicle_id)
@@ -180,7 +229,7 @@ def save_vehicles_data(account_id: int, vehicles_data: dict[str, Any]) -> int:
             
             vehicle.turo_vehicle_id = turo_vehicle_id
             vehicle.name = vehicle_data.get('name')
-            vehicle.status = vehicle_data.get('status')
+            vehicle.status = status_enum
             vehicle.license_plate = vehicle_data.get('license_plate')
             vehicle.trim = vehicle_data.get('trim')
             vehicle.rating = vehicle_data.get('rating')
@@ -197,8 +246,8 @@ def save_vehicles_data(account_id: int, vehicles_data: dict[str, Any]) -> int:
                 vehicle.make = vehicle_info['make']
                 vehicle.model = vehicle_info['model']
             
-            vehicle.last_seen_at = datetime.utcnow()
-            vehicle.scraped_at = datetime.utcnow()
+            vehicle.last_seen_at = datetime.now(timezone.utc)
+            vehicle.scraped_at = datetime.now(timezone.utc)
             
             vehicles_saved += 1
         
@@ -210,9 +259,9 @@ def save_vehicles_data(account_id: int, vehicles_data: dict[str, Any]) -> int:
         logger.error(f"Error saving vehicles data: {e}")
         db.rollback()
         raise
+
     finally:
         db.close()
-
 
 # ------------------------------ TRIP OPERATIONS ------------------------------
 
@@ -235,7 +284,6 @@ def get_trip_by_turo_id(account_id: int, turo_trip_id: str) -> Optional[Trip]:
     finally:
         db.close()
 
-
 def get_trips_by_account(account_id: int, limit: int = 100) -> list[Trip]:
     """Get recent trips for an account.
     
@@ -254,7 +302,6 @@ def get_trips_by_account(account_id: int, limit: int = 100) -> list[Trip]:
     finally:
         db.close()
 
-
 def get_trips_by_vehicle(vehicle_id: int) -> list[Trip]:
     """Get trips for a specific vehicle.
     
@@ -269,7 +316,6 @@ def get_trips_by_vehicle(vehicle_id: int) -> list[Trip]:
         return db.query(Trip).filter(Trip.vehicle_id == vehicle_id).all()
     finally:
         db.close()
-
 
 def save_trips_data(account_id: int, trips_data: dict[str, Any]) -> int:
     """Save trips data to database.
@@ -304,9 +350,9 @@ def save_trips_data(account_id: int, trips_data: dict[str, Any]) -> int:
         logger.error(f"Error saving trips data: {e}")
         db.rollback()
         raise
+
     finally:
         db.close()
-
 
 def _save_single_trip(db: Session, account_id: int, trip_data: dict[str, Any], trip_type: str) -> int:
     """Save a single trip to database.
@@ -341,16 +387,36 @@ def _save_single_trip(db: Session, account_id: int, trip_data: dict[str, Any], t
     trip.customer_id = trip_data.get('customer_id')
     trip.customer_info = trip_data.get('customer_info')
     trip.customer_found = trip_data.get('customer_found', False)
-    trip.status = trip_data.get('status')
+    
+    status_str = trip_data.get('status')
+    status_enum = None
+    if status_str:
+        try:
+            status_mapping = {
+                'booked': TripStatus.BOOKED,
+                'completed': TripStatus.COMPLETED,
+                'cancelled': TripStatus.CANCELLED,
+                'in_progress': TripStatus.IN_PROGRESS,
+                'pending': TripStatus.PENDING
+            }
+            status_enum = status_mapping.get(status_str.lower())
+
+        except (ValueError, KeyError):
+            logger.warning(f"Unknown trip status: {status_str}")
+    
+    trip.status = status_enum
     trip.cancellation_info = trip_data.get('cancellation_info')
     trip.cancelled_by = trip_data.get('cancelled_by')
-    trip.cancelled_date = trip_data.get('cancelled_date')
+    
+    cancelled_date_str = trip_data.get('cancelled_date')
+    trip.cancelled_date = parse_turo_date(cancelled_date_str) if cancelled_date_str else None
     trip.vehicle_image = trip_data.get('vehicle_image')
     trip.customer_profile_image = trip_data.get('customer_profile_image')
     trip.has_customer_photo = trip_data.get('has_customer_photo', False)
-    trip.scraped_at = datetime.utcnow()
+    trip.scraped_at = datetime.now(timezone.utc)
     
     vehicle_name = trip_data.get('vehicle')
+
     if vehicle_name:
         vehicle = db.query(Vehicle).filter(
             and_(Vehicle.account_id == account_id,
@@ -360,7 +426,6 @@ def _save_single_trip(db: Session, account_id: int, trip_data: dict[str, Any], t
             trip.vehicle_id = vehicle.id
     
     return 1
-
 
 # ------------------------------ EARNINGS OPERATIONS ------------------------------
 
@@ -386,12 +451,32 @@ def save_earnings_data(account_id: int, earnings_data: dict[str, Any]) -> int:
             
             breakdown = earnings.get('earnings_breakdown', [])
             for item_data in breakdown:
+                # Handle payout type conversion with fallback
+                payout_type = None
+                type_str = item_data.get('type')
+                if type_str:
+                    try:
+                        payout_type = PayoutType(type_str)
+
+                    except ValueError:
+                        type_mapping = {
+                            'Upcoming earnings': PayoutType.UPCOMING_EARNINGS,
+                            'Trip earnings': PayoutType.TRIP_EARNINGS,
+                            'Reimbursements': PayoutType.REIMBURSEMENTS,
+                            'Vehicle earnings': PayoutType.VEHICLE_EARNINGS,
+                            'Bonus': PayoutType.BONUS,
+                            'Refund': PayoutType.REFUND
+                        }
+                        payout_type = type_mapping.get(type_str)
+                        if not payout_type:
+                            logger.warning(f"Unknown payout type: {type_str}")
+                
                 payout_item = PayoutItem(
                     account_id=account_id,
-                    type=PayoutType(item_data.get('type')) if item_data.get('type') else None,
+                    type=payout_type,
                     amount=parse_amount(item_data.get('amount')),
                     description=item_data.get('description'),
-                    scraped_at=datetime.utcnow()
+                    scraped_at=datetime.now(timezone.utc)
                 )
                 payout_items.append(payout_item)
             
@@ -402,7 +487,7 @@ def save_earnings_data(account_id: int, earnings_data: dict[str, Any]) -> int:
                     type=PayoutType.VEHICLE_EARNINGS,
                     amount=parse_amount(vehicle_data.get('earnings_amount')),
                     description=f"Earnings for {vehicle_data.get('vehicle_name')}",
-                    scraped_at=datetime.utcnow()
+                    scraped_at=datetime.now(timezone.utc)
                 )
                 payout_items.append(payout_item)
             
@@ -415,7 +500,6 @@ def save_earnings_data(account_id: int, earnings_data: dict[str, Any]) -> int:
         logger.error(f"Error saving earnings data: {e}")
         logger.debug(traceback.format_exc())
         raise
-
 
 # ------------------------------ REVIEW OPERATIONS ------------------------------
 
@@ -436,7 +520,6 @@ def get_reviews_by_account(account_id: int, limit: int = 100) -> list[Review]:
         ).order_by(desc(Review.created_at)).limit(limit).all()
     finally:
         db.close()
-
 
 def save_reviews_data(account_id: int, reviews_data: dict[str, Any]) -> int:
     """Save reviews data to database.
@@ -464,7 +547,6 @@ def save_reviews_data(account_id: int, reviews_data: dict[str, Any]) -> int:
             if not customer_id:
                 continue
             
-            # Create unique review ID using hash of customer_id + trip_id
             review_id_data = f"{customer_id}_{trip_id or 'unknown'}"
             turo_review_id = hashlib.md5(review_id_data.encode()).hexdigest()[:16]
             
@@ -502,9 +584,9 @@ def save_reviews_data(account_id: int, reviews_data: dict[str, Any]) -> int:
         logger.debug(traceback.format_exc())
         db.rollback()
         raise
+    
     finally:
         db.close()
-
 
 # ------------------------------ MAIN OPERATIONS ------------------------------
 
@@ -548,7 +630,6 @@ def save_scraped_data(account_id: int, scraped_data: dict[str, Any]) -> dict[str
         logger.error(f"Error saving scraped data: {e}")
         raise
 
-
 def get_database_stats(account_id: int) -> dict:
     """Get database statistics for an account.
     
@@ -571,6 +652,5 @@ def get_database_stats(account_id: int) -> dict:
         }
     finally:
         db.close()
-
 
 # ------------------------------ END OF FILE ------------------------------
