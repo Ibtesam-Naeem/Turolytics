@@ -7,8 +7,7 @@ from datetime import datetime
 from utils.logger import logger
 from config.settings import settings
 from database.operations.sessions import (
-    create_session, get_session, update_session, 
-    get_storage_state_for_account, deactivate_session
+    create_session, get_session, get_storage_state_for_account
 )
 
 def get_storage_state_path(account_id: int = None):
@@ -77,7 +76,7 @@ async def save_storage_state_to_db(context, account_id: int, user_agent: str = N
     try:
         storage_state = await context.storage_state()
         
-        session_id = create_session(
+        session_data = create_session(
             account_id=account_id,
             storage_state=storage_state,
             user_agent=user_agent,
@@ -85,9 +84,9 @@ async def save_storage_state_to_db(context, account_id: int, user_agent: str = N
             expires_hours=settings.scraping.session_expiry_hours
         )
         
-        if session_id:
-            logger.info(f"Saved session storage state to database: {session_id}")
-            return session_id
+        if session_data:
+            logger.info(f"Saved session storage state to database: {session_data['session_id']}")
+            return session_data['session_id']
         else:
             logger.error("Failed to save session to database")
             return None
@@ -126,12 +125,13 @@ async def save_storage_state(context, account_id: int = None, user_agent: str = 
 def get_storage_state_from_db(account_id: int) -> Optional[Dict[str, Any]]:
     """Get storage state from database for an account."""
     try:
-        storage_state = get_storage_state_for_account(account_id)
-        if storage_state:
+        session_data = get_storage_state_for_account(account_id)
+        if session_data:
             logger.info(f"Retrieved storage state from database for account {account_id}")
+            return session_data['storage_state']
         else:
             logger.warning(f"No storage state found for account {account_id}")
-        return storage_state
+            return None
 
     except Exception as e:
         logger.error(f"Error retrieving storage state from database: {e}")

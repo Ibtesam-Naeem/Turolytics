@@ -15,13 +15,14 @@ from .models import Base
 logger = logging.getLogger(__name__)
 
 # ------------------------------ CONFIGURATION ------------------------------
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL and not os.getenv("USE_SQLITE", "false").lower() == "true":
-    raise ValueError("DATABASE_URL environment variable is required when not using SQLite")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+USE_SQLITE = os.getenv("USE_SQLITE", "false").lower() == "true"  # Default to PostgreSQL
+
+if not DATABASE_URL and not USE_SQLITE:
+    # Default to PostgreSQL if no environment variables are set
+    DATABASE_URL = "postgresql://ibtesamnaeem@localhost:5432/turolytics"
 
 SQLITE_URL = "sqlite:///./turolytics.db"
-
-USE_SQLITE = os.getenv("USE_SQLITE", "false").lower() == "true"
 
 # ------------------------------ ENGINE CONFIGURATION ------------------------------
 

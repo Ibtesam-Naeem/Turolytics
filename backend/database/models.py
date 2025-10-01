@@ -103,6 +103,7 @@ class Account(BaseModel):
     trips = relationship("Trip", back_populates="account", cascade="all, delete-orphan")
     payouts = relationship("Payout", back_populates="account", cascade="all, delete-orphan")
     reviews = relationship("Review", back_populates="account", cascade="all, delete-orphan")
+    sessions = relationship("Session", back_populates="account", cascade="all, delete-orphan")
     
     def __repr__(self) -> str:
         return f"<Account(id={self.id}, turo_email={self.turo_email})>"
@@ -273,6 +274,35 @@ class Review(BaseModel):
     def __repr__(self) -> str:
         return f"<Review(id={self.id}, turo_id={self.turo_review_id})>"
 
+
+# ------------------------------ SESSION MODEL ------------------------------
+
+class Session(BaseModel):
+    """Browser session storage for Turo authentication."""
+    __tablename__ = "sessions"
+    
+    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
+    session_id = Column(String(255), nullable=False, unique=True, index=True)
+    storage_state = Column(JSON, nullable=False)  # Playwright storage state
+    is_active = Column(Boolean, default=True, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    last_used_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    user_agent = Column(String(500), nullable=True)
+    ip_address = Column(String(45), nullable=True)  # IPv6 compatible
+    
+    # Relationships
+    account = relationship("Account", back_populates="sessions")
+    
+    # Indexes
+    __table_args__ = (
+        Index("ix_sessions_account_active", "account_id", "is_active"),
+        Index("ix_sessions_expires", "expires_at"),
+        Index("ix_sessions_last_used", "last_used_at"),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<Session(id={self.id}, account_id={self.account_id}, active={self.is_active})>"
+
 # ------------------------------ EXPORTS ------------------------------
 __all__ = [
     "Base",
@@ -285,7 +315,8 @@ __all__ = [
     "Trip",
     "Payout",
     "PayoutItem",
-    "Review"
+    "Review",
+    "Session"
 ]
 
 # ------------------------------ END OF FILE ------------------------------
