@@ -8,7 +8,7 @@ from playwright.async_api import Page, BrowserContext, Browser
 from utils.logger import logger
 from utils.browser_helpers import get_iframe_content, search_for_error_messages, clear_form_inputs, check_for_success_element, retry_operation, click_continue_button_with_retry, close_browser_safely
 from config.browser_settings import launch_browser
-from utils.session import get_storage_state_path, verify_session_authenticated, save_storage_state
+from utils.session import get_storage_state_path, verify_session_authenticated, save_storage_state, get_storage_state
 
 # ------------------------------ SELECTORS ------------------------------
 LOGIN_URL = "https://turo.com/ca/en/login"
