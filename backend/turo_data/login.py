@@ -162,20 +162,32 @@ async def handle_two_factor_auth(page: Page) -> bool:
         return False
 
 # ------------------------------ MAIN LOGIN FUNCTION ------------------------------
-async def complete_turo_login(headless: bool = False) -> Optional[tuple[Page, BrowserContext, Browser]]:
+async def complete_turo_login(headless: bool = False, account_id: int = 1) -> Optional[tuple[Page, BrowserContext, Browser]]:
     """Log into Turo using manual email/password and 2FA input."""
     try:
         logger.info("Initiating Turo login automation...")
 
-        storage_path = get_storage_state_path()
-
+        storage_state = get_storage_state(account_id)
+        
         page, context, browser = await launch_browser(
             headless=headless,
-            storage_state_path=storage_path if os.path.exists(storage_path) else None,
+            storage_state_path=None,
         )
+        
+        if storage_state:
+            try:
+                await context.add_cookies(storage_state.get('cookies', []))
+                await context.add_init_script(f"localStorage.clear(); sessionStorage.clear();")
+                for key, value in storage_state.get('origins', [{}])[0].get('localStorage', []):
+                    await context.add_init_script(f"localStorage.setItem('{key}', '{value}');")
+                for key, value in storage_state.get('origins', [{}])[0].get('sessionStorage', []):
+                    await context.add_init_script(f"sessionStorage.setItem('{key}', '{value}');")
+            
+            except Exception as e:
+                logger.warning(f"Could not restore storage state: {e}")
 
-        if os.path.exists(storage_path):
-            logger.info("Attempting session restore via storage state...")
+        if storage_state:
+            logger.info("Attempting session restore via database storage state...")
             if await verify_session_authenticated(page):
                 logger.info("Session restored successfully - no login required!")
                 return page, context, browser
@@ -247,7 +259,7 @@ async def complete_turo_login(headless: bool = False) -> Optional[tuple[Page, Br
         
         if success_detected:
             logger.info("Login successful, user has been successfully authenticated.")
-            await save_storage_state(context)
+            await save_storage_state(context, account_id=account_id)
             return page, context, browser
         else:
             logger.error("Unable to confirm a successful login - no success indicators located.")
