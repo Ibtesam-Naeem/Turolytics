@@ -9,7 +9,7 @@ from .operations import (
     get_reviews_by_account,
     get_database_stats
 )
-from utils.data_helpers import (
+from core.utils.utils import (
     parse_amount,
     parse_currency,
     safe_int,

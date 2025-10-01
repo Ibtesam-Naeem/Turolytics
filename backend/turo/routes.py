@@ -1,26 +1,23 @@
 # ------------------------------ IMPORTS ------------------------------
-from fastapi import FastAPI, HTTPException, Depends
-from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
-import logging
+from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime
+import logging
 
-# Import only what's needed
-from database import (
+# Import from core
+from core.db import (
     get_vehicles_by_account, 
     get_trips_by_account, 
     get_reviews_by_account,
     get_database_stats
 )
-from services.scraping_service import ScrapingService
-from config import settings
+from core.config.settings import settings
+from turo.service import ScrapingService
 
 # ------------------------------ LOGGING ------------------------------
-logging.basicConfig(
-    level=getattr(logging, settings.LOG_LEVEL.upper()),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
 logger = logging.getLogger(__name__)
+
+# ------------------------------ ROUTER ------------------------------
+router = APIRouter(prefix="/turo", tags=["Turo"])
 
 # ------------------------------ DEPENDENCIES ------------------------------
 def get_scraping_service() -> ScrapingService:
@@ -36,84 +33,8 @@ def create_error_response(message: str, status_code: int = 500) -> dict:
         "timestamp": datetime.utcnow().isoformat()
     }
 
-# ------------------------------ LIFECYCLE MANAGEMENT ------------------------------
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Application lifespan management."""
-    logger.info("🚀 Starting Turolytics API...")
-    yield
-    logger.info("🛑 Shutting down Turolytics API...")
-
-# ------------------------------ FASTAPI APP ------------------------------
-app = FastAPI(
-    title=settings.APP_NAME,
-    description="Turo fleet analytics and data scraping API - Portfolio Project",
-    version=settings.APP_VERSION,
-    lifespan=lifespan,
-    debug=settings.DEBUG
-)
-
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=settings.CORS_CREDENTIALS,
-    allow_methods=settings.CORS_METHODS,
-    allow_headers=settings.CORS_HEADERS,
-)
-
-# ------------------------------ HEALTH ENDPOINTS ------------------------------
-@app.get("/")
-async def root():
-    """Root endpoint with API information."""
-    return {
-        "message": "Turolytics API - Portfolio Project",
-        "version": settings.APP_VERSION,
-        "description": "Turo fleet analytics and data scraping API",
-        "features": [
-            "Automated Turo data scraping",
-            "Real-time vehicle tracking", 
-            "Financial analytics",
-            "Customer review analysis"
-        ],
-        "integrations": {
-            "enabled": settings.get_enabled_integrations()
-        },
-        "endpoints": {
-            "health": "/health",
-            "vehicles": "/api/vehicles",
-            "trips": "/api/trips", 
-            "earnings": "/api/earnings",
-            "reviews": "/api/reviews",
-            "scrape": "/api/scrape/*"
-        },
-        "timestamp": datetime.utcnow().isoformat()
-    }
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint."""
-    try:
-        # Test database connection
-        from database import get_db
-        from sqlalchemy import text
-        db = next(get_db())
-        db.execute(text("SELECT 1"))
-        db.close()
-        database_status = "connected"
-    except Exception as e:
-        logger.warning(f"Database health check failed: {e}")
-        database_status = "disconnected"
-    
-    return {
-        "status": "healthy",
-        "service": "Turolytics API",
-        "database": database_status,
-        "timestamp": datetime.utcnow().isoformat()
-    }
-
 # ------------------------------ DATA ENDPOINTS ------------------------------
-@app.get("/api/vehicles")
+@router.get("/vehicles")
 async def get_vehicles(account_id: int = 1):
     """Get cached vehicle data from database."""
     try:
@@ -131,7 +52,7 @@ async def get_vehicles(account_id: int = 1):
             detail=create_error_response("Failed to retrieve vehicle data")
         )
 
-@app.get("/api/trips")
+@router.get("/trips")
 async def get_trips(account_id: int = 1, limit: int = 100):
     """Get cached trip data from database."""
     try:
@@ -149,7 +70,7 @@ async def get_trips(account_id: int = 1, limit: int = 100):
             detail=create_error_response("Failed to retrieve trip data")
         )
 
-@app.get("/api/reviews")
+@router.get("/reviews")
 async def get_reviews(account_id: int = 1, limit: int = 100):
     """Get cached review data from database."""
     try:
@@ -167,7 +88,7 @@ async def get_reviews(account_id: int = 1, limit: int = 100):
             detail=create_error_response("Failed to retrieve review data")
         )
 
-@app.get("/api/earnings")
+@router.get("/earnings")
 async def get_earnings(account_id: int = 1):
     """Get cached earnings data from database."""
     try:
@@ -186,7 +107,7 @@ async def get_earnings(account_id: int = 1):
         )
 
 # ------------------------------ SCRAPING ENDPOINTS ------------------------------
-@app.post("/api/scrape/vehicles")
+@router.post("/scrape/vehicles")
 async def scrape_vehicles(
     account_id: int = 1,
     scraping_service: ScrapingService = Depends(get_scraping_service)
@@ -208,7 +129,7 @@ async def scrape_vehicles(
             detail=create_error_response("Failed to start vehicle scraping")
         )
 
-@app.post("/api/scrape/trips")
+@router.post("/scrape/trips")
 async def scrape_trips(
     account_id: int = 1,
     scraping_service: ScrapingService = Depends(get_scraping_service)
@@ -230,7 +151,7 @@ async def scrape_trips(
             detail=create_error_response("Failed to start trip scraping")
         )
 
-@app.post("/api/scrape/earnings")
+@router.post("/scrape/earnings")
 async def scrape_earnings(
     account_id: int = 1,
     scraping_service: ScrapingService = Depends(get_scraping_service)
@@ -252,7 +173,7 @@ async def scrape_earnings(
             detail=create_error_response("Failed to start earnings scraping")
         )
 
-@app.post("/api/scrape/reviews")
+@router.post("/scrape/reviews")
 async def scrape_reviews(
     account_id: int = 1,
     scraping_service: ScrapingService = Depends(get_scraping_service)
@@ -274,7 +195,7 @@ async def scrape_reviews(
             detail=create_error_response("Failed to start review scraping")
         )
 
-@app.post("/api/scrape/all")
+@router.post("/scrape/all")
 async def scrape_all(
     account_id: int = 1,
     scraping_service: ScrapingService = Depends(get_scraping_service)
@@ -297,7 +218,7 @@ async def scrape_all(
         )
 
 # ------------------------------ TASK MANAGEMENT ENDPOINTS ------------------------------
-@app.get("/api/tasks")
+@router.get("/tasks")
 async def get_all_tasks(scraping_service: ScrapingService = Depends(get_scraping_service)):
     """Get status of all active scraping tasks."""
     try:
@@ -317,7 +238,7 @@ async def get_all_tasks(scraping_service: ScrapingService = Depends(get_scraping
             detail=create_error_response("Failed to retrieve task information")
         )
 
-@app.get("/api/tasks/{task_id}")
+@router.get("/tasks/{task_id}")
 async def get_task_status(task_id: str, scraping_service: ScrapingService = Depends(get_scraping_service)):
     """Get status of a specific scraping task."""
     try:
@@ -339,7 +260,7 @@ async def get_task_status(task_id: str, scraping_service: ScrapingService = Depe
             detail=create_error_response("Failed to retrieve task status")
         )
 
-@app.delete("/api/tasks/completed")
+@router.delete("/tasks/completed")
 async def clear_completed_tasks(scraping_service: ScrapingService = Depends(get_scraping_service)):
     """Clear completed and failed tasks from memory."""
     try:
@@ -357,7 +278,7 @@ async def clear_completed_tasks(scraping_service: ScrapingService = Depends(get_
         )
 
 # ------------------------------ STATISTICS ENDPOINTS ------------------------------
-@app.get("/api/stats")
+@router.get("/stats")
 async def get_stats(account_id: int = 1):
     """Get database statistics for an account."""
     try:
@@ -374,14 +295,3 @@ async def get_stats(account_id: int = 1):
             status_code=500, 
             detail=create_error_response("Failed to retrieve statistics")
         )
-
-# ------------------------------ MAIN EXECUTION ------------------------------
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(
-        "app:app", 
-        host=settings.HOST, 
-        port=settings.PORT, 
-        reload=settings.DEBUG,
-        log_level=settings.LOG_LEVEL.lower()
-    )

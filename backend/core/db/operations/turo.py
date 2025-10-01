@@ -12,7 +12,7 @@ from sqlalchemy import and_, desc, text
 
 from ..config import SessionLocal
 from ..models import Account, Vehicle, Trip, Payout, PayoutItem, Review, PayoutType, VehicleStatus, TripStatus
-from utils.data_helpers import parse_amount, extract_vehicle_info
+from core.utils.utils import parse_amount, extract_vehicle_info
 
 logger = logging.getLogger(__name__)
 
@@ -370,7 +370,6 @@ def _save_single_trip(db: Session, account_id: int, trip_data: dict[str, Any], t
     if not turo_trip_id:
         return 0
     
-    # Find or create trip
     trip = db.query(Trip).filter(
         and_(Trip.account_id == account_id, 
              Trip.turo_trip_id == turo_trip_id)

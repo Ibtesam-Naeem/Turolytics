@@ -16,10 +16,9 @@ logger = logging.getLogger(__name__)
 
 # ------------------------------ CONFIGURATION ------------------------------
 DATABASE_URL = os.getenv("DATABASE_URL", "")
-USE_SQLITE = os.getenv("USE_SQLITE", "false").lower() == "true"  # Default to PostgreSQL
+USE_SQLITE = os.getenv("USE_SQLITE", "false").lower() == "true"  
 
 if not DATABASE_URL and not USE_SQLITE:
-    # Default to PostgreSQL if no environment variables are set
     DATABASE_URL = "postgresql://ibtesamnaeem@localhost:5432/turolytics"
 
 SQLITE_URL = "sqlite:///./turolytics.db"
@@ -83,6 +82,7 @@ def create_tables():
     try:
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created successfully")
+
     except SQLAlchemyError as e:
         logger.error(f"Error creating database tables: {e}")
         logger.debug(traceback.format_exc())
@@ -97,6 +97,7 @@ def drop_tables():
     try:
         Base.metadata.drop_all(bind=engine)
         logger.info("Database tables dropped successfully")
+
     except SQLAlchemyError as e:
         logger.error(f"Error dropping database tables: {e}")
         logger.debug(traceback.format_exc())
@@ -109,6 +110,7 @@ def reset_database():
         drop_tables()
         create_tables()
         logger.info("Database reset successfully")
+
     except SQLAlchemyError as e:
         logger.error(f"Error resetting database: {e}")
         raise
@@ -121,7 +123,6 @@ def seed_test_data():
     try:
         db = SessionLocal()
         
-        # Create test account
         test_account = Account(
             turo_email="test@example.com",
             account_name="Test User"
@@ -129,7 +130,6 @@ def seed_test_data():
         db.add(test_account)
         db.flush()
         
-        # Create test vehicle
         test_vehicle = Vehicle(
             account_id=test_account.id,
             turo_vehicle_id="test_vehicle_123",
@@ -142,7 +142,6 @@ def seed_test_data():
         db.add(test_vehicle)
         db.flush()
         
-        # Create test trip
         test_trip = Trip(
             account_id=test_account.id,
             vehicle_id=test_vehicle.id,

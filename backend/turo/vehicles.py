@@ -3,7 +3,9 @@ import re
 from datetime import datetime
 from playwright.async_api import Page
 
-from utils.logger import logger
+import logging
+
+logger = logging.getLogger(__name__)
 from .selectors import (
     VEHICLES_LISTINGS_URL, VEHICLES_VIEW_SELECTORS, VEHICLE_CARD, VEHICLE_LISTINGS_COUNT_SELECTORS,
     VEHICLES_LISTINGS_GRID_SELECTORS

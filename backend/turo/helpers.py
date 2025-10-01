@@ -3,7 +3,9 @@ import re
 from typing import Optional, Dict, Any
 from playwright.async_api import ElementHandle
 
-from utils.logger import logger
+import logging
+
+logger = logging.getLogger(__name__)
 from .selectors import (
     TRIP_DATE_SELECTORS, VEHICLE_SELECTORS, CUSTOMER_SELECTORS,
     CANCELLATION_SELECTOR, LICENSE_PLATE_SELECTORS, ALL_IMAGES,
@@ -15,7 +17,7 @@ from .selectors import (
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
 
-async def safe_text(element: ElementHandle, selector: Optional[str] = None, timeout: Optional[int] = None) -> Optional[str]:
+async def safe_text_with_selector(element: ElementHandle, selector: Optional[str] = None, timeout: Optional[int] = None) -> Optional[str]:
     """Safely extract text content from an element using a selector."""
     try:
         el = await element.query_selector(selector) if selector else element
@@ -107,10 +109,10 @@ async def extract_trip_dates(card: ElementHandle) -> Optional[str]:
 
 # ------------------------------ VEHICLE EXTRACTION ------------------------------
 
-async def extract_vehicle_info(card: ElementHandle) -> Optional[str]:
+async def extract_vehicle_info_from_card(card: ElementHandle) -> Optional[str]:
     """Extract vehicle info string from a trip card, or None if not found."""
     for selector in VEHICLE_SELECTORS:
-        vehicle_text = await safe_text(card, selector)
+        vehicle_text = await safe_text_with_selector(card, selector)
         if vehicle_text and contains_vehicle_brand(vehicle_text):
             return vehicle_text
     
@@ -248,7 +250,7 @@ async def extract_complete_trip_data(card: ElementHandle, card_index: int) -> Di
         trip_data.update(id_data)
         
         trip_data['trip_dates'] = await extract_trip_dates(card)
-        trip_data['vehicle'] = await extract_vehicle_info(card)
+        trip_data['vehicle'] = await extract_vehicle_info_from_card(card)
         trip_data['license_plate'] = await extract_license_plate(card)
         
         customer_data = await extract_customer_info(card, card_index)

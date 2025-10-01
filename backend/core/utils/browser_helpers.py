@@ -3,7 +3,9 @@ from playwright.async_api import Page, Frame
 from typing import Optional, Callable, Awaitable
 from functools import wraps
 import re
-from utils.logger import logger
+import logging
+
+logger = logging.getLogger(__name__)
 
 # ------------------------------ BROWSER HELPER FUNCTIONS ------------------------------
 async def retry_operation(func: Callable[..., Awaitable[bool]], attempts: int = 3, *args, **kwargs) -> bool:
@@ -67,19 +69,6 @@ async def safe_text(element, default: Optional[str] = None) -> Optional[str]:
         return default
     text = await element.text_content()
     return text.strip() if text else default
-
-def normalize_currency(amount_str: str) -> float:
-    """Normalize currency string to float value."""
-    if not amount_str:
-        return 0.0
-    
-    cleaned = re.sub(r"[^\d.]", "", amount_str)
-    
-    try:
-        return float(cleaned)
-
-    except ValueError:
-        return 0.0
 
 # ------------------------------ DECORATORS ------------------------------
 def safe_scrape(default_return):

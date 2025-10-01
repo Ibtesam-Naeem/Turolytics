@@ -4,11 +4,13 @@ import json
 from typing import Optional, Dict, Any
 from datetime import datetime
 
-from utils.logger import logger
-from config.settings import settings
-from database.operations.sessions import (
+from core.config.settings import settings
+from core.db.operations.sessions import (
     create_session, get_session, get_storage_state_for_account
 )
+import logging
+
+logger = logging.getLogger(__name__)
 
 def get_storage_state_path(account_id: int = None):
     """Return absolute path to Playwright storage state JSON (legacy fallback)."""

@@ -1,9 +1,9 @@
 # ------------------------------ IMPORTS ------------------------------
-from datetime import datetime
+from datetime import datetime, timezone, date
 from enum import Enum
 from typing import Any
 
-from sqlalchemy import Column, String, Integer, Float, Boolean, ForeignKey, DateTime, Text, JSON, Numeric, func, Index, Enum as SQLEnum, UniqueConstraint
+from sqlalchemy import Column, String, Integer, Float, Boolean, ForeignKey, DateTime, Date, Text, JSON, Numeric, func, Index, Enum as SQLEnum, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base, declared_attr
 from sqlalchemy.orm import relationship
 
@@ -105,6 +105,9 @@ class Account(BaseModel):
     payouts = relationship("Payout", back_populates="account", cascade="all, delete-orphan")
     reviews = relationship("Review", back_populates="account", cascade="all, delete-orphan")
     sessions = relationship("Session", back_populates="account", cascade="all, delete-orphan")
+    plaid_items = relationship("PlaidItem", back_populates="account", cascade="all, delete-orphan")
+    plaid_accounts = relationship("PlaidAccount", back_populates="account", cascade="all, delete-orphan")
+    plaid_transactions = relationship("PlaidTransaction", back_populates="account", cascade="all, delete-orphan")
     
     def __repr__(self) -> str:
         return f"<Account(id={self.id}, turo_email={self.turo_email})>"
@@ -304,6 +307,116 @@ class Session(BaseModel):
     def __repr__(self) -> str:
         return f"<Session(id={self.id}, account_id={self.account_id}, active={self.is_active})>"
 
+# ------------------------------ PLAID MODELS ------------------------------
+class PlaidItem(BaseModel):
+    """Plaid item (bank connection) information."""
+    __tablename__ = "plaid_items"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
+    item_id = Column(String(255), unique=True, nullable=False, index=True)
+    access_token = Column(Text, nullable=False)  # Encrypted in production
+    institution_id = Column(String(255), nullable=True)
+    institution_name = Column(String(255), nullable=True)
+    status = Column(String(50), nullable=True)  # active, error, etc.
+    last_successful_update = Column(DateTime(timezone=True), nullable=True)
+    last_failed_update = Column(DateTime(timezone=True), nullable=True)
+    error_code = Column(String(100), nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc), nullable=False)
+    
+    # Relationships
+    account = relationship("Account", back_populates="plaid_items")
+    plaid_accounts = relationship("PlaidAccount", back_populates="plaid_item", cascade="all, delete-orphan")
+    plaid_transactions = relationship("PlaidTransaction", back_populates="plaid_item", cascade="all, delete-orphan")
+    
+    __table_args__ = (
+        Index("ix_plaid_items_account_id", "account_id"),
+        Index("ix_plaid_items_item_id", "item_id"),
+        Index("ix_plaid_items_status", "status"),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<PlaidItem(id={self.id}, item_id={self.item_id}, institution={self.institution_name})>"
+
+class PlaidAccount(BaseModel):
+    """Plaid bank account information."""
+    __tablename__ = "plaid_accounts"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
+    plaid_item_id = Column(Integer, ForeignKey("plaid_items.id"), nullable=False, index=True)
+    plaid_account_id = Column(String(255), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    type = Column(String(50), nullable=False)  # depository, credit, loan, etc.
+    subtype = Column(String(50), nullable=True)  # checking, savings, credit_card, etc.
+    mask = Column(String(10), nullable=True)  # Last 4 digits
+    available_balance = Column(Numeric(15, 2), nullable=True)
+    current_balance = Column(Numeric(15, 2), nullable=True)
+    iso_currency_code = Column(String(3), nullable=True, default="USD")
+    verification_status = Column(String(50), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc), nullable=False)
+    
+    # Relationships
+    account = relationship("Account", back_populates="plaid_accounts")
+    plaid_item = relationship("PlaidItem", back_populates="plaid_accounts")
+    plaid_transactions = relationship("PlaidTransaction", back_populates="plaid_account")
+    
+    __table_args__ = (
+        Index("ix_plaid_accounts_account_id", "account_id"),
+        Index("ix_plaid_accounts_plaid_item_id", "plaid_item_id"),
+        Index("ix_plaid_accounts_plaid_account_id", "plaid_account_id"),
+        Index("ix_plaid_accounts_type", "type"),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<PlaidAccount(id={self.id}, name={self.name}, type={self.type})>"
+
+class PlaidTransaction(BaseModel):
+    """Plaid transaction information."""
+    __tablename__ = "plaid_transactions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
+    plaid_item_id = Column(Integer, ForeignKey("plaid_items.id"), nullable=False, index=True)
+    plaid_account_id = Column(Integer, ForeignKey("plaid_accounts.id"), nullable=False, index=True)
+    plaid_transaction_id = Column(String(255), unique=True, nullable=False, index=True)
+    amount = Column(Numeric(15, 2), nullable=False)
+    date = Column(Date, nullable=False, index=True)
+    name = Column(String(500), nullable=False)
+    merchant_name = Column(String(255), nullable=True)
+    category = Column(JSON, nullable=True)  # Array of category strings
+    account_owner = Column(String(255), nullable=True)
+    pending = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc), nullable=False)
+    
+    # Relationships
+    account = relationship("Account", back_populates="plaid_transactions")
+    plaid_item = relationship("PlaidItem", back_populates="plaid_transactions")
+    plaid_account = relationship("PlaidAccount", back_populates="plaid_transactions")
+    
+    __table_args__ = (
+        Index("ix_plaid_transactions_account_id", "account_id"),
+        Index("ix_plaid_transactions_plaid_item_id", "plaid_item_id"),
+        Index("ix_plaid_transactions_plaid_account_id", "plaid_account_id"),
+        Index("ix_plaid_transactions_plaid_transaction_id", "plaid_transaction_id"),
+        Index("ix_plaid_transactions_date", "date"),
+        Index("ix_plaid_transactions_amount", "amount"),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<PlaidTransaction(id={self.id}, name={self.name}, amount={self.amount}, date={self.date})>"
+
+# ------------------------------ UPDATE EXISTING MODELS ------------------------------
+# Add Plaid relationships to existing Account model
+# This would be done by adding these to the Account class:
+# plaid_items = relationship("PlaidItem", back_populates="account", cascade="all, delete-orphan")
+# plaid_accounts = relationship("PlaidAccount", back_populates="account", cascade="all, delete-orphan")
+# plaid_transactions = relationship("PlaidTransaction", back_populates="account", cascade="all, delete-orphan")
+
 # ------------------------------ EXPORTS ------------------------------
 __all__ = [
     "Base",
@@ -317,7 +430,10 @@ __all__ = [
     "Payout",
     "PayoutItem",
     "Review",
-    "Session"
+    "Session",
+    "PlaidItem",
+    "PlaidAccount",
+    "PlaidTransaction"
 ]
 
 # ------------------------------ END OF FILE ------------------------------

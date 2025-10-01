@@ -4,7 +4,9 @@ from datetime import datetime
 from typing import Any
 from playwright.async_api import Page
 
-from utils.logger import logger
+import logging
+
+logger = logging.getLogger(__name__)
 from .selectors import (
     BUSINESS_RATINGS_URL, RATINGS_OVERALL_SELECTOR, RATINGS_OVERALL_CATEGORY_SELECTOR,
     RATINGS_TRIPS_COUNT_SELECTOR, RATINGS_RATINGS_COUNT_SELECTOR, RATINGS_AVERAGE_SELECTOR,

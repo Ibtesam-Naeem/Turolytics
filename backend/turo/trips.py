@@ -2,8 +2,10 @@
 from datetime import datetime
 from playwright.async_api import Page
 
-from utils.logger import logger
-from utils.browser_helpers import scroll_to_bottom_and_wait
+import logging
+from core.utils.browser_helpers import scroll_to_bottom_and_wait
+
+logger = logging.getLogger(__name__)
 from .selectors import (
     TRIPS_BOOKED_URL, TRIPS_HISTORY_URL,
     TRIPS_UPCOMING_LIST, TRIP_HISTORY_LIST, TRIP_CARD,

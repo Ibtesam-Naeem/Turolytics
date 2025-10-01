@@ -8,17 +8,27 @@ URL_PATTERN = re.compile(r'^https?://[^\s/$.?#].[^\s]*$')
 
 # ------------------------------ PARSING HELPERS ------------------------------
 
-def parse_amount(amount_str: str) -> Optional[float]:
-    """Parse amount string like '$100.00' into a float."""
+def parse_amount(amount_str: str, default: Optional[float] = None) -> Optional[float]:
+    """Parse amount string like '$100.00' into a float.
+    
+    Args:
+        amount_str: String containing currency amount
+        default: Value to return on error (None by default)
+    
+    Returns:
+        Parsed float value or default on error
+    """
     if not amount_str:
-        return None
+        return default
     
     try:
-        # Remove $ and commas
-        cleaned = amount_str.replace('$', '').replace(',', '')
+        cleaned = amount_str.replace('$', '').replace(',', '').replace(' ', '')
+        import re
+        cleaned = re.sub(r"[^\d.]", "", cleaned)
         return float(cleaned)
+        
     except (ValueError, TypeError):
-        return None
+        return default
 
 
 def parse_currency(currency_str: str) -> Optional[float]:

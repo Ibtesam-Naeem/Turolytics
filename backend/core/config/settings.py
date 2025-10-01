@@ -4,6 +4,15 @@ import logging
 from typing import List, Optional
 from dataclasses import dataclass
 
+# ------------------------------ LOGGING CONFIGURATION ------------------------------
+def setup_logging():
+    """Setup basic logging configuration."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+    )
+    return logging.getLogger("turo-scraper")
+
 # ------------------------------ CONFIGURATION CLASSES ------------------------------
 @dataclass
 class DatabaseConfig:

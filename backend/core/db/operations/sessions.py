@@ -6,7 +6,9 @@ from sqlalchemy import and_, or_
 
 from ..config import SessionLocal
 from ..models import Session as SessionModel, Account
-from utils.logger import logger
+import logging
+
+logger = logging.getLogger(__name__)
 
 # ------------------------------ TYPE DEFINITIONS ------------------------------
 
@@ -32,19 +34,15 @@ def create_session(account_id: int, storage_state: Dict[str, Any],
     """Create a new session in the database."""
     db = SessionLocal()
     try:
-        # Ensure account exists
         account = db.query(Account).filter(Account.id == account_id).first()
         if not account:
             logger.error(f"Account with ID {account_id} not found.")
             return None
 
-        # Generate unique session ID
         session_id = str(uuid.uuid4())
         
-        # Calculate expiration time
         expires_at = datetime.utcnow() + timedelta(hours=expires_hours)
         
-        # Create session record
         now = datetime.utcnow()
         session = SessionModel(
             account_id=account_id,
@@ -61,11 +59,10 @@ def create_session(account_id: int, storage_state: Dict[str, Any],
         
         db.add(session)
         db.commit()
-        db.refresh(session)  # Ensure all fields are populated
+        db.refresh(session) 
         
         logger.info(f"Created session {session_id} for account {account_id}")
         
-        # Return consistent SessionData structure
         return {
             'id': session.id,
             'session_id': session.session_id,
@@ -104,14 +101,12 @@ def get_session(session_id: str) -> Optional[SessionData]:
         ).first()
         
         if session:
-            # Update timestamps
             now = datetime.utcnow()
             session.last_used_at = now
             session.updated_at = now
             db.commit()
             logger.info(f"Retrieved session {session_id}")
             
-            # Return session data as dictionary
             return {
                 'id': session.id,
                 'session_id': session.session_id,
@@ -151,14 +146,12 @@ def get_storage_state_for_account(account_id: int) -> Optional[SessionData]:
         ).order_by(SessionModel.last_used_at.desc()).first()
         
         if session:
-            # Update timestamps
             now = datetime.utcnow()
             session.last_used_at = now
             session.updated_at = now
             db.commit()
             logger.info(f"Retrieved storage state for account {account_id}")
             
-            # Return consistent session data structure
             return {
                 'id': session.id,
                 'session_id': session.session_id,

@@ -1,7 +1,9 @@
 # ------------------------------ IMPORTS ------------------------------
 from playwright.async_api import async_playwright, Page, BrowserContext, Browser
 from typing import Optional
-from utils.logger import logger
+import logging
+
+logger = logging.getLogger(__name__)
 
 # ------------------------------ CONFIGURATION ------------------------------
 USER_AGENT = (
