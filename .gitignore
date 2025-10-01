@@ -18,6 +18,10 @@ ENV/
 .vscode/
 .idea/
 *.swp
+
+# Session Storage
+backend/session/
+*.json
 *.swo
 *~
 
