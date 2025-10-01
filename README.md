@@ -1,92 +1,216 @@
-# 🚘 Turolytics
+# Turolytics - Turo Fleet Analytics Platform
 
-Turolytics is a **Turo fleet analytics dashboard** designed for car rental hosts. Since Turo does not offer an official API, this project leverages **web automation, third-party integrations, and real-time telemetry** to centralize all operational and financial data in one platform.
+A comprehensive analytics platform for Turo fleet management, featuring automated data scraping, real-time tracking, and financial analytics.
 
----
+## 🚀 Features
 
-## 📌 Overview
+- **Automated Data Scraping**: Playwright-based scraping of Turo host dashboard
+- **Real-time Analytics**: Live vehicle tracking and performance metrics
+- **Financial Management**: Earnings analysis, payout tracking, and revenue optimization
+- **Customer Insights**: Review analysis and customer behavior patterns
+- **RESTful API**: FastAPI-based backend with comprehensive endpoints
+- **PostgreSQL Database**: Production-ready data storage with optimized queries
 
-Turolytics automates data collection and reporting for Turo fleet owners by:
+## 🏗️ Architecture
 
-- **Web Automation (Playwright/Selenium):**
-  - Logs into your Turo host account (no official API available).
-  - Scrapes data for:
-    - Bookings and completed trips  
-    - Payouts and earnings history  
-    - Host performance metrics  
-    - Customer reviews  
-    - Vehicle details (pricing, availability, status)  
-    - Calendar and upcoming trips  
+```
+Turolytics/
+├── backend/                 # FastAPI Backend
+│   ├── app.py              # Main FastAPI application
+│   ├── requirements.txt    # Python dependencies
+│   ├── config/             # Configuration management
+│   ├── database/           # Database models and operations
+│   ├── services/           # Business logic services
+│   ├── turo_data/          # Turo scraping modules
+│   └── utils/              # Utility functions
+└── README.md
+```
 
-- **Plaid API Integration:**
-  - Connects your **business bank account**.
-  - Fetches and categorizes transactions.
-  - Links payouts to Turo trips for real profit tracking.
+## 🛠️ Tech Stack
 
-- **Bouncie API Integration:**
-  - Pulls real-time telemetry for all vehicles:
-    - Current **location** (GPS coordinates)  
-    - Mileage and trip history  
-    - Speed and driving behavior  
-    - Vehicle health alerts  
-  - Displays car locations on a **live map (Google Maps API)**.
+### Backend
+- **FastAPI** - Modern, fast web framework
+- **PostgreSQL** - Production database
+- **SQLAlchemy** - ORM and database management
+- **Playwright** - Web automation and scraping
+- **Pydantic** - Data validation and settings
 
-- **Dashboard (Frontend):**
-  - Visualizes:
-    - Active and completed trips  
-    - Vehicle locations and statuses  
-    - Revenue, payouts, and expense tracking  
-    - Profitability analytics per car and overall fleet  
-    - Historical trends and performance insights  
+### Data Processing
+- **Pandas** - Data manipulation and analysis
+- **NumPy** - Numerical computing
+- **JSON** - Data serialization
 
----
+## 🚀 Quick Start
 
-## ⚙️ Tech Stack
+### Prerequisites
+- Python 3.9+
+- PostgreSQL 12+
+- Node.js 16+ (for frontend)
 
-- **Backend:** Python (FastAPI or Flask)  
-- **Automation:** Playwright (headless login and scraping)  
-- **Database:** PostgreSQL (data storage for trips, payouts, transactions)  
-- **Banking:** Plaid API (financial tracking)  
-- **Telemetry:** Bouncie API  
-- **Frontend:** React (with Bootstrap or Tailwind)  
-- **Mapping:** Google Maps or Leaflet.js for vehicle tracking  
+### Backend Setup
 
----
+1. **Install dependencies**
+   ```bash
+   cd backend
+   pip install -r requirements.txt
+   ```
 
-## 🚀 Features (Planned Roadmap)
+2. **Set up PostgreSQL database**
+   ```bash
+   # Create database and user
+   psql -c "CREATE DATABASE turolytics;"
+   psql -c "CREATE USER turolytics_user WITH PASSWORD 'turolyticstestdb';"
+   psql -c "GRANT ALL PRIVILEGES ON DATABASE turolytics TO turolytics_user;"
+   ```
 
-- [ ] Automated Turo login and scraping (bookings, payouts, trips)  
-- [ ] Database schema for fleet, trips, and earnings data  
-- [ ] Plaid integration for bank account connection and transaction syncing  
-- [ ] Bouncie integration for vehicle telemetry  
-- [ ] Interactive map showing real-time vehicle locations  
-- [ ] Dashboard with KPIs:
-  - Total trips, earnings, occupancy rate  
-  - Vehicle-wise profitability  
-  - Weekly, monthly, yearly analytics  
-- [ ] Export reports (CSV, PDF) for bookkeeping  
-- [ ] User authentication for multi-fleet owners (future feature)
+3. **Configure environment variables**
+   ```bash
+   export DATABASE_URL="postgresql://turolytics_user:turolyticstestdb@localhost:5432/turolytics"
+   export SECRET_KEY="your-secret-key-here"
+   export DEBUG="true"
+   ```
 
----
+4. **Start the API server**
+   ```bash
+   python app.py
+   # OR
+   uvicorn app:app --reload --host 0.0.0.0 --port 8000
+   ```
 
-## 📂 Project Status
+5. **Test the API**
+   ```bash
+   curl http://localhost:8000/health
+   ```
 
-🚧 **In Development**  
-- Initial setup and automation testing in progress.  
-- Database schema being drafted.  
+## 📊 API Endpoints
 
----
+### Core Endpoints
+- `GET /` - API information and status
+- `GET /health` - Health check with database status
 
-## 🛠️ Future Enhancements
+### Data Endpoints
+- `GET /api/vehicles` - Get vehicle data
+- `GET /api/trips` - Get trip/booking data
+- `GET /api/reviews` - Get customer reviews
+- `GET /api/stats` - Get analytics statistics
 
-- Mobile app integration (React Native)  
-- Push notifications for car movements and completed trips  
-- AI-powered pricing and profitability recommendations  
-- Car investment calculator, relale, health
+### Scraping Endpoints
+- `POST /api/scrape/vehicles` - Scrape vehicle data
+- `POST /api/scrape/trips` - Scrape trip data
+- `POST /api/scrape/earnings` - Scrape earnings data
+- `POST /api/scrape/reviews` - Scrape review data
+- `POST /api/scrape/all` - Scrape all data types
 
-- Upload and manage documents (receipts, registrations, insurance, repairs)
-  - Per-car and business-wide file storage
-  - Upload via dashboard (PDF, JPG, PNG support)
-  - View, download, and organize documents by vehicle
+### Task Management
+- `GET /api/tasks` - Get all scraping tasks
+- `GET /api/tasks/{task_id}` - Get specific task status
+
+## 🔧 Configuration
+
+The application uses environment-based configuration:
+
+```python
+# Database
+DATABASE_URL=postgresql://user:pass@localhost:5432/turolytics
+USE_SQLITE=false
+
+# Server
+HOST=0.0.0.0
+PORT=8000
+DEBUG=true
+
+# Scraping
+SCRAPING_TIMEOUT=300
+SCRAPING_HEADLESS=true
+MAX_CONCURRENT_TASKS=5
+
+# Security
+SECRET_KEY=your-secret-key-here
+```
+
+## 📈 Data Models
+
+### Vehicles
+- Vehicle information (make, model, year, license plate)
+- Performance metrics (rating, trip count, last trip)
+- Status tracking (active, maintenance, etc.)
+
+### Trips
+- Booking details (dates, customer info, pricing)
+- Financial data (earnings, fees, payouts)
+- Status tracking (active, completed, cancelled)
+
+### Reviews
+- Customer feedback and ratings
+- Review content and sentiment
+- Response management
+
+## 🔒 Security Features
+
+- Environment-based configuration
+- Secure database connections
+- Input validation with Pydantic
+- Error handling and logging
+- CORS configuration
+
+## 🚀 Deployment
+
+### Production Checklist
+- [ ] Set production environment variables
+- [ ] Configure PostgreSQL with proper credentials
+- [ ] Set up SSL/TLS certificates
+- [ ] Configure reverse proxy (nginx)
+- [ ] Set up monitoring and logging
+- [ ] Configure backup strategy
+
+### Docker Deployment
+```dockerfile
+FROM python:3.9-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+COPY . .
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+## 📝 Development
+
+### Code Structure
+- **Modular Design**: Separated concerns with clear boundaries
+- **Type Hints**: Full type annotation for better IDE support
+- **Async/Await**: Non-blocking operations throughout
+- **Error Handling**: Comprehensive error management
+- **Logging**: Structured logging for debugging
+
+### Testing
+```bash
+# Run tests
+pytest
+
+# Run with coverage
+pytest --cov=backend
+```
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests
+5. Submit a pull request
+
+## 📄 License
+
+This project is for portfolio and educational purposes.
+
+## 🎯 Future Enhancements
+
+- [ ] Frontend dashboard (React/Next.js)
+- [ ] Real-time notifications
+- [ ] Advanced analytics and ML insights
+- [ ] Mobile app integration
+- [ ] Multi-account support
+- [ ] Automated reporting
+- [ ] Integration with financial tools
 
 ---
