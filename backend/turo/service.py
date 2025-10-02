@@ -1,339 +1,129 @@
 # ------------------------------ IMPORTS ------------------------------
-import logging
 from typing import Dict, Any, Optional
-from datetime import datetime
-import asyncio
+import logging
 
-from core.utils.browser import launch_browser
-from core.security.session import get_storage_state, save_storage_state, verify_session_authenticated
-from .login import complete_turo_login
-from .vehicles import scrape_all_vehicle_data
-from .trips import scrape_all_trips
-from .earnings import scrape_all_earnings_data
-from .ratings import scrape_all_ratings_data
-from core.db.operations.turo import save_scraped_data
+from core.services.scraping_service import ScrapingService
+from core.db.operations.turo_operations import create_account, get_database_stats, get_or_create_account
 
 logger = logging.getLogger(__name__)
 
-# ------------------------------ SCRAPING SERVICE ------------------------------
+# ------------------------------ TURO SERVICE ------------------------------
 
-class ScrapingService:
-    """Service for managing Turo data scraping operations."""
+class TuroService:
+    """Service layer for Turo-related operations."""
     
     def __init__(self):
-        self.tasks = {}
-        self.task_count = {
-            'vehicles': 0,
-            'trips': 0,
-            'earnings': 0,
-            'reviews': 0,
-            'all': 0
-        }
+        self.scraping_service = ScrapingService()
     
-    async def scrape_vehicles(self, account_id: int) -> str:
-        """Scrape vehicle data for an account."""
-        task_id = f"vehicles_{account_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        self.tasks[task_id] = {
-            'status': 'running',
-            'type': 'vehicles',
-            'account_id': account_id,
-            'started_at': datetime.now().isoformat()
-        }
-        self.task_count['vehicles'] += 1
+    async def scrape_account_data(self, email: str, data_types: list[str] = None) -> Dict[str, Any]:
+        """Scrape data for a Turo account.
         
+        Args:
+            email: Turo account email.
+            data_types: List of data types to scrape. If None, scrapes all.
+            
+        Returns:
+            Dictionary containing scraping results and task IDs.
+        """
         try:
-            # Run scraping in background
-            asyncio.create_task(self._scrape_vehicles_task(task_id, account_id))
-            return task_id
-        except Exception as e:
-            logger.error(f"Error starting vehicle scraping: {e}")
-            self.tasks[task_id]['status'] = 'failed'
-            self.tasks[task_id]['error'] = str(e)
-            return task_id
-    
-    async def scrape_trips(self, account_id: int) -> str:
-        """Scrape trip data for an account."""
-        task_id = f"trips_{account_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        self.tasks[task_id] = {
-            'status': 'running',
-            'type': 'trips',
-            'account_id': account_id,
-            'started_at': datetime.now().isoformat()
-        }
-        self.task_count['trips'] += 1
-        
-        try:
-            asyncio.create_task(self._scrape_trips_task(task_id, account_id))
-            return task_id
-        except Exception as e:
-            logger.error(f"Error starting trip scraping: {e}")
-            self.tasks[task_id]['status'] = 'failed'
-            self.tasks[task_id]['error'] = str(e)
-            return task_id
-    
-    async def scrape_earnings(self, account_id: int) -> str:
-        """Scrape earnings data for an account."""
-        task_id = f"earnings_{account_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        self.tasks[task_id] = {
-            'status': 'running',
-            'type': 'earnings',
-            'account_id': account_id,
-            'started_at': datetime.now().isoformat()
-        }
-        self.task_count['earnings'] += 1
-        
-        try:
-            asyncio.create_task(self._scrape_earnings_task(task_id, account_id))
-            return task_id
-        except Exception as e:
-            logger.error(f"Error starting earnings scraping: {e}")
-            self.tasks[task_id]['status'] = 'failed'
-            self.tasks[task_id]['error'] = str(e)
-            return task_id
-    
-    async def scrape_reviews(self, account_id: int) -> str:
-        """Scrape review data for an account."""
-        task_id = f"reviews_{account_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        self.tasks[task_id] = {
-            'status': 'running',
-            'type': 'reviews',
-            'account_id': account_id,
-            'started_at': datetime.now().isoformat()
-        }
-        self.task_count['reviews'] += 1
-        
-        try:
-            asyncio.create_task(self._scrape_reviews_task(task_id, account_id))
-            return task_id
-        except Exception as e:
-            logger.error(f"Error starting review scraping: {e}")
-            self.tasks[task_id]['status'] = 'failed'
-            self.tasks[task_id]['error'] = str(e)
-            return task_id
-    
-    async def scrape_all(self, account_id: int) -> str:
-        """Scrape all data for an account."""
-        task_id = f"all_{account_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        self.tasks[task_id] = {
-            'status': 'running',
-            'type': 'all',
-            'account_id': account_id,
-            'started_at': datetime.now().isoformat()
-        }
-        self.task_count['all'] += 1
-        
-        try:
-            asyncio.create_task(self._scrape_all_task(task_id, account_id))
-            return task_id
-        except Exception as e:
-            logger.error(f"Error starting all scraping: {e}")
-            self.tasks[task_id]['status'] = 'failed'
-            self.tasks[task_id]['error'] = str(e)
-            return task_id
-    
-    # ------------------------------ TASK IMPLEMENTATIONS ------------------------------
-    
-    async def _scrape_vehicles_task(self, task_id: str, account_id: int):
-        """Background task for scraping vehicles."""
-        try:
-            page, context, browser = await launch_browser(headless=True)
+            account = get_or_create_account(email)
+            account_id = account.id
             
-            # Check for existing session
-            storage_state = get_storage_state(account_id)
-            if storage_state:
-                context = await browser.new_context(storage_state=storage_state)
-                page = await context.new_page()
+            if not data_types:
+                data_types = ["vehicles", "trips", "earnings", "reviews"]
             
-            # Verify session or login
-            if not await verify_session_authenticated(page):
-                page, context, browser = await complete_turo_login(headless=True, account_id=account_id)
+            results = {}
             
-            # Scrape vehicles
-            vehicles_data = await scrape_all_vehicle_data(page)
+            if "vehicles" in data_types:
+                task_id = await self.scraping_service.scrape_vehicles(account_id)
+                results["vehicles_task_id"] = task_id
             
-            # Save data
-            if vehicles_data:
-                save_scraped_data(account_id, {'vehicles': vehicles_data})
+            if "trips" in data_types:
+                task_id = await self.scraping_service.scrape_trips(account_id)
+                results["trips_task_id"] = task_id
             
-            # Save session
-            await save_storage_state(context, account_id)
+            if "earnings" in data_types:
+                task_id = await self.scraping_service.scrape_earnings(account_id)
+                results["earnings_task_id"] = task_id
             
-            # Update task status
-            self.tasks[task_id]['status'] = 'completed'
-            self.tasks[task_id]['completed_at'] = datetime.now().isoformat()
-            self.tasks[task_id]['data_count'] = len(vehicles_data.get('vehicles', []))
+            if "reviews" in data_types:
+                task_id = await self.scraping_service.scrape_reviews(account_id)
+                results["reviews_task_id"] = task_id
             
-            await browser.close()
+            if len(data_types) == 4:
+                task_id = await self.scraping_service.scrape_all(account_id)
+                results["all_data_task_id"] = task_id
+            
+            results["account_id"] = account_id
+            results["email"] = email
+            results["requested_types"] = data_types
+            
+            logger.info(f"Started scraping tasks for account {account_id}: {results}")
+            return results
             
         except Exception as e:
-            logger.error(f"Error in vehicle scraping task {task_id}: {e}")
-            self.tasks[task_id]['status'] = 'failed'
-            self.tasks[task_id]['error'] = str(e)
-            self.tasks[task_id]['failed_at'] = datetime.now().isoformat()
-    
-    async def _scrape_trips_task(self, task_id: str, account_id: int):
-        """Background task for scraping trips."""
-        try:
-            page, context, browser = await launch_browser(headless=True)
-            
-            storage_state = get_storage_state(account_id)
-            if storage_state:
-                context = await browser.new_context(storage_state=storage_state)
-                page = await context.new_page()
-            
-            if not await verify_session_authenticated(page):
-                page, context, browser = await complete_turo_login(headless=True, account_id=account_id)
-            
-            trips_data = await scrape_all_trips(page)
-            
-            if trips_data:
-                save_scraped_data(account_id, {'trips': trips_data})
-            
-            await save_storage_state(context, account_id)
-            
-            self.tasks[task_id]['status'] = 'completed'
-            self.tasks[task_id]['completed_at'] = datetime.now().isoformat()
-            self.tasks[task_id]['data_count'] = len(trips_data.get('trips', []))
-            
-            await browser.close()
-            
-        except Exception as e:
-            logger.error(f"Error in trip scraping task {task_id}: {e}")
-            self.tasks[task_id]['status'] = 'failed'
-            self.tasks[task_id]['error'] = str(e)
-            self.tasks[task_id]['failed_at'] = datetime.now().isoformat()
-    
-    async def _scrape_earnings_task(self, task_id: str, account_id: int):
-        """Background task for scraping earnings."""
-        try:
-            page, context, browser = await launch_browser(headless=True)
-            
-            storage_state = get_storage_state(account_id)
-            if storage_state:
-                context = await browser.new_context(storage_state=storage_state)
-                page = await context.new_page()
-            
-            if not await verify_session_authenticated(page):
-                page, context, browser = await complete_turo_login(headless=True, account_id=account_id)
-            
-            earnings_data = await scrape_all_earnings_data(page)
-            
-            if earnings_data:
-                save_scraped_data(account_id, {'earnings': earnings_data})
-            
-            await save_storage_state(context, account_id)
-            
-            self.tasks[task_id]['status'] = 'completed'
-            self.tasks[task_id]['completed_at'] = datetime.now().isoformat()
-            self.tasks[task_id]['data_count'] = len(earnings_data.get('breakdown', []))
-            
-            await browser.close()
-            
-        except Exception as e:
-            logger.error(f"Error in earnings scraping task {task_id}: {e}")
-            self.tasks[task_id]['status'] = 'failed'
-            self.tasks[task_id]['error'] = str(e)
-            self.tasks[task_id]['failed_at'] = datetime.now().isoformat()
-    
-    async def _scrape_reviews_task(self, task_id: str, account_id: int):
-        """Background task for scraping reviews."""
-        try:
-            page, context, browser = await launch_browser(headless=True)
-            
-            storage_state = get_storage_state(account_id)
-            if storage_state:
-                context = await browser.new_context(storage_state=storage_state)
-                page = await context.new_page()
-            
-            if not await verify_session_authenticated(page):
-                page, context, browser = await complete_turo_login(headless=True, account_id=account_id)
-            
-            reviews_data = await scrape_all_ratings_data(page)
-            
-            if reviews_data:
-                save_scraped_data(account_id, {'reviews': reviews_data})
-            
-            await save_storage_state(context, account_id)
-            
-            self.tasks[task_id]['status'] = 'completed'
-            self.tasks[task_id]['completed_at'] = datetime.now().isoformat()
-            self.tasks[task_id]['data_count'] = len(reviews_data.get('reviews', []))
-            
-            await browser.close()
-            
-        except Exception as e:
-            logger.error(f"Error in review scraping task {task_id}: {e}")
-            self.tasks[task_id]['status'] = 'failed'
-            self.tasks[task_id]['error'] = str(e)
-            self.tasks[task_id]['failed_at'] = datetime.now().isoformat()
-    
-    async def _scrape_all_task(self, task_id: str, account_id: int):
-        """Background task for scraping all data."""
-        try:
-            page, context, browser = await launch_browser(headless=True)
-            
-            storage_state = get_storage_state(account_id)
-            if storage_state:
-                context = await browser.new_context(storage_state=storage_state)
-                page = await context.new_page()
-            
-            if not await verify_session_authenticated(page):
-                page, context, browser = await complete_turo_login(headless=True, account_id=account_id)
-            
-            # Scrape all data types
-            all_data = {}
-            
-            vehicles_data = await scrape_all_vehicle_data(page)
-            if vehicles_data:
-                all_data['vehicles'] = vehicles_data
-            
-            trips_data = await scrape_all_trips(page)
-            if trips_data:
-                all_data['trips'] = trips_data
-            
-            earnings_data = await scrape_all_earnings_data(page)
-            if earnings_data:
-                all_data['earnings'] = earnings_data
-            
-            reviews_data = await scrape_all_ratings_data(page)
-            if reviews_data:
-                all_data['reviews'] = reviews_data
-            
-            # Save all data
-            if all_data:
-                save_scraped_data(account_id, all_data)
-            
-            await save_storage_state(context, account_id)
-            
-            self.tasks[task_id]['status'] = 'completed'
-            self.tasks[task_id]['completed_at'] = datetime.now().isoformat()
-            self.tasks[task_id]['data_count'] = sum(len(data) for data in all_data.values())
-            
-            await browser.close()
-            
-        except Exception as e:
-            logger.error(f"Error in all scraping task {task_id}: {e}")
-            self.tasks[task_id]['status'] = 'failed'
-            self.tasks[task_id]['error'] = str(e)
-            self.tasks[task_id]['failed_at'] = datetime.now().isoformat()
-    
-    # ------------------------------ TASK MANAGEMENT ------------------------------
-    
-    def get_all_tasks(self) -> Dict[str, Any]:
-        """Get all tasks."""
-        return self.tasks
+            logger.error(f"Error starting scraping for account {email}: {e}")
+            raise
     
     def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
-        """Get status of a specific task."""
-        return self.tasks.get(task_id)
+        """Get status of a scraping task.
+        
+        Args:
+            task_id: Task ID to check.
+            
+        Returns:
+            Task status dictionary or None if not found.
+        """
+        return self.scraping_service.get_task_status(task_id)
     
-    def get_task_count(self) -> Dict[str, int]:
-        """Get task counts by type."""
-        return self.task_count.copy()
+    def get_all_tasks(self) -> Dict[str, Dict[str, Any]]:
+        """Get all active scraping tasks.
+        
+        Returns:
+            Dictionary of all tasks.
+        """
+        return self.scraping_service.get_all_tasks()
     
-    def clear_completed_tasks(self):
-        """Clear completed and failed tasks."""
-        self.tasks = {k: v for k, v in self.tasks.items() 
-                     if v.get('status') not in ['completed', 'failed']}
+    def get_account_stats(self, account_id: int) -> Dict[str, Any]:
+        """Get database statistics for an account.
+        
+        Args:
+            account_id: Account ID to get stats for.
+            
+        Returns:
+            Dictionary with account statistics.
+        """
+        try:
+            stats = get_database_stats(account_id)
+            return {
+                "account_id": account_id,
+                "database_stats": stats,
+                "scraping_tasks": self.scraping_service.get_task_count()
+            }
+        except Exception as e:
+            logger.error(f"Error getting stats for account {account_id}: {e}")
+            raise
+    
+    def clear_completed_tasks(self, keep_recent: int = 10) -> Dict[str, Any]:
+        """Clear completed and failed tasks.
+        
+        Args:
+            keep_recent: Number of recent tasks to keep.
+            
+        Returns:
+            Dictionary with cleanup results.
+        """
+        try:
+            self.scraping_service.clear_completed_tasks(keep_recent)
+            return {
+                "message": f"Cleared completed tasks, kept {keep_recent} recent ones",
+                "remaining_tasks": len(self.scraping_service.get_all_tasks())
+            }
+        except Exception as e:
+            logger.error(f"Error clearing tasks: {e}")
+            raise
+
+# ------------------------------ GLOBAL INSTANCE ------------------------------
+turo_service = TuroService()
 
 # ------------------------------ END OF FILE ------------------------------

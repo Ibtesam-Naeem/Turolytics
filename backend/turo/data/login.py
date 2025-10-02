@@ -5,10 +5,10 @@ from typing import Optional
 
 from playwright.async_api import Page, BrowserContext, Browser
 
-from utils.logger import logger
-from utils.browser_helpers import get_iframe_content, search_for_error_messages, clear_form_inputs, check_for_success_element, retry_operation, click_continue_button_with_retry, close_browser_safely
-from config.browser_settings import launch_browser
-from utils.session import get_storage_state_path, verify_session_authenticated, save_storage_state, get_storage_state
+from core.utils.logger import logger
+from core.utils.browser_helpers import get_iframe_content, search_for_error_messages, clear_form_inputs, check_for_success_element, retry_operation, click_continue_button_with_retry, close_browser_safely
+from core.config.browser_settings import launch_browser
+from core.security.session import verify_session_authenticated, save_storage_state, get_storage_state
 
 # ------------------------------ SELECTORS ------------------------------
 LOGIN_URL = "https://turo.com/ca/en/login"
@@ -175,24 +175,42 @@ async def complete_turo_login(headless: bool = False, account_id: int = 1) -> Op
         )
         
         if storage_state:
+            logger.info("Attempting session restore via database storage state...")
             try:
-                await context.add_cookies(storage_state.get('cookies', []))
+                cookies = storage_state.get('cookies', [])
+                if cookies:
+                    for cookie in cookies:
+                        if 'domain' not in cookie and 'url' not in cookie:
+                            cookie['domain'] = '.turo.com'
+                        if 'path' not in cookie:
+                            cookie['path'] = '/'
+                    try:
+                        await context.add_cookies(cookies)
+                    except Exception as cookie_error:
+                        logger.warning(f"Could not add cookies: {cookie_error}")
+                
                 await context.add_init_script(f"localStorage.clear(); sessionStorage.clear();")
-                for key, value in storage_state.get('origins', [{}])[0].get('localStorage', []):
-                    await context.add_init_script(f"localStorage.setItem('{key}', '{value}');")
-                for key, value in storage_state.get('origins', [{}])[0].get('sessionStorage', []):
-                    await context.add_init_script(f"sessionStorage.setItem('{key}', '{value}');")
-            
+                
+                origins = storage_state.get('origins', [])
+                if origins and len(origins) > 0:
+                    origin_data = origins[0]
+                    for key, value in origin_data.get('localStorage', []):
+                        await context.add_init_script(f"localStorage.setItem('{key}', '{value}');")
+                    for key, value in origin_data.get('sessionStorage', []):
+                        await context.add_init_script(f"sessionStorage.setItem('{key}', '{value}');")
+                
+                logger.info("Storage state injected successfully")
+                
+                if await verify_session_authenticated(page):
+                    logger.info("Session restored successfully - no login required!")
+                    return page, context, browser
+                else:
+                    logger.info("Session expired or invalid, proceeding with fresh login")
+                    
             except Exception as e:
                 logger.warning(f"Could not restore storage state: {e}")
-
-        if storage_state:
-            logger.info("Attempting session restore via database storage state...")
-            if await verify_session_authenticated(page):
-                logger.info("Session restored successfully - no login required!")
-                return page, context, browser
-            else:
-                logger.info("Session expired, retrying login.")
+                logger.info("Proceeding with fresh login")
+        
         if not await open_turo_login(page):
             return None
 

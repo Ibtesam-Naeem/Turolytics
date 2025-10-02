@@ -2,8 +2,8 @@
 from datetime import datetime
 from playwright.async_api import Page
 
-from utils.logger import logger
-from utils.browser_helpers import scroll_to_bottom_and_wait
+from core.utils.logger import logger
+from core.utils.browser_helpers import scroll_to_bottom_and_wait
 from .selectors import (
     TRIPS_BOOKED_URL, TRIPS_HISTORY_URL,
     TRIPS_UPCOMING_LIST, TRIP_HISTORY_LIST, TRIP_CARD,
@@ -199,3 +199,5 @@ async def scrape_all_trips(page: Page):
     except Exception as e:
         logger.exception(f"Error scraping all trips data: {e}")
         return None
+
+# ------------------------------ END OF FILE ------------------------------

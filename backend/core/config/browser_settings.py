@@ -1,14 +1,12 @@
 # ------------------------------ IMPORTS ------------------------------
 from playwright.async_api import async_playwright, Page, BrowserContext, Browser
 from typing import Optional
-from utils.logger import logger
+from core.utils.logger import logger
 
 # ------------------------------ CONFIGURATION ------------------------------
-USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/120.0.0.0 Safari/537.36"
-)
+# Import user agent from settings to avoid duplication
+from core.config.settings import settings
+USER_AGENT = settings.scraping.user_agent
 
 DEFAULT_VIEWPORT = {"width": 1366, "height": 768}
 DEFAULT_TIMEOUT = 30000

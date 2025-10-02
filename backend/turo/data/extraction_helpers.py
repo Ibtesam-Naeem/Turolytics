@@ -3,7 +3,7 @@ import re
 from typing import Optional, Dict, Any
 from playwright.async_api import ElementHandle
 
-from utils.logger import logger
+from core.utils.logger import logger
 from .selectors import (
     TRIP_DATE_SELECTORS, VEHICLE_SELECTORS, CUSTOMER_SELECTORS,
     CANCELLATION_SELECTOR, LICENSE_PLATE_SELECTORS, ALL_IMAGES,
@@ -15,16 +15,7 @@ from .selectors import (
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
 
-async def safe_text(element: ElementHandle, selector: Optional[str] = None, timeout: Optional[int] = None) -> Optional[str]:
-    """Safely extract text content from an element using a selector."""
-    try:
-        el = await element.query_selector(selector) if selector else element
-        if el:
-            txt = await el.text_content()
-            return txt.strip() if txt else None
-    except Exception as e:
-        logger.debug(f"Error with selector {selector}: {e}")
-    return None
+from core.utils.browser_helpers import safe_text
 
 def parse_cancellation_from_text(raw_text: str) -> Dict[str, Optional[str]]:
     """Parse cancellation information from raw text."""

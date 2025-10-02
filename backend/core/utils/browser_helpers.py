@@ -3,7 +3,7 @@ from playwright.async_api import Page, Frame
 from typing import Optional, Callable, Awaitable
 from functools import wraps
 import re
-from utils.logger import logger
+from core.utils.logger import logger
 
 # ------------------------------ BROWSER HELPER FUNCTIONS ------------------------------
 async def retry_operation(func: Callable[..., Awaitable[bool]], attempts: int = 3, *args, **kwargs) -> bool:
@@ -67,19 +67,6 @@ async def safe_text(element, default: Optional[str] = None) -> Optional[str]:
         return default
     text = await element.text_content()
     return text.strip() if text else default
-
-def normalize_currency(amount_str: str) -> float:
-    """Normalize currency string to float value."""
-    if not amount_str:
-        return 0.0
-    
-    cleaned = re.sub(r"[^\d.]", "", amount_str)
-    
-    try:
-        return float(cleaned)
-
-    except ValueError:
-        return 0.0
 
 # ------------------------------ DECORATORS ------------------------------
 def safe_scrape(default_return):
@@ -201,6 +188,7 @@ async def clear_form_inputs(page: Page, input_selectors: list, iframe_content=No
                     if input_element:
                         await input_element.fill('')
                 await page.wait_for_timeout(500)
+
             except Exception as e:
                 pass
         
@@ -251,3 +239,5 @@ async def scroll_to_bottom_and_wait(page: Page, scroll_wait: int = 3000, final_w
     await page.wait_for_timeout(scroll_wait)
     await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
     await page.wait_for_timeout(final_wait)
+
+# ------------------------------ END OF FILE ------------------------------

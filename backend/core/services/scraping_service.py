@@ -5,18 +5,15 @@ from typing import Optional, Dict, Any, Callable, Sequence
 from datetime import datetime
 from enum import Enum
 
-# Import settings for concurrency control
-from config import settings
+from core.config.settings import settings
 
-# Import your existing scraper functions
-from turo_data.login import complete_turo_login
-from turo_data.vehicles import scrape_all_vehicle_data
-from turo_data.trips import scrape_all_trips
-from turo_data.earnings import scrape_all_earnings_data
-from turo_data.ratings import scrape_all_ratings_data
+from turo.data.login import complete_turo_login
+from turo.data.vehicles import scrape_all_vehicle_data
+from turo.data.trips import scrape_all_trips
+from turo.data.earnings import scrape_all_earnings_data
+from turo.data.ratings import scrape_all_ratings_data
 
-# Import database functions
-from database import save_scraped_data
+from core.db.operations.turo_operations import save_scraped_data
 
 # ------------------------------ LOGGING ------------------------------
 logger = logging.getLogger(__name__)
@@ -47,7 +44,6 @@ class ScrapingService:
             ScrapingType.EARNINGS: scrape_all_earnings_data,
             ScrapingType.REVIEWS: scrape_all_ratings_data,
         }
-        # Concurrency control
         self._semaphore = asyncio.Semaphore(settings.scraping.max_concurrent_tasks)
     
     async def _execute_scraping_session(self, scrapers: Sequence[ScrapingType], account_id: int, task_id: str) -> Dict[str, Any]:
@@ -64,13 +60,11 @@ class ScrapingService:
         Returns:
             Dict containing results from all scrapers
         """
-        # Acquire semaphore for concurrency control
         async with self._semaphore:
             page, context, browser = None, None, None
             results = {}
         
             try:
-                # Single login for all scraping
                 login_result = await complete_turo_login(headless=False)
                 if not login_result:
                     raise Exception("Login failed")
@@ -78,7 +72,6 @@ class ScrapingService:
                 page, context, browser = login_result
                 self._update_task_status(task_id, TaskStatus.RUNNING, "Login successful, starting scraping...", scraper_types=[t.value for t in scrapers])
                 
-                # Execute each scraper
                 for scraper_type in scrapers:
                     try:
                         self._update_task_status(task_id, TaskStatus.RUNNING, f"Scraping {scraper_type.value}...", scraper_types=[t.value for t in scrapers])
@@ -96,7 +89,6 @@ class ScrapingService:
                         logger.error(f"Failed to scrape {scraper_type.value}: {e}")
                         results[scraper_type.value] = None
                 
-                # Save all results to database
                 if any(results.values()):
                     self._update_task_status(task_id, TaskStatus.RUNNING, "Saving data to database...", scraper_types=[t.value for t in scrapers])
                     save_results = save_scraped_data(account_id, results)
@@ -119,6 +111,7 @@ class ScrapingService:
                     try:
                         await browser.close()
                         logger.info("Browser closed successfully")
+
                     except Exception as e:
                         logger.warning(f"Error closing browser: {e}")
     
@@ -126,7 +119,6 @@ class ScrapingService:
         """Update task status with enhanced tracking."""
         current_time = datetime.utcnow().isoformat()
         
-        # Initialize task if it doesn't exist
         if task_id not in self.active_tasks:
             self.active_tasks[task_id] = {
                 "started_at": started_at or current_time,
@@ -134,7 +126,6 @@ class ScrapingService:
                 "scraper_types": scraper_types or []
             }
         
-        # Update task data
         update_data = {
             "status": status.value,
             "message": message,
@@ -142,13 +133,11 @@ class ScrapingService:
             "updated_at": current_time
         }
         
-        # Add scraper types if provided
         if scraper_types is not None:
             update_data["scraper_types"] = scraper_types
         
         self.active_tasks[task_id].update(update_data)
         
-        # Set finished_at for completed/failed tasks
         if status in [TaskStatus.COMPLETED, TaskStatus.FAILED]:
             self.active_tasks[task_id]["finished_at"] = current_time
     
@@ -228,10 +217,8 @@ class ScrapingService:
         all_types = [ScrapingType.VEHICLES, ScrapingType.TRIPS, ScrapingType.EARNINGS, ScrapingType.REVIEWS]
         self._update_task_status(task_id, TaskStatus.PENDING, "Queued for execution", scraper_types=[t.value for t in all_types])
         
-        # Start the task in the background
         task = asyncio.create_task(self._execute_scraping_session(all_types, account_id, task_id))
         
-        # Store the task reference so it doesn't get garbage collected
         if not hasattr(self, '_background_tasks'):
             self._background_tasks = set()
         self._background_tasks.add(task)
@@ -261,18 +248,15 @@ class ScrapingService:
             if task_data["status"] in [TaskStatus.COMPLETED.value, TaskStatus.FAILED.value]
         ]
         
-        # Keep only the most recent completed/failed tasks
         completed_tasks.sort(key=lambda x: x[1]["updated_at"], reverse=True)
         recent_completed = {task_id: task_data for task_id, task_data in completed_tasks[:keep_recent]}
         
-        # Keep all running tasks + recent completed/failed
         self.active_tasks = {
             task_id: task_data 
             for task_id, task_data in self.active_tasks.items() 
             if task_data["status"] == TaskStatus.RUNNING.value
         }
         
-        # Add back recent completed/failed tasks
         self.active_tasks.update(recent_completed)
         
         logger.info(f"Cleared old tasks, kept {len(recent_completed)} recent completed/failed tasks")
@@ -283,3 +267,5 @@ class ScrapingService:
         for task_data in self.active_tasks.values():
             counts[task_data["status"]] += 1
         return counts
+
+# ------------------------------ END OF FILE ------------------------------

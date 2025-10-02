@@ -3,7 +3,7 @@ import re
 from datetime import datetime
 from playwright.async_api import Page
 
-from utils.logger import logger
+from core.utils.logger import logger
 from .selectors import (
     VEHICLES_LISTINGS_URL, VEHICLES_VIEW_SELECTORS, VEHICLE_CARD, VEHICLE_LISTINGS_COUNT_SELECTORS,
     VEHICLES_LISTINGS_GRID_SELECTORS
@@ -198,3 +198,5 @@ async def scrape_all_vehicle_data(page: Page):
     except Exception as e:
         logger.exception(f"Error scraping all vehicle data: {e}")
         return None
+
+# ------------------------------ END OF FILE ------------------------------

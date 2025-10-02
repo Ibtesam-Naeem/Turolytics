@@ -14,17 +14,10 @@ def parse_amount(amount_str: str) -> Optional[float]:
         return None
     
     try:
-        # Remove $ and commas
         cleaned = amount_str.replace('$', '').replace(',', '')
         return float(cleaned)
     except (ValueError, TypeError):
         return None
-
-
-def parse_currency(currency_str: str) -> Optional[float]:
-    """Parse currency string to float (alias for parse_amount)."""
-    return parse_amount(currency_str)
-
 
 def safe_int(value: Any) -> Optional[int]:
     """Safely convert value to integer."""
@@ -47,7 +40,6 @@ def safe_float(value: Any) -> Optional[float]:
     except (ValueError, TypeError):
         return None
 
-
 # ------------------------------ STRING HELPERS ------------------------------
 
 def clean_string(value: str) -> Optional[str]:
@@ -66,7 +58,6 @@ def truncate_string(value: str, max_length: int = 255) -> str:
     
     return value[:max_length] if len(value) > max_length else value
 
-
 # ------------------------------ VALIDATION HELPERS ------------------------------
 
 def is_valid_email(email: str) -> bool:
@@ -76,14 +67,12 @@ def is_valid_email(email: str) -> bool:
     
     return bool(EMAIL_PATTERN.match(email.strip()))
 
-
 def is_valid_url(url: str) -> bool:
     """Validate URL format."""
     if not url or not isinstance(url, str):
         return False
     
     return bool(URL_PATTERN.match(url.strip()))
-
 
 # ------------------------------ DATA HELPERS ------------------------------
 
@@ -102,7 +91,6 @@ def extract_vehicle_info(vehicle_name: str) -> dict:
         }
     
     return {"full_name": vehicle_name, "year": None, "make": None, "model": None}
-
 
 def normalize_phone(phone: str) -> Optional[str]:
     """Normalize phone number format."""

@@ -10,7 +10,6 @@ from sqlalchemy.orm import relationship
 # ------------------------------ BASE CONFIGURATION ------------------------------
 Base = declarative_base()
 
-
 # ------------------------------ ENUMS ------------------------------
 
 class TripStatus(Enum):
@@ -20,7 +19,6 @@ class TripStatus(Enum):
     IN_PROGRESS = "in_progress"
     PENDING = "pending"
 
-
 class PayoutType(Enum):
     TRIP_EARNINGS = "Trip earnings"
     REIMBURSEMENTS = "Reimbursements"
@@ -28,14 +26,14 @@ class PayoutType(Enum):
     BONUS = "Bonus"
     REFUND = "Refund"
     UPCOMING_EARNINGS = "Upcoming earnings"
-
+    INCENTIVES = "Incentives"
+    MISSED_EARNINGS = "Missed earnings"
 
 class VehicleStatus(Enum):
     LISTED = "Listed"
     SNOOZED = "Snoozed"
     UNAVAILABLE = "Unavailable"
     MAINTENANCE = "Maintenance"
-
 
 # ------------------------------ BASE MODEL ------------------------------
 
@@ -86,7 +84,6 @@ class BaseModel(Base):
         """String representation of the model."""
         return f"<{self.__class__.__name__}(id={self.id})>"
 
-
 # ------------------------------ ACCOUNT MODEL ------------------------------
 
 class Account(BaseModel):
@@ -108,7 +105,6 @@ class Account(BaseModel):
     
     def __repr__(self) -> str:
         return f"<Account(id={self.id}, turo_email={self.turo_email})>"
-
 
 # ------------------------------ VEHICLE MODEL ------------------------------
 
@@ -149,7 +145,6 @@ class Vehicle(BaseModel):
     
     def __repr__(self) -> str:
         return f"<Vehicle(id={self.id}, turo_id={self.turo_vehicle_id})>"
-
 
 # ------------------------------ TRIP MODEL ------------------------------
 
@@ -275,7 +270,6 @@ class Review(BaseModel):
     def __repr__(self) -> str:
         return f"<Review(id={self.id}, turo_id={self.turo_review_id})>"
 
-
 # ------------------------------ SESSION MODEL ------------------------------
 
 class Session(BaseModel):
@@ -291,10 +285,8 @@ class Session(BaseModel):
     user_agent = Column(String(500), nullable=True)
     ip_address = Column(String(45), nullable=True)  # IPv6 compatible
     
-    # Relationships
     account = relationship("Account", back_populates="sessions")
     
-    # Indexes
     __table_args__ = (
         Index("ix_sessions_account_active", "account_id", "is_active"),
         Index("ix_sessions_expires", "expires_at"),

@@ -4,8 +4,9 @@ from typing import Optional, Any
 from datetime import datetime
 import re
 
-from utils.logger import logger
-from utils.browser_helpers import safe_text, safe_scrape, normalize_currency
+from core.utils.logger import logger
+from core.utils.browser_helpers import safe_text, safe_scrape
+from core.utils.data_helpers import parse_amount
 from .selectors import (
     BUSINESS_EARNINGS_URL, EARNINGS_TOTAL_SELECTOR, EARNINGS_TOTAL_TEXT_SELECTOR,
     EARNINGS_LEGEND_SELECTOR, EARNINGS_LEGEND_TAG_SELECTOR, EARNINGS_AMOUNT_SELECTOR,
@@ -20,7 +21,7 @@ def build_summary(vehicle_earnings: list, earnings_breakdown: list) -> dict[str,
     return {
         'total_vehicles': len(vehicle_earnings),
         'total_breakdown_amount': sum(
-            normalize_currency(item['amount'])
+            parse_amount(item['amount'])
             for item in earnings_breakdown if item.get('amount')
         ),
         'scraped_at': datetime.utcnow().isoformat()
