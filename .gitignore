@@ -44,6 +44,7 @@ tmp/
 temp/
 *.tmp
 *.temp
+test/
 
 # Scraping artifacts
 scraped_data/

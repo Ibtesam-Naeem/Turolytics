@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import logging
 
 from turo.routes import router as turo_router
+from bouncie.routes import router as bouncie_router
 
 # ------------------------------ LOGGING ------------------------------
 logging.basicConfig(level=logging.INFO)
@@ -33,6 +34,7 @@ app.add_middleware(
 
 # ------------------------------ ROUTERS ------------------------------
 app.include_router(turo_router, prefix="/api")
+app.include_router(bouncie_router, prefix="/api")
 
 # ------------------------------ HEALTH ENDPOINT ------------------------------
 @app.get("/")
