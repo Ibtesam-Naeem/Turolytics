@@ -1,130 +1,104 @@
-#!/usr/bin/env python3
-"""
-Bouncie Location Data Module
-Handles location tracking and GPS data
-"""
+# ------------------------------ IMPORTS ------------------------------
+from datetime import datetime, timezone
+from typing import Optional
+import logging
 
-from datetime import datetime
-from typing import Dict, Any, Optional, List
+from ..utils import Location, MovementStatus, parse_datetime, VehicleNotFoundError, BouncieAPIError
+
+try:
+    from core.utils.logger import logger
+except ImportError:
+    logger = logging.getLogger(__name__)
+
+# ------------------------------ LOCATION DATA CLASS ------------------------------
 
 class BouncieLocationData:
     """Handles location data operations for Bouncie API."""
     
-    def __init__(self, client):
+    def __init__(self, client, cache_ttl_seconds: int = 30):
+        """Initialize the location data handler.
+        
+        Args:
+            client: BouncieAPIClient instance for API requests.
+            cache_ttl_seconds: Cache time-to-live in seconds (default: 30).
+        """
         self.client = client
+        self.cache_ttl_seconds = cache_ttl_seconds
+        self._vehicles_cache: Optional[list] = None
+        self._cache_timestamp: Optional[datetime] = None
     
-    async def get_current_location(self, imei: str = None) -> Dict[str, Any]:
+    async def _get_vehicle(self, imei: Optional[str] = None) -> dict:
+        """Get vehicle data by IMEI or first available vehicle."""
+        # Caching check - essential for multiple vehicles
+        if (self._vehicles_cache and self._cache_timestamp and 
+            (datetime.now(timezone.utc) - self._cache_timestamp).total_seconds() < self.cache_ttl_seconds):
+            vehicles = self._vehicles_cache
+        else:
+            vehicles_result = await self.client.get_vehicles()
+            if not vehicles_result.get("success") or not vehicles_result.get("data"):
+                raise BouncieAPIError("Failed to get vehicles data")
+            
+            vehicles = vehicles_result["data"]
+            if not isinstance(vehicles, list) or len(vehicles) == 0:
+                raise BouncieAPIError("No vehicles found")
+            
+            self._vehicles_cache = vehicles
+            self._cache_timestamp = datetime.now(timezone.utc)
+        
+        if imei:
+            vehicle = next((v for v in vehicles if v.get("imei") == imei), None)
+            if not vehicle:
+                raise VehicleNotFoundError(f"Vehicle with IMEI {imei} not found")
+            return vehicle
+        else:
+            return vehicles[0]
+    
+    async def get_current_location(self, imei: Optional[str] = None) -> Optional[Location]:
         """Get current GPS location of vehicle."""
-        vehicles_result = await self.client.get_vehicles()
-        if not vehicles_result["success"]:
-            return {"success": False, "error": "Failed to get vehicles data"}
-        
-        vehicles = vehicles_result["data"]
-        if not isinstance(vehicles, list) or len(vehicles) == 0:
-            return {"success": False, "error": "No vehicles found"}
-        
-        target_vehicle = None
-        if imei:
-            target_vehicle = next((v for v in vehicles if v.get("imei") == imei), None)
-        else:
-            target_vehicle = vehicles[0]
-        
-        if not target_vehicle:
-            return {"success": False, "error": "Vehicle not found"}
-        
-        stats = target_vehicle.get("stats", {})
-        location = stats.get("location", {})
-        
-        return {
-            "success": True,
-            "data": {
-                "vehicle_imei": target_vehicle.get("imei"),
-                "vehicle_name": target_vehicle.get("nickName"),
-                "location": {
-                    "latitude": location.get("lat"),
-                    "longitude": location.get("lon"),
-                    "heading": location.get("heading"),
-                    "address": location.get("address")
-                },
-                "last_updated": stats.get("lastUpdated")
-            }
-        }
+        try:
+            vehicle = await self._get_vehicle(imei)
+            stats = vehicle.get("stats", {})
+            location = stats.get("location", {})
+            
+            return Location(
+                imei=vehicle.get("imei", ""),
+                name=vehicle.get("nickName", ""),
+                latitude=location.get("lat"),
+                longitude=location.get("lon"),
+                heading=location.get("heading"),
+                address=location.get("address"),
+                last_updated=parse_datetime(stats.get("lastUpdated"))
+            )
+        except (VehicleNotFoundError, BouncieAPIError) as e:
+            logger.error(f"Error getting current location: {e}")
+            return None
+
+        except Exception as e:
+            logger.error(f"Unexpected error getting current location: {e}")
+            return None
     
-    async def get_location_history(self, imei: str = None, days: int = 7) -> Dict[str, Any]:
-        """Get location history for a vehicle."""
-        # This would typically query a database for historical location data
-        # For now, return current location as a placeholder
-        current_location = await self.get_current_location(imei)
-        if not current_location["success"]:
-            return current_location
-        
-        # In a real implementation, you would:
-        # 1. Query your database for historical location data
-        # 2. Filter by date range
-        # 3. Return formatted location history
-        
-        return {
-            "success": True,
-            "data": {
-                "vehicle_imei": current_location["data"]["vehicle_imei"],
-                "vehicle_name": current_location["data"]["vehicle_name"],
-                "history_period": f"{days} days",
-                "locations": [current_location["data"]["location"]],  # Placeholder
-                "total_points": 1,
-                "message": "Location history would be retrieved from database"
-            }
-        }
-    
-    async def calculate_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-        """Calculate distance between two GPS coordinates using Haversine formula."""
-        import math
-        
-        # Convert latitude and longitude from degrees to radians
-        lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
-        
-        # Haversine formula
-        dlat = lat2 - lat1
-        dlon = lon2 - lon1
-        a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
-        c = 2 * math.asin(math.sqrt(a))
-        
-        # Radius of earth in miles
-        r = 3956
-        return c * r
-    
-    async def is_vehicle_moving(self, imei: str = None) -> Dict[str, Any]:
+    async def is_vehicle_moving(self, imei: Optional[str] = None) -> Optional[MovementStatus]:
         """Check if vehicle is currently moving."""
-        vehicles_result = await self.client.get_vehicles()
-        if not vehicles_result["success"]:
-            return {"success": False, "error": "Failed to get vehicles data"}
-        
-        vehicles = vehicles_result["data"]
-        if not isinstance(vehicles, list) or len(vehicles) == 0:
-            return {"success": False, "error": "No vehicles found"}
-        
-        target_vehicle = None
-        if imei:
-            target_vehicle = next((v for v in vehicles if v.get("imei") == imei), None)
-        else:
-            target_vehicle = vehicles[0]
-        
-        if not target_vehicle:
-            return {"success": False, "error": "Vehicle not found"}
-        
-        stats = target_vehicle.get("stats", {})
-        speed = stats.get("speed", 0)
-        is_running = stats.get("isRunning", False)
-        
-        return {
-            "success": True,
-            "data": {
-                "vehicle_imei": target_vehicle.get("imei"),
-                "vehicle_name": target_vehicle.get("nickName"),
-                "movement": {
-                    "is_moving": speed > 0,
-                    "is_running": is_running,
-                    "current_speed": speed,
-                    "status": "Moving" if speed > 0 else "Stopped"
-                }
-            }
-        }
+        try:
+            vehicle = await self._get_vehicle(imei)
+            stats = vehicle.get("stats", {})
+            speed = stats.get("speed", 0)
+            is_running = stats.get("isRunning", False)
+            
+            return MovementStatus(
+                imei=vehicle.get("imei", ""),
+                name=vehicle.get("nickName", ""),
+                is_moving=speed > 0,
+                is_running=is_running,
+                current_speed=speed,
+                status="Moving" if speed > 0 else "Stopped"
+            )
+        except (VehicleNotFoundError, BouncieAPIError) as e:
+            logger.error(f"Error checking vehicle movement: {e}")
+            return None
+
+        except Exception as e:
+            logger.error(f"Unexpected error checking vehicle movement: {e}")
+            return None
+
+# ------------------------------ END OF FILE ------------------------------
