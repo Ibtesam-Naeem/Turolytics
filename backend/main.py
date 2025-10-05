@@ -5,6 +5,7 @@ import logging
 
 from turo.routes import router as turo_router
 from bouncie.routes import router as bouncie_router
+from plaid.routes import router as plaid_router
 from core.db.database import create_tables, test_connection
 
 # ------------------------------ LOGGING ------------------------------
@@ -15,13 +16,13 @@ logger = logging.getLogger(__name__)
 def initialize_database():
     """Initialize database tables on startup."""
     try:
-        logger.info("🔧 Initializing database...")
+        logger.info("Initializing database...")
         create_tables()
         test_connection()
-        logger.info("✅ Database initialized successfully!")
+        logger.info("Database initialized successfully!")
 
     except Exception as e:
-        logger.error(f"❌ Database initialization failed: {e}")
+        logger.error(f"Database initialization failed: {e}")
         raise
 
 initialize_database()
@@ -45,6 +46,7 @@ app.add_middleware(
 # ------------------------------ ROUTERS ------------------------------
 app.include_router(turo_router, prefix="/api")
 app.include_router(bouncie_router, prefix="/api")
+app.include_router(plaid_router, prefix="/api")
 
 # ------------------------------ HEALTH ENDPOINT ------------------------------
 @app.get("/")
@@ -70,6 +72,9 @@ async def health():
             "error": str(e)
         }
 
+# ------------------------------ MAIN ------------------------------
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+# ------------------------------ END OF FILE ------------------------------

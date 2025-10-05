@@ -6,6 +6,7 @@ import hashlib
 import json
 
 from .service import BouncieService, get_bouncie_vehicle_data
+from core.db.operations.bouncie_operations import save_bouncie_snapshot, store_bouncie_event
 
 router = APIRouter(prefix="/bouncie", tags=["bouncie"])
 
@@ -37,16 +38,28 @@ async def handle_auth_callback(code: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/vehicles")
-async def get_vehicles(auth_code: str = Query(..., description="Bouncie authorization code")):
+async def get_vehicles(auth_code: str = Query(..., description="Bouncie authorization code"), persist: bool = Query(False, description="Persist snapshot to DB")):
     """Get vehicle data using authorization code."""
     try:
         result = await get_bouncie_vehicle_data(auth_code)
         if result["success"]:
-            return {
+            response = {
                 "success": True,
                 "vehicles": result["vehicles"],
                 "user": result["user"]["data"] if result["user"]["success"] else None
             }
+            if persist and response["vehicles"]:
+                try:
+                    user_email = None
+                    if isinstance(result.get("user"), dict) and result["user"].get("success") and isinstance(result["user"].get("data"), dict):
+                        user_email = result["user"]["data"].get("email")
+                    if user_email:
+                        stats = save_bouncie_snapshot(user_email, response["vehicles"])
+                        response["persist_stats"] = stats
+                
+                except Exception as e:
+                    response["persist_error"] = str(e)
+            return response
         else:
             
             raise HTTPException(status_code=400, detail=result["error"])
@@ -113,12 +126,18 @@ async def receive_webhook(
         event_type = payload.get("event", "unknown")
         event_data = payload.get("data", {})
 
+        try:
+            event_id = store_bouncie_event(None, event_type, payload, provided_sig)
+        except Exception:
+            event_id = None
+
         return {
             "success": True,
             "message": f"Webhook received: {event_type}",
             "event": event_type,
             "timestamp": payload.get("timestamp"),
             "verified": bool(webhook_secret),
+            "event_id": event_id,
         }
 
     except HTTPException:

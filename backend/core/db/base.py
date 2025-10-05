@@ -296,6 +296,61 @@ class Session(BaseModel):
     def __repr__(self) -> str:
         return f"<Session(id={self.id}, account_id={self.account_id}, active={self.is_active})>"
 
+# ------------------------------ BOUNCIE MODELS ------------------------------
+
+class BouncieDevice(BaseModel):
+    """Bouncie device with latest status snapshot per account."""
+    __tablename__ = "bouncie_devices"
+    __table_args__ = (
+        Index("ix_bouncie_device_account_imei", "account_id", "imei"),
+        UniqueConstraint("account_id", "imei", name="uq_bouncie_device_account_imei"),
+    )
+
+    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
+    imei = Column(String(64), nullable=False, index=True)
+    vin = Column(String(64), nullable=True, index=True)
+    nickname = Column(String(255), nullable=True)
+    make = Column(String(100), nullable=True)
+    model = Column(String(100), nullable=True)
+    year = Column(Integer, nullable=True)
+
+    last_updated = Column(DateTime(timezone=True), nullable=True)
+    odometer = Column(Float, nullable=True)
+    location_lat = Column(Float, nullable=True)
+    location_lon = Column(Float, nullable=True)
+    heading = Column(Integer, nullable=True)
+    fuel_level = Column(Float, nullable=True)
+    is_running = Column(Boolean, nullable=True)
+    speed = Column(Float, nullable=True)
+    battery_status = Column(String(50), nullable=True)
+    mil_on = Column(Boolean, nullable=True)
+
+    stats = Column(JSON, nullable=True)
+    raw = Column(JSON, nullable=True)
+
+    account = relationship("Account")
+
+    def __repr__(self) -> str:
+        return f"<BouncieDevice(id={self.id}, imei={self.imei}, account_id={self.account_id})>"
+
+class BouncieEvent(BaseModel):
+    """Captured Bouncie webhook events for audit and replay."""
+    __tablename__ = "bouncie_events"
+
+    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=True, index=True)
+    event_type = Column(String(100), nullable=True, index=True)
+    event_timestamp = Column(DateTime(timezone=True), nullable=True)
+    device_imei = Column(String(64), nullable=True, index=True)
+
+    data = Column(JSON, nullable=True)
+    signature = Column(String(255), nullable=True)
+    raw_payload = Column(JSON, nullable=True)
+
+    account = relationship("Account")
+
+    def __repr__(self) -> str:
+        return f"<BouncieEvent(id={self.id}, type={self.event_type})>"
+
 # ------------------------------ EXPORTS ------------------------------
 __all__ = [
     "Base",
@@ -310,6 +365,8 @@ __all__ = [
     "PayoutItem",
     "Review",
     "Session"
+    ,"BouncieDevice"
+    ,"BouncieEvent"
 ]
 
 # ------------------------------ END OF FILE ------------------------------
