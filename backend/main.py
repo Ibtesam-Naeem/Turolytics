@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-"""
-Turolytics Backend API
-Main FastAPI application entry point.
-"""
-
 # ------------------------------ IMPORTS ------------------------------
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,10 +5,26 @@ import logging
 
 from turo.routes import router as turo_router
 from bouncie.routes import router as bouncie_router
+from core.db.database import create_tables, test_connection
 
 # ------------------------------ LOGGING ------------------------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# ------------------------------ DATABASE INITIALIZATION ------------------------------
+def initialize_database():
+    """Initialize database tables on startup."""
+    try:
+        logger.info("🔧 Initializing database...")
+        create_tables()
+        test_connection()
+        logger.info("✅ Database initialized successfully!")
+
+    except Exception as e:
+        logger.error(f"❌ Database initialization failed: {e}")
+        raise
+
+initialize_database()
 
 # ------------------------------ FASTAPI APP ------------------------------
 app = FastAPI(
@@ -44,8 +54,21 @@ async def root():
 
 @app.get("/health")
 async def health():
-    """Health check."""
-    return {"status": "healthy"}
+    """Health check with database status."""
+    try:
+        test_connection()
+        return {
+            "status": "healthy",
+            "database": "connected",
+            "tables": "initialized"
+        }
+
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "database": "disconnected",
+            "error": str(e)
+        }
 
 if __name__ == "__main__":
     import uvicorn

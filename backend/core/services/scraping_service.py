@@ -46,7 +46,7 @@ class ScrapingService:
         }
         self._semaphore = asyncio.Semaphore(settings.scraping.max_concurrent_tasks)
     
-    async def _execute_scraping_session(self, scrapers: Sequence[ScrapingType], account_id: int, task_id: str) -> Dict[str, Any]:
+    async def _execute_scraping_session(self, scrapers: Sequence[ScrapingType], account_id: int, task_id: str, email: str = None, password: str = None) -> Dict[str, Any]:
         """Execute a scraping session with multiple scrapers.
         
         Runs multiple scrapers under a single logged-in browser session for efficiency.
@@ -65,7 +65,7 @@ class ScrapingService:
             results = {}
         
             try:
-                login_result = await complete_turo_login(headless=False)
+                login_result = await complete_turo_login(headless=False, account_id=account_id, email=email, password=password)
                 if not login_result:
                     raise Exception("Login failed")
                 
@@ -77,6 +77,7 @@ class ScrapingService:
                         self._update_task_status(task_id, TaskStatus.RUNNING, f"Scraping {scraper_type.value}...", scraper_types=[t.value for t in scrapers])
                         
                         scraper_func = self._scrapers[scraper_type]
+                        # Pass the logged-in page to the scraper function
                         data = await scraper_func(page)
                         
                         if data:
@@ -148,7 +149,7 @@ class ScrapingService:
     
     # ------------------------------ PUBLIC API ------------------------------
     
-    async def scrape_vehicles(self, account_id: int) -> str:
+    async def scrape_vehicles(self, account_id: int, email: str = None, password: str = None) -> str:
         """Scrape vehicles data.
         
         Args:
@@ -159,56 +160,64 @@ class ScrapingService:
         """
         task_id = self._generate_task_id(ScrapingType.VEHICLES, account_id)
         self._update_task_status(task_id, TaskStatus.PENDING, "Queued for execution", scraper_types=["vehicles"])
-        asyncio.create_task(self._execute_scraping_session([ScrapingType.VEHICLES], account_id, task_id))
+        asyncio.create_task(self._execute_scraping_session([ScrapingType.VEHICLES], account_id, task_id, email, password))
         return task_id
     
-    async def scrape_trips(self, account_id: int) -> str:
+    async def scrape_trips(self, account_id: int, email: str = None, password: str = None) -> str:
         """Scrape trips data.
         
         Args:
             account_id: Account ID to associate scraped data with
+            email: Turo email for login
+            password: Turo password for login
             
         Returns:
             Task ID for tracking the scraping operation
         """
         task_id = self._generate_task_id(ScrapingType.TRIPS, account_id)
         self._update_task_status(task_id, TaskStatus.PENDING, "Queued for execution", scraper_types=["trips"])
-        asyncio.create_task(self._execute_scraping_session([ScrapingType.TRIPS], account_id, task_id))
+        asyncio.create_task(self._execute_scraping_session([ScrapingType.TRIPS], account_id, task_id, email, password))
         return task_id
     
-    async def scrape_earnings(self, account_id: int) -> str:
+    async def scrape_earnings(self, account_id: int, email: str = None, password: str = None) -> str:
         """Scrape earnings data.
         
         Args:
             account_id: Account ID to associate scraped data with
+            email: Turo email for login
+            password: Turo password for login
             
         Returns:
             Task ID for tracking the scraping operation
         """
         task_id = self._generate_task_id(ScrapingType.EARNINGS, account_id)
         self._update_task_status(task_id, TaskStatus.PENDING, "Queued for execution", scraper_types=["earnings"])
-        asyncio.create_task(self._execute_scraping_session([ScrapingType.EARNINGS], account_id, task_id))
+        asyncio.create_task(self._execute_scraping_session([ScrapingType.EARNINGS], account_id, task_id, email, password))
         return task_id
     
-    async def scrape_reviews(self, account_id: int) -> str:
+    async def scrape_reviews(self, account_id: int, email: str = None, password: str = None) -> str:
         """Scrape reviews data.
         
         Args:
             account_id: Account ID to associate scraped data with
+            email: Turo email for login
+            password: Turo password for login
             
         Returns:
             Task ID for tracking the scraping operation
         """
         task_id = self._generate_task_id(ScrapingType.REVIEWS, account_id)
         self._update_task_status(task_id, TaskStatus.PENDING, "Queued for execution", scraper_types=["reviews"])
-        asyncio.create_task(self._execute_scraping_session([ScrapingType.REVIEWS], account_id, task_id))
+        asyncio.create_task(self._execute_scraping_session([ScrapingType.REVIEWS], account_id, task_id, email, password))
         return task_id
     
-    async def scrape_all(self, account_id: int) -> str:
+    async def scrape_all(self, account_id: int, email: str = None, password: str = None) -> str:
         """Scrape all data types in a single session.
         
         Args:
             account_id: Account ID to associate scraped data with
+            email: Turo email for login
+            password: Turo password for login
             
         Returns:
             Task ID for tracking the scraping operation
@@ -217,7 +226,7 @@ class ScrapingService:
         all_types = [ScrapingType.VEHICLES, ScrapingType.TRIPS, ScrapingType.EARNINGS, ScrapingType.REVIEWS]
         self._update_task_status(task_id, TaskStatus.PENDING, "Queued for execution", scraper_types=[t.value for t in all_types])
         
-        task = asyncio.create_task(self._execute_scraping_session(all_types, account_id, task_id))
+        task = asyncio.create_task(self._execute_scraping_session(all_types, account_id, task_id, email, password))
         
         if not hasattr(self, '_background_tasks'):
             self._background_tasks = set()

@@ -43,7 +43,7 @@ BOUNCIE_API_VERSION = "v1"
 
 # Bouncie OAuth 2.0 Credentials
 BOUNCIE_CLIENT_ID = os.getenv("BOUNCIE_CLIENT_ID", "turolytics-dev")
-BOUNCIE_CLIENT_SECRET = os.getenv("BOUNCIE_CLIENT_SECRET", "test")
+BOUNCIE_CLIENT_SECRET = os.getenv("BOUNCIE_CLIENT_SECRET")
 BOUNCIE_REDIRECT_URI = os.getenv("BOUNCIE_REDIRECT_URI", "http://localhost:8000/auth/bouncie/callback")
 
 # OAuth 2.0 URLs (based on working test files)

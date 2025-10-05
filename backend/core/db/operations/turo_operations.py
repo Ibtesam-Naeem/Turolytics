@@ -94,9 +94,6 @@ def get_account_by_email(email: str) -> Optional[Account]:
     try:
         with get_db_session() as db:
             account = db.query(Account).filter(Account.turo_email == email).first()
-            if account:
-                # Ensure the account is properly attached to the session
-                db.refresh(account)
             return account
     except Exception as e:
         logger.error(f"Error getting account by email {email}: {e}")
@@ -146,11 +143,25 @@ def get_or_create_account(email: str, account_name: str = None) -> Optional[int]
         Account ID if found or created successfully, None otherwise.
     """
     try:
-        account = get_account_by_email(email)
-        if account:
-            return account.id
-        
-        return create_account(email, account_name)
+        with get_db_session() as db:
+            # First try to get existing account
+            account = db.query(Account).filter(Account.turo_email == email).first()
+            if account:
+                return account.id
+            
+            # Create new account if not found
+            new_account = Account(
+                turo_email=email,
+                account_name=account_name or "",
+                is_active=True
+            )
+            db.add(new_account)
+            db.commit()
+            db.refresh(new_account)
+            
+            logger.info(f"Created new account for {email} with ID {new_account.id}")
+            return new_account.id
+            
     except Exception as e:
         logger.error(f"Error getting or creating account for {email}: {e}")
         return None
@@ -301,19 +312,71 @@ def _upsert_trip(db: Session, account_id: int, trip_data: dict) -> str:
             logger.warning("Trip data missing turo_trip_id, skipping")
             return False
         
+        # Parse trip dates from the trip_dates field
+        start_date = None
+        end_date = None
+        trip_dates = trip_data.get('trip_dates', '')
+        if trip_dates:
+            # Extract dates from strings like "Oct 1 - Oct 3" or "Sep 25 - Sep 27"
+            date_match = re.search(r'([A-Za-z]{3})\s+(\d+)\s*-\s*([A-Za-z]{3})\s+(\d+)', trip_dates)
+            if date_match:
+                start_month, start_day, end_month, end_day = date_match.groups()
+                start_date = parse_turo_date(f"{start_month} {start_day}")
+                end_date = parse_turo_date(f"{end_month} {end_day}")
+        
+        # Extract customer name from customer_info or customer_name
+        customer_name = trip_data.get('customer_name') or trip_data.get('customer_info', '')
+        if customer_name and '#' in customer_name:
+            customer_name = customer_name.split('#')[0].strip()
+        
+        # Extract vehicle info from vehicle field and match to actual vehicle
+        vehicle_info = trip_data.get('vehicle', '')
+        vehicle_id = None
+        if vehicle_info:
+            # Try to find matching vehicle in database based on vehicle info
+            # Look for patterns like "Hyundai Elantra 2017" in the vehicle info
+            vehicle_match = None
+            if 'Hyundai Elantra' in vehicle_info:
+                vehicle_match = db.query(Vehicle).filter(
+                    Vehicle.account_id == account_id,
+                    Vehicle.make == 'Hyundai',
+                    Vehicle.model == 'Elantra'
+                ).first()
+            elif 'Audi Q7' in vehicle_info:
+                vehicle_match = db.query(Vehicle).filter(
+                    Vehicle.account_id == account_id,
+                    Vehicle.make == 'Audi',
+                    Vehicle.model == 'Q7'
+                ).first()
+            
+            if vehicle_match:
+                vehicle_id = vehicle_match.id
+            else:
+                # If no match found, use None (trip will be saved without vehicle_id)
+                vehicle_id = None
+        
         existing_trip = db.query(Trip).filter(
             Trip.account_id == account_id,
             Trip.turo_trip_id == turo_trip_id
         ).first()
         
         if existing_trip:
-            existing_trip.vehicle_id = trip_data.get('vehicle_id')
-            existing_trip.customer_name = trip_data.get('guest_name')
+            existing_trip.turo_trip_url = trip_data.get('trip_url')
+            existing_trip.vehicle_id = vehicle_id
+            existing_trip.trip_dates = trip_dates
+            existing_trip.start_date = start_date
+            existing_trip.end_date = end_date
+            existing_trip.customer_name = customer_name
+            existing_trip.customer_id = trip_data.get('customer_id')
+            existing_trip.customer_info = trip_data.get('customer_info')
+            existing_trip.customer_found = trip_data.get('customer_found', False)
             existing_trip.status = _normalize_trip_status(trip_data.get('status'))
-            existing_trip.start_date = parse_turo_date(trip_data.get('start_date'))
-            existing_trip.end_date = parse_turo_date(trip_data.get('end_date'))
-            existing_trip.price_total = parse_amount(trip_data.get('total_amount'))
-            existing_trip.earnings = parse_amount(trip_data.get('trip_earnings'))
+            existing_trip.cancellation_info = trip_data.get('cancellation_info')
+            existing_trip.cancelled_by = trip_data.get('cancelled_by')
+            existing_trip.cancelled_date = parse_turo_date(trip_data.get('cancelled_date'))
+            existing_trip.vehicle_image = trip_data.get('vehicle_image')
+            existing_trip.customer_profile_image = trip_data.get('customer_profile_image')
+            existing_trip.has_customer_photo = trip_data.get('has_customer_photo', False)
             existing_trip.updated_at = datetime.now(timezone.utc)
             logger.debug(f"Updated existing trip {turo_trip_id}")
             return "updated"
@@ -321,13 +384,22 @@ def _upsert_trip(db: Session, account_id: int, trip_data: dict) -> str:
             trip = Trip(
                 account_id=account_id,
                 turo_trip_id=turo_trip_id,
-                vehicle_id=trip_data.get('vehicle_id'),
-                customer_name=trip_data.get('guest_name'),
+                turo_trip_url=trip_data.get('trip_url'),
+                vehicle_id=vehicle_id,
+                trip_dates=trip_dates,
+                start_date=start_date,
+                end_date=end_date,
+                customer_name=customer_name,
+                customer_id=trip_data.get('customer_id'),
+                customer_info=trip_data.get('customer_info'),
+                customer_found=trip_data.get('customer_found', False),
                 status=_normalize_trip_status(trip_data.get('status')),
-                start_date=parse_turo_date(trip_data.get('start_date')),
-                end_date=parse_turo_date(trip_data.get('end_date')),
-                price_total=parse_amount(trip_data.get('total_amount')),
-                earnings=parse_amount(trip_data.get('trip_earnings'))
+                cancellation_info=trip_data.get('cancellation_info'),
+                cancelled_by=trip_data.get('cancelled_by'),
+                cancelled_date=parse_turo_date(trip_data.get('cancelled_date')),
+                vehicle_image=trip_data.get('vehicle_image'),
+                customer_profile_image=trip_data.get('customer_profile_image'),
+                has_customer_photo=trip_data.get('has_customer_photo', False)
             )
             db.add(trip)
             logger.debug(f"Created new trip {turo_trip_id}")
@@ -404,19 +476,35 @@ def save_earnings_data(account_id: int, earnings_data: dict[str, Any]) -> int:
         with get_db_session() as db:
             earnings_saved = 0
             
+            # Process earnings breakdown from the scraped data
             if 'earnings' in earnings_data and 'earnings_breakdown' in earnings_data['earnings']:
                 for earning_data in earnings_data['earnings']['earnings_breakdown']:
                     try:
+                        # Extract amount from strings like "$835" or "$69"
+                        amount_str = earning_data.get('amount', '')
+                        amount = parse_amount(amount_str)
+                        
+                        # Create a unique payout ID based on type and amount
+                        payout_type = earning_data.get('type', 'Unknown')
+                        payout_id = f"{payout_type}_{amount}_{account_id}" if amount else f"{payout_type}_{account_id}"
+                        
+                        # Truncate reference to fit database field (255 chars max)
+                        reference = earning_data.get('description', '')
+                        if len(reference) > 255:
+                            reference = reference[:252] + "..."
+                        
                         payout = Payout(
                             account_id=account_id,
-                            turo_payout_id=earning_data.get('payout_id'),
-                            amount=parse_amount(earning_data.get('amount')),
-                            payout_at=parse_turo_date(earning_data.get('date'))
+                            turo_payout_id=payout_id,
+                            amount=amount,
+                            method=payout_type,  # Use type as method
+                            reference=reference,
+                            payout_at=datetime.now(timezone.utc)  # Use current time since no specific date
                         )
                         db.add(payout)
                         earnings_saved += 1
                     except Exception as e:
-                        logger.warning(f"Error saving earning {earning_data.get('id')}: {e}")
+                        logger.warning(f"Error saving earning {earning_data.get('type')}: {e}")
                         continue
             
             db.commit()
@@ -446,21 +534,63 @@ def save_reviews_data(account_id: int, reviews_data: dict[str, Any]) -> int:
         with get_db_session() as db:
             reviews_saved = 0
             
+            # Process reviews from the scraped data structure
             if 'ratings' in reviews_data and 'reviews' in reviews_data['ratings']:
                 for review_data in reviews_data['ratings']['reviews']:
                     try:
+                        # Extract customer name from vehicle_info field like "Steve • October 3, 2025"
+                        customer_name = None
+                        vehicle_info = review_data.get('vehicle_info', '')
+                        if vehicle_info and '•' in vehicle_info:
+                            customer_name = vehicle_info.split('•')[0].strip()
+                        
+                        # Extract date from vehicle_info field
+                        review_date = None
+                        if vehicle_info and '•' in vehicle_info:
+                            date_part = vehicle_info.split('•')[1].strip()
+                            # Parse dates like "October 3, 2025" or "September 25, 2025"
+                            date_match = re.search(r'([A-Za-z]+)\s+(\d+),\s+(\d{4})', date_part)
+                            if date_match:
+                                month_name, day, year = date_match.groups()
+                                month_map = {
+                                    'January': 1, 'February': 2, 'March': 3, 'April': 4,
+                                    'May': 5, 'June': 6, 'July': 7, 'August': 8,
+                                    'September': 9, 'October': 10, 'November': 11, 'December': 12
+                                }
+                                month = month_map.get(month_name)
+                                if month:
+                                    review_date = datetime(int(year), month, int(day), tzinfo=timezone.utc)
+                        
+                        # Create unique review ID
+                        review_id = review_data.get('customer_id') or f"review_{account_id}_{reviews_saved}"
+                        
+                        # Extract areas of improvement
+                        areas_of_improvement = review_data.get('areas_of_improvement', [])
+                        if isinstance(areas_of_improvement, list):
+                            areas_str = ', '.join(areas_of_improvement)
+                        else:
+                            areas_str = str(areas_of_improvement) if areas_of_improvement else None
+                        
                         review = Review(
                             account_id=account_id,
-                            turo_review_id=review_data.get('id'),
-                            customer_name=review_data.get('guest_name'),
+                            turo_review_id=review_id,
+                            trip_id=review_data.get('trip_id'),
+                            customer_name=customer_name,
+                            customer_id=review_data.get('customer_id'),
+                            customer_image_url=review_data.get('customer_image_url'),
+                            customer_image_alt=review_data.get('customer_image_alt'),
                             rating=review_data.get('rating'),
-                            review_text=review_data.get('comment'),
-                            date=parse_turo_date(review_data.get('date'))
+                            date=review_date,
+                            vehicle_info=vehicle_info,
+                            review_text=review_data.get('review_text'),
+                            areas_of_improvement=areas_str,
+                            host_response=review_data.get('host_response'),
+                            has_host_response=review_data.get('has_host_response', False)
                         )
                         db.add(review)
                         reviews_saved += 1
                     except Exception as e:
-                        logger.warning(f"Error saving review {review_data.get('id')}: {e}")
+                        logger.warning(f"Error saving review {review_data.get('customer_id')}: {e}")
                         continue
             
             db.commit()

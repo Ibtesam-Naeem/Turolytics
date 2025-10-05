@@ -45,16 +45,28 @@ async def open_turo_login(page: Page) -> bool:
         return False
 
 # ------------------------------ STEP 2: SUBMIT CREDENTIALS ------------------------------
-async def login_with_credentials(page: Page) -> bool:
-    """Prompt for credentials, fill form, and submit."""
+async def login_with_credentials(page: Page, email: str = None, password: str = None) -> bool:
+    """Login with credentials, fill form, and submit."""
     try:
-        for attempt in range(3):
-            email = input("Enter your Turo email: ").strip()
-            password = getpass.getpass("Enter your Turo password: ").strip()
+        if not email:
+            try:
+                email = input("Enter your Turo email: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                logger.error("Cannot read email from input. Please run the server in a terminal to enter credentials manually.")
+                return False
+                
+        if not password:
+            try:
+                password = getpass.getpass("Enter your Turo password: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                logger.error("Cannot read password from input. Please run the server in a terminal to enter credentials manually.")
+                return False
+            
+        if not email or not password:
+            logger.error("Turo credentials are required.")
+            return False
 
-            if not email or not password:
-                logger.warning("Email and password cannot be empty. Please try again.")
-                continue
+        for attempt in range(3):
 
             logger.info("Switching to login iframe...")
             iframe_content = await get_iframe_content(page)
@@ -135,7 +147,13 @@ async def handle_two_factor_auth(page: Page) -> bool:
                 return False
 
         for attempt in range(3):
-            code = input("Enter the 2FA code you received via text: ").strip()
+            try:
+                code = input("Enter the 2FA code you received via text: ").strip()
+            
+            except (EOFError, KeyboardInterrupt):
+                logger.error("Cannot read 2FA code from input. Please run the server in a terminal to enter the code manually.")
+                return False
+            
             if code:
                 break
             logger.warning(f"2FA code cannot be empty. Please try again. (Attempt {attempt + 1}/3)")
@@ -162,7 +180,7 @@ async def handle_two_factor_auth(page: Page) -> bool:
         return False
 
 # ------------------------------ MAIN LOGIN FUNCTION ------------------------------
-async def complete_turo_login(headless: bool = False, account_id: int = 1) -> Optional[tuple[Page, BrowserContext, Browser]]:
+async def complete_turo_login(headless: bool = False, account_id: int = 1, email: str = None, password: str = None) -> Optional[tuple[Page, BrowserContext, Browser]]:
     """Log into Turo using manual email/password and 2FA input."""
     try:
         logger.info("Initiating Turo login automation...")
@@ -186,6 +204,7 @@ async def complete_turo_login(headless: bool = False, account_id: int = 1) -> Op
                             cookie['path'] = '/'
                     try:
                         await context.add_cookies(cookies)
+                        
                     except Exception as cookie_error:
                         logger.warning(f"Could not add cookies: {cookie_error}")
                 
@@ -215,7 +234,7 @@ async def complete_turo_login(headless: bool = False, account_id: int = 1) -> Op
             return None
 
         for attempt in range(3):
-            if await login_with_credentials(page):
+            if await login_with_credentials(page, email, password):
                 break
             logger.warning(f"Login attempt {attempt + 1} failed. Retrying...")
         else:
