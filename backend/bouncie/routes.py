@@ -1,12 +1,9 @@
-#!/usr/bin/env python3
-"""
-Bouncie API Routes
-FastAPI routes for Bouncie vehicle data integration.
-"""
-
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Header, Request
 from typing import Dict, Any, Optional
-import asyncio
+import os
+import hmac
+import hashlib
+import json
 
 from .service import BouncieService, get_bouncie_vehicle_data
 
@@ -34,6 +31,7 @@ async def handle_auth_callback(code: str):
                 "data": result
             }
         else:
+            
             raise HTTPException(status_code=400, detail=result["error"])
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -50,6 +48,7 @@ async def get_vehicles(auth_code: str = Query(..., description="Bouncie authoriz
                 "user": result["user"]["data"] if result["user"]["success"] else None
             }
         else:
+            
             raise HTTPException(status_code=400, detail=result["error"])
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -74,3 +73,56 @@ async def test_webhook_payload(payload: Dict[str, Any]):
         "payload": payload,
         "message": "Webhook payload validation result"
     }
+
+# ------------------------------ WEBHOOK RECEIVER ------------------------------
+
+@router.post("/webhook/receive")
+async def receive_webhook(
+    request: Request,
+    x_bouncie_signature: Optional[str] = Header(None, alias="X-Bouncie-Signature"),
+    x_signature: Optional[str] = Header(None, alias="X-Signature")
+) -> Dict[str, Any]:
+    """Receive real-time webhooks from Bouncie.
+    
+    Security:
+        - If BOUNCIE_WEBHOOK_SECRET is set, verify HMAC-SHA256 signature against the raw body.
+        - Accepts signature from 'X-Bouncie-Signature' or fallback 'X-Signature'.
+    """
+    try:
+        raw_body: bytes = await request.body()
+        try:
+            payload: Dict[str, Any] = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+        
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+        webhook_secret = os.getenv("BOUNCIE_WEBHOOK_SECRET", "").strip()
+        provided_sig = x_bouncie_signature or x_signature or request.headers.get("X-Bouncie-Signature") or request.headers.get("X-Signature")
+       
+        if webhook_secret:
+            if not provided_sig:
+                raise HTTPException(status_code=401, detail="Missing webhook signature")
+            expected_sig = hmac.new(webhook_secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(provided_sig, expected_sig):
+                raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+        service = BouncieService()
+        if not service.validate_webhook_payload(payload):
+            raise HTTPException(status_code=400, detail="Invalid webhook payload structure")
+
+        event_type = payload.get("event", "unknown")
+        event_data = payload.get("data", {})
+
+        return {
+            "success": True,
+            "message": f"Webhook received: {event_type}",
+            "event": event_type,
+            "timestamp": payload.get("timestamp"),
+            "verified": bool(webhook_secret),
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Webhook processing failed: {str(e)}")
