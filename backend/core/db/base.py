@@ -274,14 +274,11 @@ class Review(BaseModel):
     )
     
     account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
-    trip_id = Column(Integer, ForeignKey("trips.id"), nullable=True, index=True)
     
     turo_review_id = Column(String(100), nullable=True, index=True)
     
     customer_name = Column(String(255), nullable=True)
     customer_id = Column(String(100), nullable=True)
-    customer_image_url = Column(String(500), nullable=True)
-    customer_image_alt = Column(String(255), nullable=True)
     
     rating = Column(Float, nullable=True)
     date = Column(DateTime(timezone=True), nullable=True)
@@ -292,10 +289,7 @@ class Review(BaseModel):
     
     host_response = Column(Text, nullable=True)
     has_host_response = Column(Boolean, default=False, nullable=False)
-    
-    scraped_at = Column(DateTime(timezone=True), nullable=True)
     account = relationship("Account", back_populates="reviews")
-    trip = relationship("Trip")
     
     def __repr__(self) -> str:
         return f"<Review(id={self.id}, turo_id={self.turo_review_id})>"

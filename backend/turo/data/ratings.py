@@ -150,6 +150,12 @@ async def extract_star_rating(review_element) -> int | None:
 async def extract_individual_review(review_element, review_index: int) -> dict[str, Any]:
     """Extract individual review data from a review element."""
     try:
+        raw_html = await review_element.inner_html()
+        logger.info(f"Review {review_index + 1} - Raw HTML: {raw_html[:200]}...")
+        
+        raw_text = await review_element.text_content()
+        logger.info(f"Review {review_index + 1} - Raw text: {raw_text}")
+        
         review_data = {
             'customer_name': None,
             'customer_id': None,
@@ -182,10 +188,30 @@ async def extract_individual_review(review_element, review_index: int) -> dict[s
                 review_data['customer_image_alt'] = None
         
         name_element = await review_element.query_selector(REVIEW_CUSTOMER_NAME_SELECTOR)
+        logger.info(f"Review {review_index + 1} - Customer name selector '{REVIEW_CUSTOMER_NAME_SELECTOR}' found element: {name_element is not None}")
         if name_element:
             name_text = await name_element.text_content()
+            logger.info(f"Review {review_index + 1} - Customer name text: '{name_text}'")
             if name_text:
                 review_data['customer_name'] = name_text.strip()
+                logger.info(f"Review {review_index + 1} - Set customer name: '{review_data['customer_name']}'")
+        else:
+            logger.info(f"Review {review_index + 1} - Trying alternative selectors for customer name")
+            alternative_selectors = [
+                'p span:first-child',
+                '.css-j2jl8y-StyledText span',
+                'span:first-child',
+                'p span',
+                'span'
+            ]
+            for alt_selector in alternative_selectors:
+                alt_element = await review_element.query_selector(alt_selector)
+                if alt_element:
+                    alt_text = await alt_element.text_content()
+                    if alt_text and alt_text.strip():
+                        logger.info(f"Review {review_index + 1} - Alternative selector '{alt_selector}' found: '{alt_text.strip()}'")
+                        review_data['customer_name'] = alt_text.strip()
+                        break
         
         review_data['rating'] = await extract_star_rating(review_element)
         

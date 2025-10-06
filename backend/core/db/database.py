@@ -73,4 +73,21 @@ def test_connection():
         print(f"Database connection failed: {e}")
         return False
 
+def get_db() -> Generator[Session, None, None]:
+    """FastAPI dependency for database sessions.
+    
+    Yields:
+        Session: SQLAlchemy database session
+        
+    Example:
+        @app.get("/")
+        def read_items(db: Session = Depends(get_db)):
+            return db.query(Item).all()
+    """
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
 # ------------------------------ END OF FILE ------------------------------

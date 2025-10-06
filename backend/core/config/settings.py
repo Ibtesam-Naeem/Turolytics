@@ -75,14 +75,15 @@ class S3Config:
     
     def __post_init__(self):
         """Validate S3 configuration."""
-        if not self.access_key_id or not self.secret_access_key:
-            raise ValueError(
-                "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables are required for S3 functionality."
-            )
-        if not self.bucket_name:
-            raise ValueError(
-                "S3_BUCKET_NAME environment variable is required for S3 functionality."
-            )
+        # Commented out for testing - S3 not needed for scraping
+        # if not self.access_key_id or not self.secret_access_key:
+        #     raise ValueError(
+        #         "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables are required for S3 functionality."
+        #     )
+        # if not self.bucket_name:
+        #     raise ValueError(
+        #         "S3_BUCKET_NAME environment variable is required for S3 functionality."
+        #     )
 
 # ------------------------------ MAIN SETTINGS CLASS ------------------------------
 

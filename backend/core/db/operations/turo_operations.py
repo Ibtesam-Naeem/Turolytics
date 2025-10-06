@@ -317,17 +317,41 @@ def _upsert_trip(db: Session, account_id: int, trip_data: dict) -> str:
         end_date = None
         trip_dates = trip_data.get('trip_dates', '')
         if trip_dates:
+            # Clean up the trip_dates string first
+            cleaned_dates = trip_dates.strip()
+            
             # Extract dates from strings like "Oct 1 - Oct 3" or "Sep 25 - Sep 27"
-            date_match = re.search(r'([A-Za-z]{3})\s+(\d+)\s*-\s*([A-Za-z]{3})\s+(\d+)', trip_dates)
+            date_match = re.search(r'([A-Za-z]{3})\s+(\d+)\s*-\s*([A-Za-z]{3})\s+(\d+)', cleaned_dates)
             if date_match:
                 start_month, start_day, end_month, end_day = date_match.groups()
                 start_date = parse_turo_date(f"{start_month} {start_day}")
                 end_date = parse_turo_date(f"{end_month} {end_day}")
+            else:
+                # Try alternative patterns like "Oct 1 - Oct 3Hyundai Elantra 2017"
+                date_match = re.search(r'([A-Za-z]{3})\s+(\d+)\s*-\s*([A-Za-z]{3})\s+(\d+)([A-Za-z0-9\s]+)', cleaned_dates)
+                if date_match:
+                    start_month, start_day, end_month, end_day, extra = date_match.groups()
+                    start_date = parse_turo_date(f"{start_month} {start_day}")
+                    end_date = parse_turo_date(f"{end_month} {end_day}")
         
         # Extract customer name from customer_info or customer_name
         customer_name = trip_data.get('customer_name') or trip_data.get('customer_info', '')
         if customer_name and '#' in customer_name:
             customer_name = customer_name.split('#')[0].strip()
+        
+        # Extract price and earnings from trip data
+        price_total = None
+        earnings = None
+        
+        # Look for price patterns in the raw text or specific fields
+        raw_text = trip_data.get('raw_card_text', '')
+        if raw_text:
+            # Look for price patterns like "$45.00" or "$100"
+            price_match = re.search(r'\$(\d+\.?\d*)', raw_text)
+            if price_match:
+                price_total = float(price_match.group(1))
+                # For now, assume earnings is same as price (can be refined later)
+                earnings = price_total
         
         # Extract vehicle info from vehicle field and match to actual vehicle
         vehicle_info = trip_data.get('vehicle', '')
@@ -377,6 +401,8 @@ def _upsert_trip(db: Session, account_id: int, trip_data: dict) -> str:
             existing_trip.vehicle_image = trip_data.get('vehicle_image')
             existing_trip.customer_profile_image = trip_data.get('customer_profile_image')
             existing_trip.has_customer_photo = trip_data.get('has_customer_photo', False)
+            existing_trip.price_total = price_total
+            existing_trip.earnings = earnings
             existing_trip.updated_at = datetime.now(timezone.utc)
             logger.debug(f"Updated existing trip {turo_trip_id}")
             return "updated"
@@ -399,7 +425,9 @@ def _upsert_trip(db: Session, account_id: int, trip_data: dict) -> str:
                 cancelled_date=parse_turo_date(trip_data.get('cancelled_date')),
                 vehicle_image=trip_data.get('vehicle_image'),
                 customer_profile_image=trip_data.get('customer_profile_image'),
-                has_customer_photo=trip_data.get('has_customer_photo', False)
+                has_customer_photo=trip_data.get('has_customer_photo', False),
+                price_total=price_total,
+                earnings=earnings
             )
             db.add(trip)
             logger.debug(f"Created new trip {turo_trip_id}")
@@ -493,15 +521,32 @@ def save_earnings_data(account_id: int, earnings_data: dict[str, Any]) -> int:
                         if len(reference) > 255:
                             reference = reference[:252] + "..."
                         
-                        payout = Payout(
-                            account_id=account_id,
-                            turo_payout_id=payout_id,
-                            amount=amount,
-                            method=payout_type,  # Use type as method
-                            reference=reference,
-                            payout_at=datetime.now(timezone.utc)  # Use current time since no specific date
-                        )
-                        db.add(payout)
+                        # Check if payout already exists
+                        existing_payout = db.query(Payout).filter(
+                            Payout.account_id == account_id,
+                            Payout.turo_payout_id == payout_id
+                        ).first()
+                        
+                        if existing_payout:
+                            # Update existing payout
+                            existing_payout.amount = amount
+                            existing_payout.method = payout_type
+                            existing_payout.reference = reference
+                            existing_payout.updated_at = datetime.now(timezone.utc)
+                            logger.debug(f"Updated existing payout: {payout_id}")
+                        else:
+                            # Create new payout
+                            payout = Payout(
+                                account_id=account_id,
+                                turo_payout_id=payout_id,
+                                amount=amount,
+                                method=payout_type,  # Use type as method
+                                reference=reference,
+                                payout_at=datetime.now(timezone.utc)  # Use current time since no specific date
+                            )
+                            db.add(payout)
+                            logger.debug(f"Created new payout: {payout_id}")
+                        
                         earnings_saved += 1
                     except Exception as e:
                         logger.warning(f"Error saving earning {earning_data.get('type')}: {e}")
@@ -535,21 +580,26 @@ def save_reviews_data(account_id: int, reviews_data: dict[str, Any]) -> int:
             reviews_saved = 0
             
             # Process reviews from the scraped data structure
+            logger.info(f"Processing reviews data: {reviews_data}")
             if 'ratings' in reviews_data and 'reviews' in reviews_data['ratings']:
-                for review_data in reviews_data['ratings']['reviews']:
+                logger.info(f"Found {len(reviews_data['ratings']['reviews'])} reviews to process")
+                for i, review_data in enumerate(reviews_data['ratings']['reviews']):
+                    logger.info(f"Processing review {i+1}: {review_data}")
                     try:
-                        # Extract customer name from vehicle_info field like "Steve • October 3, 2025"
-                        customer_name = None
-                        vehicle_info = review_data.get('vehicle_info', '')
-                        if vehicle_info and '•' in vehicle_info:
-                            customer_name = vehicle_info.split('•')[0].strip()
+                        # Extract customer name directly from the review data
+                        customer_name = review_data.get('customer_name')
+                        if not customer_name or customer_name == 'Unknown':
+                            # Try to extract from vehicle_info field as fallback
+                            vehicle_info = review_data.get('vehicle_info', '')
+                            if vehicle_info and '•' in vehicle_info:
+                                customer_name = vehicle_info.split('•')[0].strip()
                         
-                        # Extract date from vehicle_info field
+                        # Extract date from the review data
                         review_date = None
-                        if vehicle_info and '•' in vehicle_info:
-                            date_part = vehicle_info.split('•')[1].strip()
+                        date_str = review_data.get('date')
+                        if date_str:
                             # Parse dates like "October 3, 2025" or "September 25, 2025"
-                            date_match = re.search(r'([A-Za-z]+)\s+(\d+),\s+(\d{4})', date_part)
+                            date_match = re.search(r'([A-Za-z]+)\s+(\d+),\s+(\d{4})', date_str)
                             if date_match:
                                 month_name, day, year = date_match.groups()
                                 month_map = {
@@ -561,6 +611,23 @@ def save_reviews_data(account_id: int, reviews_data: dict[str, Any]) -> int:
                                 if month:
                                     review_date = datetime(int(year), month, int(day), tzinfo=timezone.utc)
                         
+                        # Fallback: try to extract from vehicle_info field
+                        if not review_date:
+                            vehicle_info = review_data.get('vehicle_info', '')
+                            if vehicle_info and '•' in vehicle_info:
+                                date_part = vehicle_info.split('•')[1].strip()
+                                date_match = re.search(r'([A-Za-z]+)\s+(\d+),\s+(\d{4})', date_part)
+                                if date_match:
+                                    month_name, day, year = date_match.groups()
+                                    month_map = {
+                                        'January': 1, 'February': 2, 'March': 3, 'April': 4,
+                                        'May': 5, 'June': 6, 'July': 7, 'August': 8,
+                                        'September': 9, 'October': 10, 'November': 11, 'December': 12
+                                    }
+                                    month = month_map.get(month_name)
+                                    if month:
+                                        review_date = datetime(int(year), month, int(day), tzinfo=timezone.utc)
+                        
                         # Create unique review ID
                         review_id = review_data.get('customer_id') or f"review_{account_id}_{reviews_saved}"
                         
@@ -571,29 +638,51 @@ def save_reviews_data(account_id: int, reviews_data: dict[str, Any]) -> int:
                         else:
                             areas_str = str(areas_of_improvement) if areas_of_improvement else None
                         
-                        review = Review(
-                            account_id=account_id,
-                            turo_review_id=review_id,
-                            trip_id=review_data.get('trip_id'),
-                            customer_name=customer_name,
-                            customer_id=review_data.get('customer_id'),
-                            customer_image_url=review_data.get('customer_image_url'),
-                            customer_image_alt=review_data.get('customer_image_alt'),
-                            rating=review_data.get('rating'),
-                            date=review_date,
-                            vehicle_info=vehicle_info,
-                            review_text=review_data.get('review_text'),
-                            areas_of_improvement=areas_str,
-                            host_response=review_data.get('host_response'),
-                            has_host_response=review_data.get('has_host_response', False)
-                        )
-                        db.add(review)
+                        # Check if review already exists
+                        existing_review = db.query(Review).filter(
+                            Review.account_id == account_id,
+                            Review.turo_review_id == review_id
+                        ).first()
+                        
+                        if existing_review:
+                            # Update existing review
+                            existing_review.customer_name = customer_name
+                            existing_review.customer_id = review_data.get('customer_id')
+                            existing_review.rating = review_data.get('rating')
+                            existing_review.date = review_date
+                            existing_review.vehicle_info = vehicle_info
+                            existing_review.review_text = review_data.get('review_text')
+                            existing_review.areas_of_improvement = areas_str
+                            existing_review.host_response = review_data.get('host_response')
+                            existing_review.has_host_response = review_data.get('has_host_response', False)
+                            existing_review.updated_at = datetime.now(timezone.utc)
+                            logger.debug(f"Updated existing review: {review_id}")
+                        else:
+                            # Create new review
+                            review = Review(
+                                account_id=account_id,
+                                turo_review_id=review_id,
+                                customer_name=customer_name,
+                                customer_id=review_data.get('customer_id'),
+                                rating=review_data.get('rating'),
+                                date=review_date,
+                                vehicle_info=vehicle_info,
+                                review_text=review_data.get('review_text'),
+                                areas_of_improvement=areas_str,
+                                host_response=review_data.get('host_response'),
+                                has_host_response=review_data.get('has_host_response', False)
+                            )
+                            db.add(review)
+                            logger.debug(f"Created new review: {review_id}")
+                        
                         reviews_saved += 1
+                        # Commit after each review to ensure upsert logic works
+                        db.commit()
                     except Exception as e:
+                        db.rollback()
                         logger.warning(f"Error saving review {review_data.get('customer_id')}: {e}")
                         continue
             
-            db.commit()
             logger.info(f"Saved {reviews_saved} reviews for account {account_id}")
             return reviews_saved
             
@@ -634,7 +723,13 @@ def save_scraped_data(account_id: int, scraped_data: dict[str, Any]) -> dict[str
             results['earnings'] = save_earnings_data(account_id, scraped_data['earnings'])
         
         if 'ratings' in scraped_data:
+            logger.info(f"Found ratings data with {len(scraped_data['ratings'].get('reviews', []))} reviews")
             results['reviews'] = save_reviews_data(account_id, scraped_data['ratings'])
+        elif 'reviews' in scraped_data:
+            logger.info(f"Found reviews data with {len(scraped_data['reviews'].get('reviews', []))} reviews")
+            results['reviews'] = save_reviews_data(account_id, scraped_data['reviews'])
+        else:
+            logger.warning(f"No ratings/reviews data found in scraped data. Available keys: {list(scraped_data.keys())}")
         
         logger.info(f"Saved scraped data: {results}")
         return results
