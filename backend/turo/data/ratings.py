@@ -1,10 +1,11 @@
 # ------------------------------ IMPORTS ------------------------------
 import re
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 from playwright.async_api import Page
 
 from core.utils.logger import logger
+from core.utils.browser_helpers import safe_text
 from .selectors import (
     BUSINESS_RATINGS_URL, RATINGS_OVERALL_SELECTOR, RATINGS_OVERALL_CATEGORY_SELECTOR,
     RATINGS_TRIPS_COUNT_SELECTOR, RATINGS_RATINGS_COUNT_SELECTOR, RATINGS_AVERAGE_SELECTOR,
@@ -15,6 +16,30 @@ from .selectors import (
     REVIEW_AREAS_IMPROVEMENT_SELECTOR, REVIEW_HOST_RESPONSE_SELECTOR, REVIEW_FILLED_STAR_SELECTOR
 )
 
+# ------------------------------ HELPER FUNCTIONS ------------------------------
+
+async def try_selectors(element, selectors: list[str]) -> Optional[str]:
+    """Try multiple selectors and return first valid result."""
+    for selector in selectors:
+        try:
+            target = await element.query_selector(selector)
+            text = await safe_text(target)
+            if text:
+                return text.strip()
+        except Exception:
+            continue
+    return None
+
+def extract_with_regex(text: str, pattern: str, group: int = 1) -> Optional[str]:
+    """Extract text using regex pattern."""
+    match = re.search(pattern, text)
+    return match.group(group) if match else None
+
+def extract_number(text: str) -> Optional[float]:
+    """Extract number from text using regex."""
+    match = extract_with_regex(text, r'(\d+\.?\d*)')
+    return float(match) if match else None
+
 # ------------------------------ RATINGS PAGE SCRAPING ------------------------------
 
 async def navigate_to_ratings_page(page: Page) -> bool:
@@ -24,13 +49,12 @@ async def navigate_to_ratings_page(page: Page) -> bool:
         await page.goto(BUSINESS_RATINGS_URL, wait_until="domcontentloaded")
         await page.wait_for_timeout(2000)
         
-        if "business/reviews" in page.url:
+        success = "business/reviews" in page.url
+        if success:
             logger.info("Successfully navigated to Business Reviews page")
-            return True
         else:
             logger.warning(f"Navigation may have failed. Current URL: {page.url}")
-            return False
-            
+        return success
     except Exception as e:
         logger.exception(f"Error navigating to Business Reviews: {e}")
         return False
@@ -38,25 +62,16 @@ async def navigate_to_ratings_page(page: Page) -> bool:
 async def extract_overall_rating(page: Page) -> dict[str, str | None]:
     """Extract overall rating percentage and category."""
     try:
-        overall_rating = {
-            'percentage': None,
-            'category': None
-        }
-        
         percentage_element = await page.query_selector(RATINGS_OVERALL_SELECTOR)
-        if percentage_element:
-            percentage_text = await percentage_element.text_content()
-            if percentage_text:
-                overall_rating['percentage'] = percentage_text.strip()
+        percentage = await safe_text(percentage_element)
         
         category_element = await page.query_selector(RATINGS_OVERALL_CATEGORY_SELECTOR)
-        if category_element:
-            category_text = await category_element.text_content()
-            if category_text:
-                overall_rating['category'] = category_text.strip()
+        category = await safe_text(category_element)
         
-        return overall_rating
-        
+        return {
+            'percentage': percentage,
+            'category': category
+        }
     except Exception as e:
         logger.debug(f"Error extracting overall rating: {e}")
         return {'percentage': None, 'category': None}
@@ -64,34 +79,15 @@ async def extract_overall_rating(page: Page) -> dict[str, str | None]:
 async def extract_trip_metrics(page: Page) -> dict[str, int | float | None]:
     """Extract trip counts, ratings count, and average rating."""
     try:
-        trip_metrics = {
-            'trips_count': None,
-            'ratings_count': None,
-            'average_rating': None
+        trips_text = await safe_text(await page.query_selector(RATINGS_TRIPS_COUNT_SELECTOR))
+        ratings_text = await safe_text(await page.query_selector(RATINGS_RATINGS_COUNT_SELECTOR))
+        average_text = await safe_text(await page.query_selector(RATINGS_AVERAGE_SELECTOR))
+        
+        return {
+            'trips_count': int(trips_text) if trips_text else None,
+            'ratings_count': int(ratings_text) if ratings_text else None,
+            'average_rating': extract_number(average_text) if average_text else None
         }
-        
-        trips_element = await page.query_selector(RATINGS_TRIPS_COUNT_SELECTOR)
-        if trips_element:
-            trips_text = await trips_element.text_content()
-            if trips_text:
-                trip_metrics['trips_count'] = int(trips_text.strip())
-        
-        ratings_element = await page.query_selector(RATINGS_RATINGS_COUNT_SELECTOR)
-        if ratings_element:
-            ratings_text = await ratings_element.text_content()
-            if ratings_text:
-                trip_metrics['ratings_count'] = int(ratings_text.strip())
-        
-        average_element = await page.query_selector(RATINGS_AVERAGE_SELECTOR)
-        if average_element:
-            average_text = await average_element.text_content()
-            if average_text:
-                rating_match = re.search(r'(\d+\.?\d*)', average_text)
-                if rating_match:
-                    trip_metrics['average_rating'] = float(rating_match.group(1))
-        
-        return trip_metrics
-        
     except Exception as e:
         logger.debug(f"Error extracting trip metrics: {e}")
         return {'trips_count': None, 'ratings_count': None, 'average_rating': None}
@@ -99,29 +95,22 @@ async def extract_trip_metrics(page: Page) -> dict[str, int | float | None]:
 async def extract_reviews_header(page: Page) -> dict[str, str | int | None]:
     """Extract reviews section header information."""
     try:
-        reviews_header = {
-            'title': None,
-            'count': None,
-            'category': None
-        }
-        
         title_element = await page.query_selector(REVIEWS_HEADER_SELECTORS[0])
-        if title_element:
-            title_text = await title_element.text_content()
-            if title_text:
-                reviews_header['title'] = title_text.strip()
-                count_match = re.search(r'\((\d+)\)', title_text)
-                if count_match:
-                    reviews_header['count'] = int(count_match.group(1))
+        title_text = await safe_text(title_element)
         
         category_element = await page.query_selector(REVIEWS_CATEGORY_SELECTOR)
-        if category_element:
-            category_text = await category_element.text_content()
-            if category_text:
-                reviews_header['category'] = category_text.strip()
+        category_text = await safe_text(category_element)
         
-        return reviews_header
+        count = None
+        if title_text:
+            count_match = extract_with_regex(title_text, r'\((\d+)\)')
+            count = int(count_match) if count_match else None
         
+        return {
+            'title': title_text,
+            'count': count,
+            'category': category_text
+        }
     except Exception as e:
         logger.debug(f"Error extracting reviews header: {e}")
         return {'title': None, 'count': None, 'category': None}
@@ -133,16 +122,13 @@ async def extract_star_rating(review_element) -> int | None:
         if rating_element:
             aria_label = await rating_element.get_attribute('aria-label')
             if aria_label:
-                rating_match = re.search(r'Rating:\s*(\d+)\s*out of 5', aria_label)
+                rating_match = extract_with_regex(aria_label, r'Rating:\s*(\d+)\s*out of 5')
                 if rating_match:
-                    return int(rating_match.group(1))
+                    return int(rating_match)
         
         filled_stars = await review_element.query_selector_all(REVIEW_FILLED_STAR_SELECTOR)
-        if filled_stars:
-            return len(filled_stars)
-        
-        return None
-        
+        return len(filled_stars) if filled_stars else None
+    
     except Exception as e:
         logger.debug(f"Error extracting star rating: {e}")
         return None
@@ -150,131 +136,64 @@ async def extract_star_rating(review_element) -> int | None:
 async def extract_individual_review(review_element, review_index: int) -> dict[str, Any]:
     """Extract individual review data from a review element."""
     try:
-        raw_html = await review_element.inner_html()
-        logger.info(f"Review {review_index + 1} - Raw HTML: {raw_html[:200]}...")
-        
-        raw_text = await review_element.text_content()
-        logger.info(f"Review {review_index + 1} - Raw text: {raw_text}")
-        
-        review_data = {
-            'customer_name': None,
-            'customer_id': None,
-            'customer_image_url': None,
-            'customer_image_alt': None,
-            'rating': None,
-            'date': None,
-            'vehicle_info': None,
-            'review_text': None,
-            'areas_of_improvement': [],
-            'host_response': None,
-            'has_host_response': False
-        }
-        
         customer_link = await review_element.query_selector(REVIEW_CUSTOMER_LINK_SELECTOR)
+        customer_id = None
         if customer_link:
             href = await customer_link.get_attribute('href')
-            if href:
-                id_match = re.search(r'/drivers/(\d+)', href)
-                if id_match:
-                    review_data['customer_id'] = id_match.group(1)
+            customer_id = extract_with_regex(href or '', r'/drivers/(\d+)') if href else None
         
         customer_image = await review_element.query_selector(REVIEW_CUSTOMER_IMAGE_SELECTOR)
-        if customer_image:
-            if await customer_image.evaluate('el => el.tagName') == 'IMG':
-                review_data['customer_image_url'] = await customer_image.get_attribute('src')
-                review_data['customer_image_alt'] = await customer_image.get_attribute('alt')
-            else:
-                review_data['customer_image_url'] = None
-                review_data['customer_image_alt'] = None
+        image_url, image_alt = None, None
+        if customer_image and await customer_image.evaluate('el => el.tagName') == 'IMG':
+            image_url = await customer_image.get_attribute('src')
+            image_alt = await customer_image.get_attribute('alt')
         
-        name_element = await review_element.query_selector(REVIEW_CUSTOMER_NAME_SELECTOR)
-        logger.info(f"Review {review_index + 1} - Customer name selector '{REVIEW_CUSTOMER_NAME_SELECTOR}' found element: {name_element is not None}")
-        if name_element:
-            name_text = await name_element.text_content()
-            logger.info(f"Review {review_index + 1} - Customer name text: '{name_text}'")
-            if name_text:
-                review_data['customer_name'] = name_text.strip()
-                logger.info(f"Review {review_index + 1} - Set customer name: '{review_data['customer_name']}'")
-        else:
-            logger.info(f"Review {review_index + 1} - Trying alternative selectors for customer name")
-            alternative_selectors = [
-                'p span:first-child',
-                '.css-j2jl8y-StyledText span',
-                'span:first-child',
-                'p span',
-                'span'
-            ]
-            for alt_selector in alternative_selectors:
-                alt_element = await review_element.query_selector(alt_selector)
-                if alt_element:
-                    alt_text = await alt_element.text_content()
-                    if alt_text and alt_text.strip():
-                        logger.info(f"Review {review_index + 1} - Alternative selector '{alt_selector}' found: '{alt_text.strip()}'")
-                        review_data['customer_name'] = alt_text.strip()
-                        break
+        customer_name = await try_selectors(review_element, [REVIEW_CUSTOMER_NAME_SELECTOR])
+        if not customer_name:
+            alternative_selectors = ['p span:first-child', '.css-j2jl8y-StyledText span', 'span:first-child', 'p span', 'span']
+            customer_name = await try_selectors(review_element, alternative_selectors)
         
-        review_data['rating'] = await extract_star_rating(review_element)
+        date_text = await safe_text(await review_element.query_selector(REVIEW_DATE_SELECTOR))
+        date = date_text.replace('•', '').strip() if date_text else None
         
-        date_element = await review_element.query_selector(REVIEW_DATE_SELECTOR)
-        if date_element:
-            date_text = await date_element.text_content()
-            if date_text:
-                clean_date = date_text.replace('•', '').strip()
-                review_data['date'] = clean_date
-        
-        vehicle_element = await review_element.query_selector(REVIEW_VEHICLE_INFO_SELECTOR)
-        if vehicle_element:
-            vehicle_text = await vehicle_element.text_content()
-            if vehicle_text:
-                review_data['vehicle_info'] = vehicle_text.strip()
-        
-        text_element = await review_element.query_selector(REVIEW_TEXT_SELECTOR)
-        if text_element:
-            text_content = await text_element.text_content()
-            if text_content:
-                review_data['review_text'] = text_content.strip()
+        vehicle_info = await safe_text(await review_element.query_selector(REVIEW_VEHICLE_INFO_SELECTOR))
+        review_text = await safe_text(await review_element.query_selector(REVIEW_TEXT_SELECTOR))
         
         improvement_elements = await review_element.query_selector_all(REVIEW_AREAS_IMPROVEMENT_SELECTOR)
-        for element in improvement_elements:
-            improvement_text = await element.text_content()
-            if improvement_text:
-                review_data['areas_of_improvement'].append(improvement_text.strip())
+        areas_of_improvement = [await safe_text(element) for element in improvement_elements if await safe_text(element)]
         
-        response_element = await review_element.query_selector(REVIEW_HOST_RESPONSE_SELECTOR)
-        if response_element:
-            response_text = await response_element.text_content()
-            if response_text:
-                review_data['host_response'] = response_text.strip()
-                review_data['has_host_response'] = True
+        response_text = await safe_text(await review_element.query_selector(REVIEW_HOST_RESPONSE_SELECTOR))
+        has_host_response = bool(response_text)
         
-        return review_data
-        
+        return {
+            'customer_name': customer_name,
+            'customer_id': customer_id,
+            'customer_image_url': image_url,
+            'customer_image_alt': image_alt,
+            'rating': await extract_star_rating(review_element),
+            'date': date,
+            'vehicle_info': vehicle_info,
+            'review_text': review_text,
+            'areas_of_improvement': areas_of_improvement,
+            'host_response': response_text,
+            'has_host_response': has_host_response
+        }
     except Exception as e:
         logger.debug(f"Error extracting individual review {review_index}: {e}")
         return {
-            'customer_name': None,
-            'customer_id': None,
-            'customer_image_url': None,
-            'customer_image_alt': None,
-            'rating': None,
-            'date': None,
-            'vehicle_info': None,
-            'review_text': None,
-            'areas_of_improvement': [],
-            'host_response': None,
-            'has_host_response': False
+            'customer_name': None, 'customer_id': None, 'customer_image_url': None, 'customer_image_alt': None,
+            'rating': None, 'date': None, 'vehicle_info': None, 'review_text': None,
+            'areas_of_improvement': [], 'host_response': None, 'has_host_response': False
         }
 
 async def extract_all_reviews(page: Page) -> list[dict[str, Any]]:
     """Extract all reviews from the reviews section."""
     try:
-        reviews = []
-        
         await page.wait_for_selector(REVIEW_LIST_CONTAINER_SELECTOR, timeout=10000)
-        
         review_elements = await page.query_selector_all(REVIEW_ITEM_SELECTOR)
         logger.info(f"Found {len(review_elements)} review elements")
         
+        reviews = []
         for i, review_element in enumerate(review_elements):
             try:
                 review_data = await extract_individual_review(review_element, i)
@@ -283,13 +202,13 @@ async def extract_all_reviews(page: Page) -> list[dict[str, Any]]:
                 customer_name = review_data.get('customer_name') or 'Unknown'
                 rating = review_data.get('rating') or 'N/A'
                 logger.info(f"Scraped review {i+1}: {customer_name} - {rating}")
-                
+            
             except Exception as e:
                 logger.debug(f"Error extracting review {i+1}: {e}")
                 continue
         
         return reviews
-        
+
     except Exception as e:
         logger.debug(f"Error extracting all reviews: {e}")
         return []
@@ -304,17 +223,10 @@ async def scrape_ratings_data(page: Page) -> dict[str, Any] | None:
             return None
         
         overall_rating = await extract_overall_rating(page)
-        
         trip_metrics = await extract_trip_metrics(page)
-        
         reviews_header = await extract_reviews_header(page)
-        
         reviews = await extract_all_reviews(page)
         
-        total_reviews = len(reviews)
-        reviews_with_ratings = len([r for r in reviews if r.get('rating') is not None])
-        reviews_with_responses = len([r for r in reviews if r.get('has_host_response')])
-                
         individual_ratings = [r.get('rating') for r in reviews if r.get('rating') is not None]
         calculated_average = sum(individual_ratings) / len(individual_ratings) if individual_ratings else None
         
@@ -324,9 +236,9 @@ async def scrape_ratings_data(page: Page) -> dict[str, Any] | None:
             'reviews_header': reviews_header,
             'reviews': reviews,
             'summary': {
-                'total_reviews': total_reviews,
-                'reviews_with_ratings': reviews_with_ratings,
-                'reviews_with_responses': reviews_with_responses,
+                'total_reviews': len(reviews),
+                'reviews_with_ratings': len(individual_ratings),
+                'reviews_with_responses': len([r for r in reviews if r.get('has_host_response')]),
                 'calculated_average_rating': calculated_average,
                 'scraped_at': datetime.utcnow().isoformat()
             }
@@ -334,7 +246,7 @@ async def scrape_ratings_data(page: Page) -> dict[str, Any] | None:
         
         logger.info("Ratings data scraping completed successfully!")
         return ratings_data
-        
+
     except Exception as e:
         logger.exception(f"Error scraping ratings data: {e}")
         return None
@@ -349,23 +261,24 @@ async def scrape_all_ratings_data(page: Page) -> dict[str, Any] | None:
         ratings_data = await scrape_ratings_data(page)
         if not ratings_data:
             logger.warning("Failed to scrape ratings data")
-            
-        all_ratings_data = {
-            'ratings': ratings_data if ratings_data else {
+            ratings_data = {
                 'overall_rating': {'percentage': None, 'category': None},
                 'trip_metrics': {'trips_count': None, 'ratings_count': None, 'average_rating': None},
                 'reviews_header': {'title': None, 'count': None, 'category': None},
                 'reviews': [],
                 'summary': {'total_reviews': 0, 'reviews_with_ratings': 0, 'reviews_with_responses': 0, 'calculated_average_rating': None, 'scraped_at': datetime.utcnow().isoformat()}
-            },
-            'scraping_success': {
-                'ratings': ratings_data is not None
             }
+        
+        all_ratings_data = {
+            'ratings': ratings_data,
+            'scraping_success': {'ratings': ratings_data is not None}
         }
         
         logger.info("All ratings data scraping completed!")
         return all_ratings_data
-        
+
     except Exception as e:
         logger.exception(f"Error scraping all ratings data: {e}")
         return None
+
+# ------------------------------ END OF FILE ------------------------------

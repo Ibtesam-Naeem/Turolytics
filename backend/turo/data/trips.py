@@ -3,7 +3,7 @@ from datetime import datetime
 from playwright.async_api import Page
 
 from core.utils.logger import logger
-from core.utils.browser_helpers import scroll_to_bottom_and_wait
+from core.utils.browser_helpers import scroll_to_bottom_and_wait, safe_text
 from .selectors import (
     TRIPS_BOOKED_URL, TRIPS_HISTORY_URL,
     TRIPS_UPCOMING_LIST, TRIP_HISTORY_LIST, TRIP_CARD,
@@ -11,25 +11,59 @@ from .selectors import (
 )
 from .extraction_helpers import extract_complete_trip_data, extract_month_headers
 
-# ------------------------------ BOOKED TRIPS SCRAPING ------------------------------
+# ------------------------------ HELPER FUNCTIONS ------------------------------
 
-async def navigate_to_booked_trips(page: Page):
-    """Navigate to the booked trips page under the Trips section."""
+async def navigate_to_page(page: Page, url: str, expected_path: str, page_name: str) -> bool:
+    """Generic navigation function for trips pages."""
     try:
-        logger.info("Navigating to Trips -> Booked page...")
-        await page.goto(TRIPS_BOOKED_URL, wait_until="domcontentloaded")
+        logger.info(f"Navigating to {page_name}...")
+        await page.goto(url, wait_until="domcontentloaded")
         await page.wait_for_timeout(2000)
         
-        if "trips/booked" in page.url:
-            logger.info("Successfully navigated to Trips -> Booked page")
-            return True
+        success = expected_path in page.url
+        if success:
+            logger.info(f"Successfully navigated to {page_name}")
         else:
             logger.warning(f"Navigation may have failed. Current URL: {page.url}")
-            return False
-            
+        return success
+   
     except Exception as e:
-        logger.exception(f"Error navigating to Trips -> Booked: {e}")
+        logger.exception(f"Error navigating to {page_name}: {e}")
         return False
+
+async def extract_trip_cards_data(page: Page, card_selector: str, list_selector: str, page_name: str) -> list[dict]:
+    """Generic function to extract trip cards data."""
+    try:
+        await page.wait_for_selector(list_selector, timeout=10000)
+        trip_cards = await page.query_selector_all(card_selector)
+        logger.info(f"Found {len(trip_cards)} trip cards on {page_name}")
+        
+        trips_list = []
+        for i, card in enumerate(trip_cards):
+            try:
+                trip_data = await extract_complete_trip_data(card, i)
+                trips_list.append(trip_data)
+                
+                trip_id = trip_data.get('trip_id', 'Unknown ID')
+                customer_name = trip_data.get('customer_name', 'N/A')
+                status = trip_data.get('status', 'N/A')
+                logger.info(f"Scraped {page_name} trip {i+1}: {trip_id} - {status} - {customer_name}")
+            
+            except Exception as e:
+                logger.warning(f"Error scraping {page_name} trip card {i}: {e}")
+                continue
+        
+        return trips_list
+
+    except Exception as e:
+        logger.exception(f"Error extracting {page_name} trip cards: {e}")
+        return []
+
+# ------------------------------ BOOKED TRIPS SCRAPING ------------------------------
+
+async def navigate_to_booked_trips(page: Page) -> bool:
+    """Navigate to the booked trips page under the Trips section."""
+    return await navigate_to_page(page, TRIPS_BOOKED_URL, "trips/booked", "Trips -> Booked")
 
 async def scrape_booked_trips(page: Page):
     """Scrape all booked/upcoming trips data from the booked trips page."""
@@ -39,37 +73,20 @@ async def scrape_booked_trips(page: Page):
         if not await navigate_to_booked_trips(page):
             logger.error("Failed to navigate to booked trips page")
             return None
+        
+        trips_list = await extract_trip_cards_data(page, TRIP_CARD, TRIPS_UPCOMING_LIST, "booked")
+        
+        for trip_data in trips_list:
+            location_element = await page.query_selector(LOCATION)
+            if location_element:
+                trip_data['location'] = await safe_text(location_element)
             
-        await page.wait_for_selector(TRIPS_UPCOMING_LIST, timeout=10000)
+            time_element = await page.query_selector(TIME_INFO)
+            if time_element:
+                trip_data['time_info'] = await safe_text(time_element)
         
-        trip_cards = await page.query_selector_all(TRIP_CARD)
-        trips_list = []
-        
-        for i, card in enumerate(trip_cards):
-            try:
-                trip_data = await extract_complete_trip_data(card, i)
-                
-                location_element = await card.query_selector(LOCATION)
-                if location_element:
-                    trip_data['location'] = await location_element.text_content()
-                
-                time_element = await card.query_selector(TIME_INFO)
-                if time_element:
-                    trip_data['time_info'] = await time_element.text_content()
-                
-                trips_list.append(trip_data)
-                logger.info(f"Scraped booked trip: {trip_data.get('trip_id', 'Unknown ID')}")
-                
-            except Exception as e:
-                logger.warning(f"Error scraping booked trip card {i}: {e}")
-                continue
-        
-        dates_list = []
         date_headers = await page.query_selector_all(DATE_HEADER_SELECTORS[0])
-        for header in date_headers:
-            date_text = await header.text_content()
-            if date_text:
-                dates_list.append(date_text)
+        dates_list = [await safe_text(header) for header in date_headers if await safe_text(header)]
         
         booked_trips_data = {
             "trips": trips_list,
@@ -80,30 +97,16 @@ async def scrape_booked_trips(page: Page):
         
         logger.info("Booked trips scraping completed successfully!")
         return booked_trips_data
-        
+
     except Exception as e:
         logger.exception(f"Error scraping booked trips: {e}")
         return None
 
 # ------------------------------ HISTORY TRIPS SCRAPING ------------------------------
 
-async def navigate_to_trip_history(page: Page):
+async def navigate_to_trip_history(page: Page) -> bool:
     """Navigate to the trip history page under the Trips section."""
-    try:
-        logger.info("Navigating to Trips -> History page...")
-        await page.goto(TRIPS_HISTORY_URL, wait_until="domcontentloaded")
-        await page.wait_for_timeout(2000)
-        
-        if "trips/history" in page.url:
-            logger.info("Successfully navigated to Trips -> History page")
-            return True
-        else:
-            logger.warning(f"Navigation may have failed. Current URL: {page.url}")
-            return False
-            
-    except Exception as e:
-        logger.exception(f"Error navigating to Trips -> History: {e}")
-        return False
+    return await navigate_to_page(page, TRIPS_HISTORY_URL, "trips/history", "Trips -> History")
 
 async def scrape_trip_history(page: Page):
     """Scrape all completed trips data from the trip history page."""
@@ -113,28 +116,10 @@ async def scrape_trip_history(page: Page):
         if not await navigate_to_trip_history(page):
             logger.error("Failed to navigate to trip history page")
             return None
-            
-        await page.wait_for_selector(TRIP_HISTORY_LIST, timeout=10000)
         
         await scroll_to_bottom_and_wait(page)
         
-        trip_cards = await page.query_selector_all(TRIP_CARD)
-        logger.info(f"Found {len(trip_cards)} trip cards on history page")
-        
-        trips_list = []
-        
-        for i, card in enumerate(trip_cards):
-            try:
-                trip_data = await extract_complete_trip_data(card, i)
-                trips_list.append(trip_data)
-                
-                customer_name = trip_data.get('customer_name', 'N/A')
-                logger.info(f"Scraped history trip {i+1}: {trip_data.get('trip_id')} - "
-                          f"{trip_data.get('status')} - {customer_name}")
-                
-            except Exception as e:
-                logger.warning(f"Error scraping history trip card {i}: {e}")
-                continue
+        trips_list = await extract_trip_cards_data(page, TRIP_CARD, TRIP_HISTORY_LIST, "history")
         
         months_list = await extract_month_headers(page)
         
@@ -152,7 +137,7 @@ async def scrape_trip_history(page: Page):
         
         logger.info("Trip history scraping completed successfully!")
         return trip_history_data
-        
+
     except Exception as e:
         logger.exception(f"Error scraping trip history: {e}")
         return None
@@ -167,26 +152,16 @@ async def scrape_all_trips(page: Page):
         booked_data = await scrape_booked_trips(page)
         if not booked_data:
             logger.warning("Failed to scrape booked trips data")
-            
+            booked_data = {"trips": [], "total_trips": 0, "dates": [], "scraped_at": None}
+        
         history_data = await scrape_trip_history(page)
         if not history_data:
             logger.warning("Failed to scrape trip history data")
-            
+            history_data = {"trips": [], "total_trips": 0, "completed_trips": 0, "cancelled_trips": 0, "months": [], "scraped_at": None}
+        
         all_trips_data = {
-            "booked_trips": booked_data if booked_data else {
-                "trips": [], 
-                "total_trips": 0,
-                "dates": [],
-                "scraped_at": None
-            },
-            "trip_history": history_data if history_data else {
-                "trips": [], 
-                "total_trips": 0,
-                "completed_trips": 0,
-                "cancelled_trips": 0,
-                "months": [],
-                "scraped_at": None
-            },
+            "booked_trips": booked_data,
+            "trip_history": history_data,
             "scraping_success": {
                 "booked": booked_data is not None,
                 "history": history_data is not None
@@ -195,7 +170,7 @@ async def scrape_all_trips(page: Page):
         
         logger.info("All trips data scraping completed!")
         return all_trips_data
-        
+
     except Exception as e:
         logger.exception(f"Error scraping all trips data: {e}")
         return None

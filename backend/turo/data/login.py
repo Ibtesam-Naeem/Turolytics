@@ -1,12 +1,11 @@
 # ------------------------------ IMPORTS ------------------------------
 import getpass
-import os
-from typing import Optional
+from typing import Optional, Tuple
 
 from playwright.async_api import Page, BrowserContext, Browser
 
 from core.utils.logger import logger
-from core.utils.browser_helpers import get_iframe_content, search_for_error_messages, clear_form_inputs, check_for_success_element, retry_operation, click_continue_button_with_retry, close_browser_safely
+from core.utils.browser_helpers import get_iframe_content, search_for_error_messages, clear_form_inputs, check_for_success_element, click_continue_button_with_retry
 from core.config.browser_settings import launch_browser
 from core.security.session import verify_session_authenticated, save_storage_state, get_storage_state
 
@@ -20,7 +19,71 @@ CODE_INPUT_SELECTOR = '#challengeCode'
 FINAL_CONTINUE_BUTTON = 'button:has-text("Submit")'
 CONTINUE_BUTTON_TEXT_SELECTOR = "button:has-text('Continue')"
 
-# ------------------------------ STEP 1: OPEN LOGIN PAGE ------------------------------
+# ------------------------------ HELPER FUNCTIONS ------------------------------
+
+async def get_credentials(email: str = None, password: str = None) -> Tuple[str, str]:
+    """Get login credentials from user input if not provided."""
+    if not email:
+        try:
+            email = input("Enter your Turo email: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            raise Exception("Cannot read email from input. Please run the server in a terminal to enter credentials manually.")
+    
+    if not password:
+        try:
+            password = getpass.getpass("Enter your Turo password: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            raise Exception("Cannot read password from input. Please run the server in a terminal to enter credentials manually.")
+    
+    if not email or not password:
+        raise Exception("Turo credentials are required.")
+    
+    return email, password
+
+async def get_2fa_code() -> str:
+    """Get 2FA code from user input."""
+    for attempt in range(3):
+        try:
+            code = input("Enter the 2FA code you received via text: ").strip()
+            if code:
+                return code
+            logger.warning(f"2FA code cannot be empty. Please try again. (Attempt {attempt + 1}/3)")
+        
+        except (EOFError, KeyboardInterrupt):
+            raise Exception("Cannot read 2FA code from input. Please run the server in a terminal to enter the code manually.")
+    raise Exception("Failed to get valid 2FA code after 3 attempts")
+
+async def check_login_success(page: Page) -> bool:
+    """Check if login was successful by looking for success indicators."""
+    success_indicators = [
+        "**/dashboard", "**/trips", "**/trips/booked", 
+        "**/trips/booked?recentUpdates=true", "**/account", "**/profile"
+    ]
+    
+    for indicator in success_indicators:
+        try:
+            await page.wait_for_url(indicator, timeout=5000)
+            logger.info(f"Login successful! Redirected to: {indicator}")
+            return True
+        except:
+            continue
+    
+    success_selectors = [
+        '[data-testid="user-menu"]', '.user-menu', '.account-menu',
+        '[aria-label*="Account"]', '[aria-label*="Profile"]', '.avatar', '.user-avatar'
+    ]
+    
+    for selector in success_selectors:
+        try:
+            element = await page.wait_for_selector(selector, timeout=2000)
+            if element:
+                logger.info(f"Login successful - Found success indicator: {selector}")
+                return True
+        except:
+            continue
+    
+    return False
+
 async def open_turo_login(page: Page) -> bool:
     """Open login page and click 'Continue with email'."""
     try:
@@ -36,7 +99,6 @@ async def open_turo_login(page: Page) -> bool:
         await button.hover()
         await button.click()
         await page.wait_for_timeout(1000)
-
         logger.info("'Continue with email' clicked successfully.")
         return True
 
@@ -44,30 +106,12 @@ async def open_turo_login(page: Page) -> bool:
         logger.exception(f"Error during open_turo_login: {e}")
         return False
 
-# ------------------------------ STEP 2: SUBMIT CREDENTIALS ------------------------------
 async def login_with_credentials(page: Page, email: str = None, password: str = None) -> bool:
     """Login with credentials, fill form, and submit."""
     try:
-        if not email:
-            try:
-                email = input("Enter your Turo email: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                logger.error("Cannot read email from input. Please run the server in a terminal to enter credentials manually.")
-                return False
-                
-        if not password:
-            try:
-                password = getpass.getpass("Enter your Turo password: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                logger.error("Cannot read password from input. Please run the server in a terminal to enter credentials manually.")
-                return False
-            
-        if not email or not password:
-            logger.error("Turo credentials are required.")
-            return False
-
+        email, password = await get_credentials(email, password)
+        
         for attempt in range(3):
-
             logger.info("Switching to login iframe...")
             iframe_content = await get_iframe_content(page)
             if not iframe_content:
@@ -84,14 +128,12 @@ async def login_with_credentials(page: Page, email: str = None, password: str = 
             await page.wait_for_timeout(800)
 
             await click_continue_button_with_retry(page, iframe_content, CONTINUE_BUTTON_TEXT_SELECTOR)
-
             await page.wait_for_timeout(2000)
 
             error_message = await search_for_error_messages(page, iframe_content)
             if error_message:
                 logger.error(f"Login failed with error: '{error_message}'")
                 await clear_form_inputs(page, [EMAIL_SELECTOR, PASSWORD_SELECTOR], iframe_content)
-                
                 if attempt < 2:
                     logger.warning(f"Retrying login (Attempt {attempt + 2}/3)...")
                 continue
@@ -102,7 +144,6 @@ async def login_with_credentials(page: Page, email: str = None, password: str = 
             
             logger.error("Login failed: No error message found and 2FA not triggered.")
             await clear_form_inputs(page, [EMAIL_SELECTOR, PASSWORD_SELECTOR], iframe_content)
-            
             if attempt < 2:
                 logger.warning(f"Retrying login (Attempt {attempt + 2}/3)...")
 
@@ -113,17 +154,8 @@ async def login_with_credentials(page: Page, email: str = None, password: str = 
         logger.exception(f"Error during login_with_credentials: {e}")
         return False
 
-# ------------------------------ STEP 3: HANDLE 2FA ------------------------------
 async def handle_two_factor_auth(page: Page) -> bool:
-    """
-    Handles the Turo two-factor authentication (2FA) step.
-
-    Args:
-        page: Playwright page object.
-
-    Returns:
-        bool: True if 2FA is successfully completed, Otherwise False.
-    """
+    """Handles the Turo two-factor authentication (2FA) step."""
     try:
         logger.info("Waiting for 2FA page...")
 
@@ -133,7 +165,6 @@ async def handle_two_factor_auth(page: Page) -> bool:
             logger.info("'Text code' button clicked on main page.")
             main_page_2fa = True
             iframe_content = None
-
         except:
             try:
                 iframe_content = await get_iframe_content(page, timeout=10000)
@@ -146,32 +177,17 @@ async def handle_two_factor_auth(page: Page) -> bool:
                 logger.error(f"Could not find 2FA text button: {e}")
                 return False
 
-        for attempt in range(3):
-            try:
-                code = input("Enter the 2FA code you received via text: ").strip()
-            
-            except (EOFError, KeyboardInterrupt):
-                logger.error("Cannot read 2FA code from input. Please run the server in a terminal to enter the code manually.")
-                return False
-            
-            if code:
-                break
-            logger.warning(f"2FA code cannot be empty. Please try again. (Attempt {attempt + 1}/3)")
-        else:
-            return False
+        code = await get_2fa_code()
 
         if main_page_2fa:
             await page.fill(CODE_INPUT_SELECTOR, code)
-            await page.wait_for_timeout(500)
             submit_btn = await page.wait_for_selector(FINAL_CONTINUE_BUTTON, timeout=10000)
         else:
             await iframe_content.fill(CODE_INPUT_SELECTOR, code)
-            await page.wait_for_timeout(500)
             submit_btn = await iframe_content.wait_for_selector(FINAL_CONTINUE_BUTTON, timeout=10000)
 
         await submit_btn.click()
         await page.wait_for_timeout(2000)
-
         logger.info("2FA code submitted successfully.")
         return True
 
@@ -179,56 +195,56 @@ async def handle_two_factor_auth(page: Page) -> bool:
         logger.exception(f"Error during handle_two_factor_auth: {e}")
         return False
 
-# ------------------------------ MAIN LOGIN FUNCTION ------------------------------
-async def complete_turo_login(headless: bool = False, account_id: int = 1, email: str = None, password: str = None) -> Optional[tuple[Page, BrowserContext, Browser]]:
+async def restore_session(page: Page, account_id: int) -> bool:
+    """Try to restore session from storage state."""
+    storage_state = get_storage_state(account_id)
+    if not storage_state:
+        return False
+    
+    logger.info("Attempting session restore via database storage state...")
+    try:
+        cookies = storage_state.get('cookies', [])
+        if cookies:
+            for cookie in cookies:
+                if 'domain' not in cookie and 'url' not in cookie:
+                    cookie['domain'] = '.turo.com'
+                if 'path' not in cookie:
+                    cookie['path'] = '/'
+            try:
+                await page.context.add_cookies(cookies)
+
+            except Exception as cookie_error:
+                logger.warning(f"Could not add cookies: {cookie_error}")
+        
+        await page.context.add_init_script("localStorage.clear(); sessionStorage.clear();")
+        
+        origins = storage_state.get('origins', [])
+        if origins:
+            origin_data = origins[0]
+            for key, value in origin_data.get('localStorage', []):
+                await page.context.add_init_script(f"localStorage.setItem('{key}', '{value}');")
+            for key, value in origin_data.get('sessionStorage', []):
+                await page.context.add_init_script(f"sessionStorage.setItem('{key}', '{value}');")
+        
+        logger.info("Storage state injected successfully")
+        return await verify_session_authenticated(page)
+
+    except Exception as e:
+        logger.warning(f"Could not restore storage state: {e}")
+        return False
+
+async def complete_turo_login(headless: bool = False, account_id: int = 1, email: str = None, password: str = None) -> Optional[Tuple[Page, BrowserContext, Browser]]:
     """Log into Turo using manual email/password and 2FA input."""
     try:
         logger.info("Initiating Turo login automation...")
-
-        storage_state = get_storage_state(account_id)
         
-        page, context, browser = await launch_browser(
-            headless=headless,
-            storage_state_path=None,
-        )
+        page, context, browser = await launch_browser(headless=headless, storage_state_path=None)
         
-        if storage_state:
-            logger.info("Attempting session restore via database storage state...")
-            try:
-                cookies = storage_state.get('cookies', [])
-                if cookies:
-                    for cookie in cookies:
-                        if 'domain' not in cookie and 'url' not in cookie:
-                            cookie['domain'] = '.turo.com'
-                        if 'path' not in cookie:
-                            cookie['path'] = '/'
-                    try:
-                        await context.add_cookies(cookies)
-                        
-                    except Exception as cookie_error:
-                        logger.warning(f"Could not add cookies: {cookie_error}")
-                
-                await context.add_init_script(f"localStorage.clear(); sessionStorage.clear();")
-                
-                origins = storage_state.get('origins', [])
-                if origins and len(origins) > 0:
-                    origin_data = origins[0]
-                    for key, value in origin_data.get('localStorage', []):
-                        await context.add_init_script(f"localStorage.setItem('{key}', '{value}');")
-                    for key, value in origin_data.get('sessionStorage', []):
-                        await context.add_init_script(f"sessionStorage.setItem('{key}', '{value}');")
-                
-                logger.info("Storage state injected successfully")
-                
-                if await verify_session_authenticated(page):
-                    logger.info("Session restored successfully - no login required!")
-                    return page, context, browser
-                else:
-                    logger.info("Session expired or invalid, proceeding with fresh login")
-                    
-            except Exception as e:
-                logger.warning(f"Could not restore storage state: {e}")
-                logger.info("Proceeding with fresh login")
+        if await restore_session(page, account_id):
+            logger.info("Session restored successfully - no login required!")
+            return page, context, browser
+        
+        logger.info("Session expired or invalid, proceeding with fresh login")
         
         if not await open_turo_login(page):
             return None
@@ -246,55 +262,7 @@ async def complete_turo_login(headless: bool = False, account_id: int = 1, email
 
         logger.info("Checking if login was successful...")
         
-        success_indicators = [
-            "**/dashboard",
-            "**/trips",
-            "**/trips/booked",
-            "**/trips/booked?recentUpdates=true",
-            "**/account",
-            "**/profile"
-        ]
-        
-        success_detected = False
-        for indicator in success_indicators:
-            try:
-                await page.wait_for_url(indicator, timeout=5000)
-                logger.info(f"Login successful! Redirected to: {indicator}")
-                success_detected = True
-                break
-
-            except:
-                continue
-        
-        if not success_detected:
-            try:
-                await page.wait_for_timeout(3000)
-                
-                success_selectors = [
-                    '[data-testid="user-menu"]',
-                    '.user-menu',
-                    '.account-menu',
-                    '[aria-label*="Account"]',
-                    '[aria-label*="Profile"]',
-                    '.avatar',
-                    '.user-avatar'
-                ]
-                
-                for selector in success_selectors:
-                    try:
-                        element = await page.wait_for_selector(selector, timeout=2000)
-                        if element:
-                            logger.info(f"Login successful - Found success indicator: {selector}")
-                            success_detected = True
-                            break
-
-                    except:
-                        continue
-                        
-            except Exception as e:
-                logger.warning(f"Could not check for success elements: {e}")
-        
-        if success_detected:
+        if await check_login_success(page):
             logger.info("Login successful, user has been successfully authenticated.")
             await save_storage_state(context, account_id=account_id)
             return page, context, browser
@@ -304,12 +272,11 @@ async def complete_turo_login(headless: bool = False, account_id: int = 1, email
 
     except Exception as e:
         logger.exception(f"Error in complete_turo_login: {e}")
-
         try:
             if 'browser' in locals():
                 await browser.close()
                 logger.info("Browser closed successfully")
-                
+
         except Exception as cleanup_error:
             logger.warning(f"Error during browser cleanup: {cleanup_error}")
         return None
