@@ -2,6 +2,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import logging
+from dotenv import load_dotenv
+import os
+
+# Load environment variables
+load_dotenv()
 
 from turo.routes import router as turo_router
 from bouncie.routes import router as bouncie_router

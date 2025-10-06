@@ -64,11 +64,11 @@ async def upload_document(
     document_type: str = Form(...),
     title: Optional[str] = Form(None),
     description: Optional[str] = Form(None),
-    tags: Optional[str] = Form(None),  # JSON string
+    tags: Optional[str] = Form(None),  
     vehicle_id: Optional[int] = Form(None),
     trip_id: Optional[int] = Form(None),
     amount: Optional[float] = Form(None),
-    document_date: Optional[str] = Form(None),  # ISO string
+    document_date: Optional[str] = Form(None), 
     vendor: Optional[str] = Form(None),
     account_id: int = Query(..., description="Account ID"),
     db: Session = Depends(get_db)
@@ -198,11 +198,11 @@ async def update_document(
     account_id: int = Query(..., description="Account ID"),
     title: Optional[str] = Form(None),
     description: Optional[str] = Form(None),
-    tags: Optional[str] = Form(None),  # JSON string
+    tags: Optional[str] = Form(None),  
     vehicle_id: Optional[int] = Form(None),
     trip_id: Optional[int] = Form(None),
     amount: Optional[float] = Form(None),
-    document_date: Optional[str] = Form(None),  # ISO string
+    document_date: Optional[str] = Form(None),  
     vendor: Optional[str] = Form(None),
     document_type: Optional[str] = Form(None),
     status: Optional[str] = Form(None),

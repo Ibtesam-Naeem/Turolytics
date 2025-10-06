@@ -1,147 +1,175 @@
-from fastapi import APIRouter, HTTPException, Query, Header, Request
-from typing import Dict, Any, Optional
-import os
-import hmac
-import hashlib
-import json
+# ------------------------------ IMPORTS ------------------------------
+from fastapi import APIRouter, HTTPException, Query, Depends
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel
+import logging
 
 from .service import BouncieService, get_bouncie_vehicle_data
-from core.db.operations.bouncie_operations import save_bouncie_snapshot, store_bouncie_event
+from core.utils.api_helpers import validate_credentials, get_account_id
+from core.db.database import get_db_session
 
+logger = logging.getLogger(__name__)
+
+# ------------------------------ HELPER FUNCTIONS ------------------------------
+
+def check_result(result: Dict[str, Any], operation: str) -> Dict[str, Any]:
+    """Check API result and raise HTTPException if failed."""
+    if not result.get("success", False):
+        error_msg = result.get("error", "Unknown error")
+        logger.error(f"Bouncie {operation} failed: {error_msg}")
+        raise HTTPException(status_code=400, detail=f"Bouncie {operation} failed: {error_msg}")
+    return result
+
+# ------------------------------ PYDANTIC MODELS ------------------------------
+
+class TokenExchangeRequest(BaseModel):
+    authorization_code: str
+
+class TripRequest(BaseModel):
+    gps_format: str = "geojson"
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    imei: Optional[str] = None
+
+class DatabaseRequest(BaseModel):
+    account_email: str
+    imei: Optional[str] = None
+    limit: Optional[int] = 100
+    days: Optional[int] = 30
+
+# ------------------------------ ROUTER SETUP ------------------------------
 router = APIRouter(prefix="/bouncie", tags=["bouncie"])
 
-@router.get("/auth/url")
-async def get_auth_url():
-    """Get Bouncie OAuth authorization URL."""
-    service = BouncieService()
-    auth_url = service.get_authorization_url()
-    return {
-        "auth_url": auth_url,
-        "message": "Visit this URL to authorize Bouncie access"
-    }
+# ------------------------------ AUTHENTICATION ROUTES ------------------------------
 
-@router.post("/auth/callback")
-async def handle_auth_callback(code: str):
-    """Handle OAuth callback and get vehicle data."""
-    try:
-        result = await get_bouncie_vehicle_data(code)
-        if result["success"]:
-            return {
-                "success": True,
-                "message": "Successfully authenticated with Bouncie",
-                "data": result
-            }
-        else:
-            
-            raise HTTPException(status_code=400, detail=result["error"])
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+@router.get("/auth/url")
+async def get_authorization_url(state: Optional[str] = None):
+    """Get OAuth 2.0 authorization URL."""
+    service = BouncieService()
+    url = service.get_authorization_url(state)
+    return {"success": True, "data": {"authorization_url": url}}
+
+@router.post("/auth/token")
+async def exchange_code_for_token(request: TokenExchangeRequest):
+    """Exchange authorization code for access token."""
+    service = BouncieService()
+    result = await service.exchange_code_for_token(request.authorization_code)
+    return check_result(result, "token exchange")
+
+# ------------------------------ VEHICLE ROUTES ------------------------------
 
 @router.get("/vehicles")
-async def get_vehicles(auth_code: str = Query(..., description="Bouncie authorization code"), persist: bool = Query(False, description="Persist snapshot to DB")):
-    """Get vehicle data using authorization code."""
-    try:
-        result = await get_bouncie_vehicle_data(auth_code)
-        if result["success"]:
-            response = {
-                "success": True,
-                "vehicles": result["vehicles"],
-                "user": result["user"]["data"] if result["user"]["success"] else None
-            }
-            if persist and response["vehicles"]:
-                try:
-                    user_email = None
-                    if isinstance(result.get("user"), dict) and result["user"].get("success") and isinstance(result["user"].get("data"), dict):
-                        user_email = result["user"]["data"].get("email")
-                    if user_email:
-                        stats = save_bouncie_snapshot(user_email, response["vehicles"])
-                        response["persist_stats"] = stats
-                
-                except Exception as e:
-                    response["persist_error"] = str(e)
-            return response
-        else:
-            
-            raise HTTPException(status_code=400, detail=result["error"])
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/webhook/events")
-async def get_webhook_events():
-    """Get available webhook events."""
+async def get_vehicles():
+    """Get all vehicles."""
     service = BouncieService()
-    return {
-        "webhook_events": service.get_webhook_events(),
-        "description": "Available Bouncie webhook events for real-time notifications"
-    }
+    result = await service.get_vehicles()
+    return check_result(result, "get vehicles")
 
-@router.post("/webhook/test")
-async def test_webhook_payload(payload: Dict[str, Any]):
-    """Test webhook payload validation."""
+@router.get("/vehicles/{imei}")
+async def get_vehicle_by_imei(imei: str):
+    """Get specific vehicle by IMEI."""
+    service = BouncieService()
+    result = await service.get_vehicle_by_imei(imei)
+    return check_result(result, "get vehicle")
+
+@router.get("/vehicles/{imei}/status")
+async def get_vehicle_status(imei: str):
+    """Get current vehicle status."""
+    service = BouncieService()
+    result = await service.get_current_vehicle_status(imei)
+    return check_result(result, "get vehicle status")
+
+@router.get("/vehicles/{imei}/analytics")
+async def get_vehicle_analytics(imei: str):
+    """Get comprehensive vehicle analytics."""
+    service = BouncieService()
+    result = await service.get_vehicle_analytics(imei)
+    return check_result(result, "get vehicle analytics")
+
+# ------------------------------ TRIP ROUTES ------------------------------
+
+@router.post("/trips")
+async def get_trips(request: TripRequest):
+    """Get trips with specified parameters."""
+    service = BouncieService()
+    result = await service.get_trips(
+        gps_format=request.gps_format,
+        start_date=request.start_date,
+        end_date=request.end_date,
+        imei=request.imei
+    )
+    return check_result(result, "get trips")
+
+@router.get("/trips/recent")
+async def get_recent_trips(days: int = Query(7, ge=1, le=30), imei: Optional[str] = None):
+    """Get recent trips for the last N days."""
+    service = BouncieService()
+    result = await service.get_recent_trips(days, imei)
+    return check_result(result, "get recent trips")
+
+# ------------------------------ DATABASE ROUTES ------------------------------
+
+@router.post("/db/vehicles/save")
+async def save_vehicles_to_db(request: DatabaseRequest):
+    """Save vehicles to database."""
+    service = BouncieService()
+    result = await service.save_vehicles_to_db(request.account_email)
+    return check_result(result, "save vehicles to database")
+
+@router.post("/db/trips/save")
+async def save_trips_to_db(request: DatabaseRequest):
+    """Save trips to database."""
+    service = BouncieService()
+    result = await service.save_trips_to_db(
+        account_email=request.account_email,
+        imei=request.imei
+    )
+    return check_result(result, "save trips to database")
+
+@router.get("/db/trips")
+async def get_trips_from_db(
+    account_email: str = Query(..., description="Account email"),
+    imei: Optional[str] = Query(None, description="Vehicle IMEI"),
+    limit: int = Query(100, ge=1, le=1000, description="Number of trips to retrieve")
+):
+    """Get trips from database."""
+    service = BouncieService()
+    result = await service.get_trips_from_db(account_email, imei, limit)
+    return check_result(result, "get trips from database")
+
+@router.get("/db/trips/stats")
+async def get_trip_stats_from_db(
+    account_email: str = Query(..., description="Account email"),
+    imei: Optional[str] = Query(None, description="Vehicle IMEI"),
+    days: int = Query(30, ge=1, le=365, description="Number of days to analyze")
+):
+    """Get trip statistics from database."""
+    service = BouncieService()
+    result = await service.get_trip_stats_from_db(account_email, imei, days)
+    return check_result(result, "get trip statistics from database")
+
+# ------------------------------ WEBHOOK ROUTES ------------------------------
+
+@router.get("/webhooks/events")
+async def get_webhook_events():
+    """Get list of available webhook events."""
+    service = BouncieService()
+    events = service.get_webhook_events()
+    return {"success": True, "data": {"events": events}}
+
+@router.post("/webhooks/validate")
+async def validate_webhook(payload: Dict[str, Any]):
+    """Validate webhook payload."""
     service = BouncieService()
     is_valid = service.validate_webhook_payload(payload)
-    
-    return {
-        "valid": is_valid,
-        "payload": payload,
-        "message": "Webhook payload validation result"
-    }
+    return {"success": True, "data": {"valid": is_valid}}
 
-# ------------------------------ WEBHOOK RECEIVER ------------------------------
+# ------------------------------ CONVENIENCE ROUTES ------------------------------
 
-@router.post("/webhook/receive")
-async def receive_webhook(
-    request: Request,
-    x_bouncie_signature: Optional[str] = Header(None, alias="X-Bouncie-Signature"),
-    x_signature: Optional[str] = Header(None, alias="X-Signature")
-) -> Dict[str, Any]:
-    """Receive real-time webhooks from Bouncie.
-    
-    Security:
-        - If BOUNCIE_WEBHOOK_SECRET is set, verify HMAC-SHA256 signature against the raw body.
-        - Accepts signature from 'X-Bouncie-Signature' or fallback 'X-Signature'.
-    """
-    try:
-        raw_body: bytes = await request.body()
-        try:
-            payload: Dict[str, Any] = json.loads(raw_body.decode("utf-8")) if raw_body else {}
-        
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid JSON payload")
+@router.post("/quick-setup")
+async def quick_setup(request: TokenExchangeRequest):
+    """Quick setup: authenticate and get all vehicle data."""
+    result = await get_bouncie_vehicle_data(request.authorization_code)
+    return check_result(result, "quick setup")
 
-        webhook_secret = os.getenv("BOUNCIE_WEBHOOK_SECRET", "").strip()
-        provided_sig = x_bouncie_signature or x_signature or request.headers.get("X-Bouncie-Signature") or request.headers.get("X-Signature")
-       
-        if webhook_secret:
-            if not provided_sig:
-                raise HTTPException(status_code=401, detail="Missing webhook signature")
-            expected_sig = hmac.new(webhook_secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
-            if not hmac.compare_digest(provided_sig, expected_sig):
-                raise HTTPException(status_code=401, detail="Invalid webhook signature")
-
-        service = BouncieService()
-        if not service.validate_webhook_payload(payload):
-            raise HTTPException(status_code=400, detail="Invalid webhook payload structure")
-
-        event_type = payload.get("event", "unknown")
-        event_data = payload.get("data", {})
-
-        try:
-            event_id = store_bouncie_event(None, event_type, payload, provided_sig)
-        except Exception:
-            event_id = None
-
-        return {
-            "success": True,
-            "message": f"Webhook received: {event_type}",
-            "event": event_type,
-            "timestamp": payload.get("timestamp"),
-            "verified": bool(webhook_secret),
-            "event_id": event_id,
-        }
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Webhook processing failed: {str(e)}")
+# ------------------------------ END OF FILE ------------------------------

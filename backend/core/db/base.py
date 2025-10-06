@@ -216,7 +216,6 @@ class Payout(BaseModel):
     __table_args__ = (
         Index('ix_payout_account_turo_id', 'account_id', 'turo_payout_id'),
         UniqueConstraint('account_id', 'turo_payout_id', name='uq_payout_account_turo_id'),
-        # Additional constraint to prevent duplicates based on business logic
         UniqueConstraint('account_id', 'method', 'amount', 'payout_at', name='uq_payout_account_method_amount_date'),
     )
     
@@ -378,6 +377,47 @@ class BouncieEvent(BaseModel):
 
     def __repr__(self) -> str:
         return f"<BouncieEvent(id={self.id}, type={self.event_type})>"
+
+class BouncieTrip(BaseModel):
+    """Bouncie trip data from the API."""
+    __tablename__ = "bouncie_trips"
+    __table_args__ = (
+        Index('ix_bouncie_trip_account_imei', 'account_id', 'imei'),
+        Index('ix_bouncie_trip_transaction_id', 'transaction_id'),
+        Index('ix_bouncie_trip_start_time', 'start_time'),
+        Index('ix_bouncie_trip_end_time', 'end_time'),
+        UniqueConstraint('account_id', 'transaction_id', name='uq_bouncie_trip_account_transaction'),
+    )
+
+    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
+    imei = Column(String(64), nullable=False, index=True)
+    transaction_id = Column(String(100), nullable=False, index=True)
+    
+    start_time = Column(DateTime(timezone=True), nullable=True, index=True)
+    end_time = Column(DateTime(timezone=True), nullable=True, index=True)
+    timezone = Column(String(50), nullable=True)
+    
+    distance = Column(Float, nullable=True)  
+    average_speed = Column(Float, nullable=True) 
+    max_speed = Column(Float, nullable=True)  
+    fuel_consumed = Column(Float, nullable=True) 
+    
+    start_odometer = Column(Float, nullable=True)
+    end_odometer = Column(Float, nullable=True)
+    
+    total_idle_duration = Column(Float, nullable=True)  
+    hard_braking_count = Column(Integer, nullable=True)
+    hard_acceleration_count = Column(Integer, nullable=True)
+    
+    gps_format = Column(String(20), nullable=True) 
+    gps_data = Column(JSON, nullable=True)  
+    
+    raw_data = Column(JSON, nullable=True)
+    
+    account = relationship("Account")
+
+    def __repr__(self) -> str:
+        return f"<BouncieTrip(id={self.id}, transaction_id={self.transaction_id}, imei={self.imei})>"
 
 # ------------------------------ PLAID MODELS ------------------------------
 
