@@ -6,6 +6,7 @@ import logging
 from turo.routes import router as turo_router
 from bouncie.routes import router as bouncie_router
 from plaid.routes import router as plaid_router
+from documents.routes import router as documents_router
 from core.db.database import create_tables, test_connection
 
 # ------------------------------ LOGGING ------------------------------
@@ -47,6 +48,7 @@ app.add_middleware(
 app.include_router(turo_router, prefix="/api")
 app.include_router(bouncie_router, prefix="/api")
 app.include_router(plaid_router, prefix="/api")
+app.include_router(documents_router, prefix="/api")
 
 # ------------------------------ HEALTH ENDPOINT ------------------------------
 @app.get("/")

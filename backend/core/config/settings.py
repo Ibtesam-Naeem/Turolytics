@@ -59,6 +59,31 @@ class APIConfig:
     port: int = int(os.getenv("API_PORT", "8000"))
     debug: bool = os.getenv("API_DEBUG", "false").lower() == "true"
 
+@dataclass
+class S3Config:
+    """AWS S3 configuration."""
+    access_key_id: str = os.getenv("AWS_ACCESS_KEY_ID", "")
+    secret_access_key: str = os.getenv("AWS_SECRET_ACCESS_KEY", "")
+    region: str = os.getenv("AWS_REGION", "us-east-1")
+    bucket_name: str = os.getenv("S3_BUCKET_NAME", "")
+    max_file_size: int = int(os.getenv("S3_MAX_FILE_SIZE", "10485760"))  # 10MB default
+    allowed_extensions: str = os.getenv("S3_ALLOWED_EXTENSIONS", "pdf,jpg,jpeg,png,doc,docx,xls,xlsx,txt")
+    
+    def get_allowed_extensions_list(self) -> List[str]:
+        """Get allowed file extensions as a list."""
+        return [ext.strip().lower() for ext in self.allowed_extensions.split(",")]
+    
+    def __post_init__(self):
+        """Validate S3 configuration."""
+        if not self.access_key_id or not self.secret_access_key:
+            raise ValueError(
+                "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables are required for S3 functionality."
+            )
+        if not self.bucket_name:
+            raise ValueError(
+                "S3_BUCKET_NAME environment variable is required for S3 functionality."
+            )
+
 # ------------------------------ MAIN SETTINGS CLASS ------------------------------
 
 class Settings:
@@ -70,6 +95,7 @@ class Settings:
         self.cors = CORSConfig()
         self.security = SecurityConfig()
         self.api = APIConfig()
+        self.s3 = S3Config()
         
         self._setup_logging()
     

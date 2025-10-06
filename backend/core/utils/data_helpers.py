@@ -81,32 +81,26 @@ def extract_vehicle_info(vehicle_name: str) -> dict:
     if not vehicle_name:
         return {"full_name": None, "year": None, "make": None, "model": None}
     
-    # Clean the vehicle name - remove status prefixes and extra text
     cleaned_name = vehicle_name
     
-    # Remove common status prefixes
     status_prefixes = ['Snoozed', 'Listed', 'Unavailable', 'Maintenance']
     for prefix in status_prefixes:
         if cleaned_name.startswith(prefix):
             cleaned_name = cleaned_name[len(prefix):].strip()
             break
-    
-    # Remove extra text after the vehicle info (like "No trips", "Vehicle actions", etc.)
-    # Look for patterns like "• BZEJ166" or "No trips" or "Vehicle actions"
+
     extra_patterns = [
-        r' • [A-Z0-9]+.*',  # License plate and everything after
-        r'No trips.*',       # "No trips" and everything after
-        r'Vehicle actions.*', # "Vehicle actions" and everything after
-        r'Last trip:.*',     # "Last trip:" and everything after
+        r' • [A-Z0-9]+.*',  
+        r'No trips.*',       
+        r'Vehicle actions.*', 
+        r'Last trip:.*',     
     ]
     
     for pattern in extra_patterns:
         cleaned_name = re.sub(pattern, '', cleaned_name).strip()
     
-    # Now try to parse make, model, year
     parts = cleaned_name.split()
     if len(parts) >= 3:
-        # Look for year (4 digits) in the parts
         year = None
         year_index = -1
         for i, part in enumerate(parts):
@@ -116,13 +110,13 @@ def extract_vehicle_info(vehicle_name: str) -> dict:
                 break
         
         if year is not None:
-            if year_index == 0:  # Year first: "2017 Audi Q7"
+            if year_index == 0: 
                 make = parts[1] if len(parts) > 1 else None
                 model = ' '.join(parts[2:]) if len(parts) > 2 else None
-            elif year_index == len(parts) - 1:  # Year last: "Audi Q7 2017"
+            elif year_index == len(parts) - 1: 
                 make = parts[0] if len(parts) > 1 else None
                 model = ' '.join(parts[1:year_index]) if year_index > 1 else None
-            else:  # Year in middle: "Audi 2017 Q7"
+            else:  
                 make = parts[0] if year_index > 0 else None
                 model = ' '.join(parts[year_index+1:]) if year_index < len(parts) - 1 else None
             
@@ -137,7 +131,6 @@ def extract_vehicle_info(vehicle_name: str) -> dict:
     year_match = re.search(r'\b(19|20)\d{2}\b', cleaned_name)
     if year_match:
         year = int(year_match.group())
-        # Remove year from the string and try to parse make/model
         without_year = re.sub(r'\b(19|20)\d{2}\b', '', cleaned_name).strip()
         parts = without_year.split()
         if len(parts) >= 2:

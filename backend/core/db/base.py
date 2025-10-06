@@ -35,6 +35,22 @@ class VehicleStatus(Enum):
     UNAVAILABLE = "Unavailable"
     MAINTENANCE = "Maintenance"
 
+class DocumentType(Enum):
+    RECEIPT = "receipt"
+    INVOICE = "invoice"
+    INSURANCE = "insurance"
+    REGISTRATION = "registration"
+    MAINTENANCE = "maintenance"
+    TAX_DOCUMENT = "tax_document"
+    BUSINESS_LICENSE = "business_license"
+    VEHICLE_PHOTO = "vehicle_photo"
+    OTHER = "other"
+
+class DocumentStatus(Enum):
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+    DELETED = "deleted"
+
 # ------------------------------ BASE MODEL ------------------------------
 
 class BaseModel(Base):
@@ -197,6 +213,12 @@ class Payout(BaseModel):
     """Payout model."""
     
     __tablename__ = "payouts"
+    __table_args__ = (
+        Index('ix_payout_account_turo_id', 'account_id', 'turo_payout_id'),
+        UniqueConstraint('account_id', 'turo_payout_id', name='uq_payout_account_turo_id'),
+        # Additional constraint to prevent duplicates based on business logic
+        UniqueConstraint('account_id', 'method', 'amount', 'payout_at', name='uq_payout_account_method_amount_date'),
+    )
     
     account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
     
@@ -218,6 +240,10 @@ class PayoutItem(BaseModel):
     """Payout item model."""
     
     __tablename__ = "payout_items"
+    __table_args__ = (
+        Index('ix_payout_item_account_payout_trip', 'account_id', 'payout_id', 'trip_id'),
+        UniqueConstraint('account_id', 'payout_id', 'trip_id', 'type', name='uq_payout_item_account_payout_trip_type'),
+    )
     
     account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
     payout_id = Column(Integer, ForeignKey("payouts.id"), nullable=True, index=True)
@@ -242,6 +268,10 @@ class Review(BaseModel):
     """Review model."""
     
     __tablename__ = "reviews"
+    __table_args__ = (
+        Index('ix_review_account_turo_id', 'account_id', 'turo_review_id'),
+        UniqueConstraint('account_id', 'turo_review_id', name='uq_review_account_turo_id'),
+    )
     
     account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
     trip_id = Column(Integer, ForeignKey("trips.id"), nullable=True, index=True)
@@ -336,6 +366,10 @@ class BouncieDevice(BaseModel):
 class BouncieEvent(BaseModel):
     """Captured Bouncie webhook events for audit and replay."""
     __tablename__ = "bouncie_events"
+    __table_args__ = (
+        Index('ix_bouncie_event_account_timestamp', 'account_id', 'event_timestamp'),
+        UniqueConstraint('account_id', 'event_type', 'event_timestamp', 'device_imei', name='uq_bouncie_event_unique'),
+    )
 
     account_id = Column(Integer, ForeignKey("accounts.id"), nullable=True, index=True)
     event_type = Column(String(100), nullable=True, index=True)
@@ -468,6 +502,10 @@ class PlaidTransaction(BaseModel):
 class PlaidWebhookEvent(BaseModel):
     """Plaid webhook event storage for audit and replay."""
     __tablename__ = "plaid_webhook_events"
+    __table_args__ = (
+        Index('ix_plaid_webhook_account_type_code', 'account_id', 'webhook_type', 'webhook_code'),
+        UniqueConstraint('account_id', 'webhook_type', 'webhook_code', 'item_id', 'created_at', name='uq_plaid_webhook_unique'),
+    )
 
     account_id = Column(Integer, ForeignKey("accounts.id"), nullable=True, index=True)
     webhook_type = Column(String(100), nullable=True, index=True)
@@ -484,6 +522,52 @@ class PlaidWebhookEvent(BaseModel):
     def __repr__(self) -> str:
         return f"<PlaidWebhookEvent(id={self.id}, type={self.webhook_type}, code={self.webhook_code})>"
 
+# ------------------------------ DOCUMENT MODELS ------------------------------
+
+class Document(BaseModel):
+    """Document storage model for S3 files."""
+    __tablename__ = "documents"
+    __table_args__ = (
+        Index("ix_document_account_type", "account_id", "document_type"),
+        Index("ix_document_vehicle", "vehicle_id"),
+        Index("ix_document_trip", "trip_id"),
+        Index("ix_document_status", "status"),
+    )
+    
+    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
+    vehicle_id = Column(Integer, ForeignKey("vehicles.id"), nullable=True, index=True)
+    trip_id = Column(Integer, ForeignKey("trips.id"), nullable=True, index=True)
+    
+    filename = Column(String(255), nullable=False)
+    original_filename = Column(String(255), nullable=False)
+    file_extension = Column(String(10), nullable=False)
+    file_size = Column(Integer, nullable=False)
+    content_type = Column(String(100), nullable=True)
+    
+    s3_bucket = Column(String(255), nullable=False)
+    s3_key = Column(String(500), nullable=False, unique=True, index=True)
+    s3_url = Column(String(1000), nullable=True)
+    
+    document_type = Column(SQLEnum(DocumentType), nullable=False, index=True)
+    title = Column(String(255), nullable=True)
+    description = Column(Text, nullable=True)
+    tags = Column(JSON, nullable=True)  # Array of tag strings
+    
+    status = Column(SQLEnum(DocumentStatus), default=DocumentStatus.ACTIVE, nullable=False, index=True)
+    uploaded_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_accessed_at = Column(DateTime(timezone=True), nullable=True)
+    
+    amount = Column(Numeric(12, 2), nullable=True) 
+    date = Column(DateTime(timezone=True), nullable=True) 
+    vendor = Column(String(255), nullable=True)  
+    
+    account = relationship("Account")
+    vehicle = relationship("Vehicle")
+    trip = relationship("Trip")
+    
+    def __repr__(self) -> str:
+        return f"<Document(id={self.id}, filename={self.filename}, type={self.document_type})>"
+
 # ------------------------------ EXPORTS ------------------------------
 __all__ = [
     "Base",
@@ -491,19 +575,22 @@ __all__ = [
     "TripStatus",
     "PayoutType", 
     "VehicleStatus",
+    "DocumentType",
+    "DocumentStatus",
     "Account",
     "Vehicle",
     "Trip",
     "Payout",
     "PayoutItem",
     "Review",
-    "Session"
-    ,"BouncieDevice"
-    ,"BouncieEvent"
-    ,"PlaidItem"
-    ,"PlaidAccount"
-    ,"PlaidTransaction"
-    ,"PlaidWebhookEvent"
+    "Session",
+    "BouncieDevice",
+    "BouncieEvent",
+    "PlaidItem",
+    "PlaidAccount",
+    "PlaidTransaction",
+    "PlaidWebhookEvent",
+    "Document"
 ]
 
 # ------------------------------ END OF FILE ------------------------------

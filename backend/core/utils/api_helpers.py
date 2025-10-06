@@ -17,3 +17,5 @@ def get_account_id(email: str) -> int:
     if not account_id:
         raise HTTPException(status_code=500, detail="Failed to create or retrieve account")
     return account_id
+
+# ------------------------------ END OF FILE ------------------------------
