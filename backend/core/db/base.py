@@ -351,6 +351,139 @@ class BouncieEvent(BaseModel):
     def __repr__(self) -> str:
         return f"<BouncieEvent(id={self.id}, type={self.event_type})>"
 
+# ------------------------------ PLAID MODELS ------------------------------
+
+class PlaidItem(BaseModel):
+    """Plaid Item (connected bank account)."""
+    __tablename__ = "plaid_items"
+    __table_args__ = (
+        Index("ix_plaid_item_account_item_id", "account_id", "item_id"),
+        UniqueConstraint("account_id", "item_id", name="uq_plaid_item_account_item_id"),
+    )
+
+    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
+    item_id = Column(String(255), nullable=False, index=True)
+    access_token = Column(String(255), nullable=False)
+    
+    institution_id = Column(String(255), nullable=True)
+    institution_name = Column(String(255), nullable=True)
+    
+    available_products = Column(JSON, nullable=True)
+    billed_products = Column(JSON, nullable=True)
+    
+    is_active = Column(Boolean, default=True, nullable=False)
+    last_webhook_at = Column(DateTime(timezone=True), nullable=True)
+    
+    raw = Column(JSON, nullable=True)
+    
+    account = relationship("Account")
+    plaid_accounts = relationship("PlaidAccount", back_populates="item", cascade="all, delete-orphan")
+    
+    def __repr__(self) -> str:
+        return f"<PlaidItem(id={self.id}, item_id={self.item_id}, account_id={self.account_id})>"
+
+
+class PlaidAccount(BaseModel):
+    """Plaid Account (individual bank accounts within an Item)."""
+    __tablename__ = "plaid_accounts"
+    __table_args__ = (
+        Index("ix_plaid_account_account_plaid_id", "account_id", "plaid_account_id"),
+        UniqueConstraint("account_id", "plaid_account_id", name="uq_plaid_account_account_plaid_id"),
+    )
+
+    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
+    item_id = Column(Integer, ForeignKey("plaid_items.id"), nullable=False, index=True)
+    
+    plaid_account_id = Column(String(255), nullable=False, index=True)
+    
+    name = Column(String(255), nullable=True)
+    official_name = Column(String(255), nullable=True)
+    type = Column(String(100), nullable=True)
+    subtype = Column(String(100), nullable=True)
+    
+    mask = Column(String(20), nullable=True)
+    
+    current_balance = Column(Numeric(12, 2), nullable=True)
+    available_balance = Column(Numeric(12, 2), nullable=True)
+    limit_amount = Column(Numeric(12, 2), nullable=True)
+    
+    currency_code = Column(String(10), nullable=True)
+    
+    is_active = Column(Boolean, default=True, nullable=False)
+    last_synced_at = Column(DateTime(timezone=True), nullable=True)
+    
+    raw = Column(JSON, nullable=True)
+    
+    account = relationship("Account")
+    item = relationship("PlaidItem", back_populates="plaid_accounts")
+    transactions = relationship("PlaidTransaction", back_populates="plaid_account", cascade="all, delete-orphan")
+    
+    def __repr__(self) -> str:
+        return f"<PlaidAccount(id={self.id}, plaid_account_id={self.plaid_account_id})>"
+
+
+class PlaidTransaction(BaseModel):
+    """Plaid Transaction."""
+    __tablename__ = "plaid_transactions"
+    __table_args__ = (
+        Index("ix_plaid_transaction_account_txn_id", "account_id", "transaction_id"),
+        UniqueConstraint("account_id", "transaction_id", name="uq_plaid_transaction_account_txn_id"),
+    )
+
+    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
+    plaid_account_id = Column(Integer, ForeignKey("plaid_accounts.id"), nullable=False, index=True)
+    
+    transaction_id = Column(String(255), nullable=False, index=True)
+    
+    date = Column(DateTime(timezone=True), nullable=True, index=True)
+    authorized_date = Column(DateTime(timezone=True), nullable=True)
+    
+    name = Column(String(500), nullable=True)
+    merchant_name = Column(String(255), nullable=True)
+    
+    amount = Column(Numeric(12, 2), nullable=True)
+    currency_code = Column(String(10), nullable=True)
+    
+    category = Column(JSON, nullable=True)
+    category_id = Column(String(100), nullable=True)
+    
+    pending = Column(Boolean, default=False, nullable=False)
+    pending_transaction_id = Column(String(255), nullable=True)
+    
+    payment_channel = Column(String(100), nullable=True)
+    transaction_type = Column(String(100), nullable=True)
+    
+    location = Column(JSON, nullable=True)
+    payment_meta = Column(JSON, nullable=True)
+    
+    raw = Column(JSON, nullable=True)
+    
+    account = relationship("Account")
+    plaid_account = relationship("PlaidAccount", back_populates="transactions")
+    
+    def __repr__(self) -> str:
+        return f"<PlaidTransaction(id={self.id}, transaction_id={self.transaction_id})>"
+
+
+class PlaidWebhookEvent(BaseModel):
+    """Plaid webhook event storage for audit and replay."""
+    __tablename__ = "plaid_webhook_events"
+
+    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=True, index=True)
+    webhook_type = Column(String(100), nullable=True, index=True)
+    webhook_code = Column(String(100), nullable=True, index=True)
+    item_id = Column(String(255), nullable=True, index=True)
+    
+    error = Column(JSON, nullable=True)
+    data = Column(JSON, nullable=True)
+    signature = Column(String(255), nullable=True)
+    raw_payload = Column(JSON, nullable=True)
+    
+    account = relationship("Account")
+    
+    def __repr__(self) -> str:
+        return f"<PlaidWebhookEvent(id={self.id}, type={self.webhook_type}, code={self.webhook_code})>"
+
 # ------------------------------ EXPORTS ------------------------------
 __all__ = [
     "Base",
@@ -367,6 +500,10 @@ __all__ = [
     "Session"
     ,"BouncieDevice"
     ,"BouncieEvent"
+    ,"PlaidItem"
+    ,"PlaidAccount"
+    ,"PlaidTransaction"
+    ,"PlaidWebhookEvent"
 ]
 
 # ------------------------------ END OF FILE ------------------------------
