@@ -35,21 +35,6 @@ class VehicleStatus(Enum):
     UNAVAILABLE = "Unavailable"
     MAINTENANCE = "Maintenance"
 
-class DocumentType(Enum):
-    RECEIPT = "receipt"
-    INVOICE = "invoice"
-    INSURANCE = "insurance"
-    REGISTRATION = "registration"
-    MAINTENANCE = "maintenance"
-    TAX_DOCUMENT = "tax_document"
-    BUSINESS_LICENSE = "business_license"
-    VEHICLE_PHOTO = "vehicle_photo"
-    OTHER = "other"
-
-class DocumentStatus(Enum):
-    ACTIVE = "active"
-    ARCHIVED = "archived"
-    DELETED = "deleted"
 
 # ------------------------------ BASE MODEL ------------------------------
 
@@ -556,51 +541,6 @@ class PlaidWebhookEvent(BaseModel):
     def __repr__(self) -> str:
         return f"<PlaidWebhookEvent(id={self.id}, type={self.webhook_type}, code={self.webhook_code})>"
 
-# ------------------------------ DOCUMENT MODELS ------------------------------
-
-class Document(BaseModel):
-    """Document storage model for S3 files."""
-    __tablename__ = "documents"
-    __table_args__ = (
-        Index("ix_document_account_type", "account_id", "document_type"),
-        Index("ix_document_vehicle", "vehicle_id"),
-        Index("ix_document_trip", "trip_id"),
-        Index("ix_document_status", "status"),
-    )
-    
-    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
-    vehicle_id = Column(Integer, ForeignKey("vehicles.id"), nullable=True, index=True)
-    trip_id = Column(Integer, ForeignKey("trips.id"), nullable=True, index=True)
-    
-    filename = Column(String(255), nullable=False)
-    original_filename = Column(String(255), nullable=False)
-    file_extension = Column(String(10), nullable=False)
-    file_size = Column(Integer, nullable=False)
-    content_type = Column(String(100), nullable=True)
-    
-    s3_bucket = Column(String(255), nullable=False)
-    s3_key = Column(String(500), nullable=False, unique=True, index=True)
-    s3_url = Column(String(1000), nullable=True)
-    
-    document_type = Column(SQLEnum(DocumentType), nullable=False, index=True)
-    title = Column(String(255), nullable=True)
-    description = Column(Text, nullable=True)
-    tags = Column(JSON, nullable=True)  # Array of tag strings
-    
-    status = Column(SQLEnum(DocumentStatus), default=DocumentStatus.ACTIVE, nullable=False, index=True)
-    uploaded_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    last_accessed_at = Column(DateTime(timezone=True), nullable=True)
-    
-    amount = Column(Numeric(12, 2), nullable=True) 
-    date = Column(DateTime(timezone=True), nullable=True) 
-    vendor = Column(String(255), nullable=True)  
-    
-    account = relationship("Account")
-    vehicle = relationship("Vehicle")
-    trip = relationship("Trip")
-    
-    def __repr__(self) -> str:
-        return f"<Document(id={self.id}, filename={self.filename}, type={self.document_type})>"
 
 # ------------------------------ EXPORTS ------------------------------
 __all__ = [
@@ -609,8 +549,6 @@ __all__ = [
     "TripStatus",
     "PayoutType", 
     "VehicleStatus",
-    "DocumentType",
-    "DocumentStatus",
     "Account",
     "Vehicle",
     "Trip",
@@ -624,7 +562,6 @@ __all__ = [
     "PlaidAccount",
     "PlaidTransaction",
     "PlaidWebhookEvent",
-    "Document"
 ]
 
 # ------------------------------ END OF FILE ------------------------------
