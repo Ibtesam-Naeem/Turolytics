@@ -26,7 +26,6 @@ Turolytics/
 │   │   └── utils/          # Utility functions
 │   ├── turo/               # Turo scraping modules
 │   ├── bouncie/            # Bouncie API integration
-│   ├── plaid/              # Plaid API integration
 │   ├── ml_service/         # Machine Learning service
 │   └── documents/          # Document processing
 └── README.md
@@ -49,7 +48,6 @@ Turolytics/
 
 ### APIs & Integrations
 - **Bouncie API** - Vehicle telemetry and tracking
-- **Plaid API** - Financial transaction data
 - **Turo Scraping** - Host dashboard automation
 
 ## 🚀 Quick Start
@@ -166,8 +164,6 @@ TURO_EMAIL=your-email@example.com
 TURO_PASSWORD=your-password
 BOUNCIE_CLIENT_ID=your-bouncie-client-id
 BOUNCIE_CLIENT_SECRET=your-bouncie-secret
-PLAID_CLIENT_ID=your-plaid-client-id
-PLAID_SECRET=your-plaid-secret
 ```
 
 ## 📈 Data Models
