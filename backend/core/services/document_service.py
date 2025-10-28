@@ -1,26 +1,24 @@
 # ------------------------------ IMPORTS ------------------------------
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from fastapi import HTTPException, UploadFile
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from core.services.s3_service import s3_service
 from core.db.operations.document_operations import DocumentOperations
 from core.db.base import Document, DocumentType, DocumentStatus
 
 # ------------------------------ DOCUMENT SERVICE ------------------------------
 
 class DocumentService:
-    """Service for managing documents with S3 and database integration."""
+    """Service for managing documents with database integration."""
     
     def __init__(self, db: Session):
         self.db = db
-        self.s3_service = s3_service
         self.document_ops = DocumentOperations(db)
     
     async def upload_document(
         self,
-        file: UploadFile,
+        file,
         account_id: int,
         document_type: DocumentType,
         title: Optional[str] = None,
@@ -32,89 +30,15 @@ class DocumentService:
         document_date: Optional[datetime] = None,
         vendor: Optional[str] = None
     ) -> Document:
-        """Upload document to S3 and create database record."""
-        try:
-            s3_result = await self.s3_service.upload_file(
-                file=file,
-                account_id=account_id,
-                document_type=document_type.value,
-                metadata={
-                    'title': title,
-                    'description': description,
-                    'vehicle_id': str(vehicle_id) if vehicle_id else None,
-                    'trip_id': str(trip_id) if trip_id else None,
-                    'amount': str(amount) if amount else None,
-                    'vendor': vendor
-                }
-            )
-            
-            document = self.document_ops.create_document(
-                account_id=account_id,
-                filename=s3_result['filename'],
-                original_filename=s3_result['original_filename'],
-                file_extension=s3_result['file_extension'],
-                file_size=s3_result['file_size'],
-                content_type=s3_result['content_type'],
-                s3_bucket=s3_result['s3_bucket'],
-                s3_key=s3_result['s3_key'],
-                s3_url=s3_result['s3_url'],
-                document_type=document_type,
-                title=title,
-                description=description,
-                tags=tags,
-                vehicle_id=vehicle_id,
-                trip_id=trip_id,
-                amount=amount,
-                document_date=document_date,
-                vendor=vendor
-            )
-            
-            return document
-            
-        except Exception as e:
-            if 's3_result' in locals():
-                try:
-                    await self.s3_service.delete_file(s3_result['s3_key'])
-                except:
-                    pass  
-
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to upload document: {str(e)}"
-            )
+        """Upload document - S3 support removed."""
+        raise NotImplementedError("Document upload requires S3 service which has been removed.")
     
     async def download_document(self, document_id: int, account_id: int) -> Dict[str, Any]:
-        """Download document from S3."""
-        try:
-            document = self.document_ops.get_document_by_id(document_id, account_id)
-            if not document:
-                raise HTTPException(
-                    status_code=404,
-                    detail="Document not found"
-                )
-            
-            self.document_ops.update_last_accessed(document_id, account_id)
-            
-            s3_result = await self.s3_service.download_file(document.s3_key)
-            
-            return {
-                'document': document,
-                'content': s3_result['content'],
-                'content_type': s3_result['content_type'],
-                'content_length': s3_result['content_length']
-            }
-            
-        except HTTPException:
-            raise
-
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to download document: {str(e)}"
-            )
+        """Download document - S3 support removed."""
+        raise NotImplementedError("Document download requires S3 service which has been removed.")
     
     async def delete_document(self, document_id: int, account_id: int, permanent: bool = False) -> bool:
-        """Delete document (soft delete by default)."""
+        """Delete document."""
         try:
             document = self.document_ops.get_document_by_id(document_id, account_id)
             if not document:
@@ -124,7 +48,6 @@ class DocumentService:
                 )
             
             if permanent:
-                await self.s3_service.delete_file(document.s3_key)
                 return self.document_ops.hard_delete_document(document_id, account_id)
             else:
                 return self.document_ops.delete_document(document_id, account_id)
@@ -205,29 +128,7 @@ class DocumentService:
         return self.document_ops.get_document_stats(account_id)
     
     async def generate_download_url(self, document_id: int, account_id: int, expiration: int = 3600) -> str:
-        """Generate presigned URL for document download."""
-        try:
-            document = self.document_ops.get_document_by_id(document_id, account_id)
-            if not document:
-                raise HTTPException(
-                    status_code=404,
-                    detail="Document not found"
-                )
-            
-            self.document_ops.update_last_accessed(document_id, account_id)
-            
-            url = self.s3_service._generate_presigned_url(document.s3_key, expiration)
-            
-            self.document_ops.update_document(document_id, account_id, s3_url=url)
-            
-            return url
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to generate download URL: {str(e)}"
-            )
+        """Generate presigned URL for document download - S3 support removed."""
+        raise NotImplementedError("Document URL generation requires S3 service which has been removed.")
 
 # ------------------------------ END OF FILE ------------------------------
