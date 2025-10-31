@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 from urllib.parse import urlencode
 
-from core.db.operations.bouncie_operations import save_bouncie_trips, save_bouncie_snapshot, get_bouncie_trips, get_bouncie_trip_stats
 
 # ------------------------------ BOUNCIE CONFIGURATION ------------------------------
 
@@ -234,52 +233,6 @@ class BouncieService:
         """Validate incoming webhook payload."""
         required_fields = ["event", "timestamp", "data"]
         return all(field in payload for field in required_fields)
-    
-    # ------------------------------ DATABASE INTEGRATION ------------------------------
-    
-    async def save_vehicles_to_db(self, account_email: str) -> Dict[str, Any]:
-        """Get vehicles from API and save to database."""
-        try:
-            vehicles_result = await self.get_vehicles()
-            if not vehicles_result["success"]:
-                return vehicles_result
-            vehicles = vehicles_result["data"]
-            if not isinstance(vehicles, list):
-                return {"success": False, "error": "Invalid vehicles data format"}
-            result = save_bouncie_snapshot(account_email, vehicles)
-            return {"success": True, "data": result}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-    
-    async def save_trips_to_db(self, account_email: str, gps_format: str = "geojson", start_date: str = None, end_date: str = None, imei: str = None) -> Dict[str, Any]:
-        """Get trips from API and save to database."""
-        try:
-            trips_result = await self.get_trips(gps_format, start_date, end_date, imei)
-            if not trips_result["success"]:
-                return trips_result
-            trips = trips_result["data"]
-            if not isinstance(trips, list):
-                return {"success": False, "error": "Invalid trips data format"}
-            result = save_bouncie_trips(account_email, trips)
-            return {"success": True, "data": result}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-    
-    async def get_trips_from_db(self, account_email: str, imei: str = None, limit: int = 100) -> Dict[str, Any]:
-        """Get trips from database."""
-        try:
-            trips = get_bouncie_trips(account_email, imei, limit)
-            return {"success": True, "data": trips}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-    
-    async def get_trip_stats_from_db(self, account_email: str, imei: str = None, days: int = 30) -> Dict[str, Any]:
-        """Get trip statistics from database."""
-        try:
-            stats = get_bouncie_trip_stats(account_email, imei, days)
-            return {"success": True, "data": stats}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
 
 # ------------------------------ CONVENIENCE FUNCTIONS ------------------------------
 

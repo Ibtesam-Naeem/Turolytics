@@ -5,19 +5,14 @@ from typing import Optional, Tuple
 from playwright.async_api import Page, BrowserContext, Browser
 
 from core.utils.logger import logger
-from core.utils.browser_helpers import get_iframe_content, search_for_error_messages, clear_form_inputs, check_for_success_element, click_continue_button_with_retry
 from core.config.browser_settings import launch_browser
+from .helpers import get_iframe_content, search_for_error_messages, clear_form_inputs, check_for_success_element, click_continue_button_with_retry
+from .selectors import (
+    LOGIN_URL, CONTINUE_WITH_EMAIL_SELECTOR, EMAIL_SELECTOR, PASSWORD_SELECTOR,
+    TEXT_CODE_BUTTON, CODE_INPUT_SELECTOR, FINAL_CONTINUE_BUTTON, CONTINUE_BUTTON_TEXT_SELECTOR,
+    LOGIN_SUCCESS_URLS, LOGIN_SUCCESS_SELECTORS
+)
 from core.security.session import verify_session_authenticated, save_storage_state, get_storage_state
-
-# ------------------------------ SELECTORS ------------------------------
-LOGIN_URL = "https://turo.com/ca/en/login"
-CONTINUE_WITH_EMAIL_SELECTOR = ".css-131npuy"
-EMAIL_SELECTOR = 'input[type="email"][name="email"], #email'
-PASSWORD_SELECTOR = 'input[type="password"][name="password"], #password'
-TEXT_CODE_BUTTON = 'button.buttonSchumi--purple'
-CODE_INPUT_SELECTOR = '#challengeCode'
-FINAL_CONTINUE_BUTTON = 'button:has-text("Submit")'
-CONTINUE_BUTTON_TEXT_SELECTOR = "button:has-text('Continue')"
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
 
@@ -55,12 +50,7 @@ async def get_2fa_code() -> str:
 
 async def check_login_success(page: Page) -> bool:
     """Check if login was successful by looking for success indicators."""
-    success_indicators = [
-        "**/dashboard", "**/trips", "**/trips/booked", 
-        "**/trips/booked?recentUpdates=true", "**/account", "**/profile"
-    ]
-    
-    for indicator in success_indicators:
+    for indicator in LOGIN_SUCCESS_URLS:
         try:
             await page.wait_for_url(indicator, timeout=5000)
             logger.info(f"Login successful! Redirected to: {indicator}")
@@ -68,12 +58,7 @@ async def check_login_success(page: Page) -> bool:
         except:
             continue
     
-    success_selectors = [
-        '[data-testid="user-menu"]', '.user-menu', '.account-menu',
-        '[aria-label*="Account"]', '[aria-label*="Profile"]', '.avatar', '.user-avatar'
-    ]
-    
-    for selector in success_selectors:
+    for selector in LOGIN_SUCCESS_SELECTORS:
         try:
             element = await page.wait_for_selector(selector, timeout=2000)
             if element:
@@ -219,6 +204,7 @@ async def restore_session(page: Page, account_id: int) -> bool:
         await page.context.add_init_script("localStorage.clear(); sessionStorage.clear();")
         
         origins = storage_state.get('origins', [])
+        
         if origins:
             origin_data = origins[0]
             for key, value in origin_data.get('localStorage', []):

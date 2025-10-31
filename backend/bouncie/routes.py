@@ -5,8 +5,7 @@ from pydantic import BaseModel
 import logging
 
 from .service import BouncieService, get_bouncie_vehicle_data
-from core.utils.api_helpers import validate_credentials, get_account_id
-from core.db.database import get_db_session
+from core.utils.api_helpers import validate_credentials
 
 logger = logging.getLogger(__name__)
 
@@ -30,12 +29,6 @@ class TripRequest(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     imei: Optional[str] = None
-
-class DatabaseRequest(BaseModel):
-    account_email: str
-    imei: Optional[str] = None
-    limit: Optional[int] = 100
-    days: Optional[int] = 30
 
 # ------------------------------ ROUTER SETUP ------------------------------
 router = APIRouter(prefix="/bouncie", tags=["bouncie"])
@@ -106,47 +99,6 @@ async def get_recent_trips(days: int = Query(7, ge=1, le=30), imei: Optional[str
     service = BouncieService()
     result = await service.get_recent_trips(days, imei)
     return check_result(result, "get recent trips")
-
-# ------------------------------ DATABASE ROUTES ------------------------------
-
-@router.post("/db/vehicles/save")
-async def save_vehicles_to_db(request: DatabaseRequest):
-    """Save vehicles to database."""
-    service = BouncieService()
-    result = await service.save_vehicles_to_db(request.account_email)
-    return check_result(result, "save vehicles to database")
-
-@router.post("/db/trips/save")
-async def save_trips_to_db(request: DatabaseRequest):
-    """Save trips to database."""
-    service = BouncieService()
-    result = await service.save_trips_to_db(
-        account_email=request.account_email,
-        imei=request.imei
-    )
-    return check_result(result, "save trips to database")
-
-@router.get("/db/trips")
-async def get_trips_from_db(
-    account_email: str = Query(..., description="Account email"),
-    imei: Optional[str] = Query(None, description="Vehicle IMEI"),
-    limit: int = Query(100, ge=1, le=1000, description="Number of trips to retrieve")
-):
-    """Get trips from database."""
-    service = BouncieService()
-    result = await service.get_trips_from_db(account_email, imei, limit)
-    return check_result(result, "get trips from database")
-
-@router.get("/db/trips/stats")
-async def get_trip_stats_from_db(
-    account_email: str = Query(..., description="Account email"),
-    imei: Optional[str] = Query(None, description="Vehicle IMEI"),
-    days: int = Query(30, ge=1, le=365, description="Number of days to analyze")
-):
-    """Get trip statistics from database."""
-    service = BouncieService()
-    result = await service.get_trip_stats_from_db(account_email, imei, days)
-    return check_result(result, "get trip statistics from database")
 
 # ------------------------------ WEBHOOK ROUTES ------------------------------
 

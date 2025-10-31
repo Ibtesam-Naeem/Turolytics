@@ -9,6 +9,34 @@ from core.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
+# ------------------------------ ACCOUNT OPERATIONS (FOR SESSION STORAGE) ------------------------------
+
+def get_or_create_account(email: str) -> Optional[int]:
+    """Get or create account for session storage only.
+    
+    Args:
+        email: Account email address
+        
+    Returns:
+        Account ID if successful, None otherwise
+    """
+    try:
+        with get_db_session() as db:
+            account = db.query(Account).filter(Account.turo_email == email).first()
+            
+            if not account:
+                account = Account(turo_email=email)
+                db.add(account)
+                db.commit()
+                db.refresh(account)
+                logger.info(f"Created new account for {email}")
+            
+            return account.id
+            
+    except Exception as e:
+        logger.error(f"Error getting or creating account: {e}")
+        return None
+
 # ------------------------------ SESSION OPERATIONS ------------------------------
 
 def create_session(account_id: int, session_id: str, storage_state: dict, user_agent: str = None, ip_address: str = None) -> Optional[Session]:

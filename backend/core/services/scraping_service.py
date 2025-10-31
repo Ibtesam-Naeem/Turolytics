@@ -1,6 +1,8 @@
 # ------------------------------ IMPORTS ------------------------------
 import asyncio
+import json
 import logging
+from pathlib import Path
 from typing import Optional, Dict, Any, Callable, Sequence
 from datetime import datetime
 from enum import Enum
@@ -8,15 +10,57 @@ from enum import Enum
 from core.config.settings import settings
 
 from turo.data.login import complete_turo_login
-from turo.data.vehicles import scrape_all_vehicle_data
+from turo.data.vehicles import scrape_vehicle_listings
 from turo.data.trips import scrape_all_trips
-from turo.data.earnings import scrape_all_earnings_data
-from turo.data.ratings import scrape_all_ratings_data
-
-from core.db.operations.turo_operations import save_scraped_data
+from turo.data.ratings import scrape_ratings_data
 
 # ------------------------------ LOGGING ------------------------------
 logger = logging.getLogger(__name__)
+
+# ------------------------------ FILE SAVING ------------------------------
+def _ensure_data_directory(account_id: int, task_id: str) -> Path:
+    """Ensure data directory exists and return the path."""
+    data_dir = Path("data/scraped") / str(account_id) / task_id
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir
+
+def _save_to_json(data: Any, filepath: Path) -> bool:
+    """Save data to JSON file."""
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False, default=str)
+        logger.info(f"Saved data to {filepath}")
+        return True
+    except Exception as e:
+        logger.error(f"Error saving data to {filepath}: {e}")
+        return False
+
+def _save_scraped_data(account_id: int, task_id: str, results: Dict[str, Any]) -> Dict[str, bool]:
+    """Save scraped data to JSON files.
+    
+    Args:
+        account_id: Account ID
+        task_id: Task ID
+        results: Dictionary containing scraped data
+        
+    Returns:
+        Dictionary with save status for each data type
+    """
+    save_status = {}
+    data_dir = _ensure_data_directory(account_id, task_id)
+    
+    for data_type, data in results.items():
+        if data is not None:
+            filepath = data_dir / f"{data_type}.json"
+            save_status[data_type] = _save_to_json(data, filepath)
+        else:
+            save_status[data_type] = False
+    
+    # Also save combined results
+    combined_path = data_dir / "all_data.json"
+    save_status["all_data"] = _save_to_json(results, combined_path)
+    
+    return save_status
 
 # ------------------------------ ENUMS ------------------------------
 class TaskStatus(Enum):
@@ -28,7 +72,6 @@ class TaskStatus(Enum):
 class ScrapingType(Enum):
     VEHICLES = "vehicles"
     TRIPS = "trips"
-    EARNINGS = "earnings"
     REVIEWS = "reviews"
     ALL = "all"
 
@@ -39,12 +82,18 @@ class ScrapingService:
     def __init__(self):
         self.active_tasks: Dict[str, Dict[str, Any]] = {}
         self._scrapers = {
-            ScrapingType.VEHICLES: scrape_all_vehicle_data,
+            ScrapingType.VEHICLES: self._wrap_scraper_result(scrape_vehicle_listings, "listings"),
             ScrapingType.TRIPS: scrape_all_trips,
-            ScrapingType.EARNINGS: scrape_all_earnings_data,
-            ScrapingType.REVIEWS: scrape_all_ratings_data,
+            ScrapingType.REVIEWS: self._wrap_scraper_result(scrape_ratings_data, "ratings"),
         }
         self._semaphore = asyncio.Semaphore(settings.scraping.max_concurrent_tasks)
+    
+    def _wrap_scraper_result(self, scraper_func, key):
+        """Create a wrapper function for scrapers that need consistent structure."""
+        async def wrapper(page):
+            result = await scraper_func(page)
+            return {key: result, "scraping_success": {key: result is not None}}
+        return wrapper
     
     async def _execute_scraping_session(self, scrapers: Sequence[ScrapingType], account_id: int, task_id: str, email: str = None, password: str = None) -> Dict[str, Any]:
         """Execute a scraping session with multiple scrapers.
@@ -85,20 +134,22 @@ class ScrapingService:
                             logger.info(f"Successfully scraped {scraper_type.value}")
                         else:
                             logger.warning(f"No data returned for {scraper_type.value} - scraper completed but found no data")
+                            results[scraper_type.value] = None
                             
                     except Exception as e:
                         logger.error(f"Failed to scrape {scraper_type.value}: {e}")
                         results[scraper_type.value] = None
                 
                 if any(results.values()):
-                    self._update_task_status(task_id, TaskStatus.RUNNING, "Saving data to database...", scraper_types=[t.value for t in scrapers])
-                    save_results = save_scraped_data(account_id, results)
+                    # Save data to JSON files
+                    self._update_task_status(task_id, TaskStatus.RUNNING, "Saving data to JSON files...", scraper_types=[t.value for t in scrapers])
+                    save_status = _save_scraped_data(account_id, task_id, results)
                     
                     self._update_task_status(
                         task_id, 
                         TaskStatus.COMPLETED, 
-                        f"Scraping completed. Saved: {save_results}",
-                        {"save_results": save_results, "scraped_data": results},
+                        "Scraping completed successfully",
+                        {"scraped_data": results, "save_status": save_status},
                         scraper_types=[t.value for t in scrapers]
                     )
                 else:
@@ -179,22 +230,6 @@ class ScrapingService:
         asyncio.create_task(self._execute_scraping_session([ScrapingType.TRIPS], account_id, task_id, email, password))
         return task_id
     
-    async def scrape_earnings(self, account_id: int, email: str = None, password: str = None) -> str:
-        """Scrape earnings data.
-        
-        Args:
-            account_id: Account ID to associate scraped data with
-            email: Turo email for login
-            password: Turo password for login
-            
-        Returns:
-            Task ID for tracking the scraping operation
-        """
-        task_id = self._generate_task_id(ScrapingType.EARNINGS, account_id)
-        self._update_task_status(task_id, TaskStatus.PENDING, "Queued for execution", scraper_types=["earnings"])
-        asyncio.create_task(self._execute_scraping_session([ScrapingType.EARNINGS], account_id, task_id, email, password))
-        return task_id
-    
     async def scrape_reviews(self, account_id: int, email: str = None, password: str = None) -> str:
         """Scrape reviews data.
         
@@ -223,7 +258,7 @@ class ScrapingService:
             Task ID for tracking the scraping operation
         """
         task_id = self._generate_task_id(ScrapingType.ALL, account_id)
-        all_types = [ScrapingType.VEHICLES, ScrapingType.TRIPS, ScrapingType.EARNINGS, ScrapingType.REVIEWS]
+        all_types = [ScrapingType.VEHICLES, ScrapingType.TRIPS, ScrapingType.REVIEWS]
         self._update_task_status(task_id, TaskStatus.PENDING, "Queued for execution", scraper_types=[t.value for t in all_types])
         
         task = asyncio.create_task(self._execute_scraping_session(all_types, account_id, task_id, email, password))

@@ -1,5 +1,6 @@
 
 # ------------------------------ URLS ------------------------------
+LOGIN_URL = "https://turo.com/ca/en/login"
 TRIPS_BOOKED_URL = "https://turo.com/ca/en/trips/booked"
 TRIPS_HISTORY_URL = "https://turo.com/ca/en/trips/history"
 
@@ -7,6 +8,28 @@ VEHICLES_LISTINGS_URL = "https://turo.com/ca/en/vehicles/listings"
 BUSINESS_EARNINGS_URL = "https://turo.com/ca/en/business/earnings"
 BUSINESS_RATINGS_URL = "https://turo.com/ca/en/business/reviews"
 INBOX_MESSAGES_URL = "https://turo.com/ca/en/inbox/messages/thread"
+
+# ------------------------------ LOGIN SELECTORS ------------------------------
+
+CONTINUE_WITH_EMAIL_SELECTOR = ".css-131npuy"
+EMAIL_SELECTOR = 'input[type="email"][name="email"], #email'
+PASSWORD_SELECTOR = 'input[type="password"][name="password"], #password'
+TEXT_CODE_BUTTON = 'button.buttonSchumi--purple'
+CODE_INPUT_SELECTOR = '#challengeCode'
+FINAL_CONTINUE_BUTTON = 'button:has-text("Submit")'
+CONTINUE_BUTTON_TEXT_SELECTOR = "button:has-text('Continue')"
+
+# Login success indicators 
+LOGIN_SUCCESS_URLS = [
+    "**/dashboard", "**/trips", "**/trips/booked", 
+    "**/trips/booked?recentUpdates=true", "**/account", "**/profile"
+]
+
+# Login success indicators
+LOGIN_SUCCESS_SELECTORS = [
+    '[data-testid="user-menu"]', '.user-menu', '.account-menu',
+    '[aria-label*="Account"]', '[aria-label*="Profile"]', '.avatar', '.user-avatar'
+]
 
 # ------------------------------ PAGE SELECTORS ------------------------------
 
@@ -63,10 +86,6 @@ LICENSE_PLATE_SELECTORS = [
     '[class*="StyledText"]:last-child'        # Fallback
 ]
 
-ALL_IMAGES = 'img'
-VEHICLE_IMAGE = '.css-vov8zg-StyledImage-StyledVehicleImage'
-CUSTOMER_PROFILE_IMAGE = '[data-testid="profilePhoto-image"]'
-
 # ------------------------------ BOOKED TRIPS SELECTORS ------------------------------
 
 TIME_INFO = '.css-18fknbt' 
@@ -78,12 +97,6 @@ VEHICLE_STATUS_SELECTORS = [
     '.css-116zd9t-VehicleDetailsCard div',  # Snoozed/Listed status
     '.css-1fx8k8t',                         # Listed status
     '.css-1h7k5xv'                          # Snoozed status
-]
-
-VEHICLE_IMAGE_SELECTORS = [
-    '.css-uev5fr-StyledImage-StyledVehicleImage-vehicleImage',
-    'img[alt*="vehicle"]',
-    '.css-yu07v3-vehicleImageContainer img'
 ]
 
 VEHICLE_NAME_SELECTORS = ['.css-1s9awq7-StyledText'] + [
@@ -110,11 +123,6 @@ VEHICLE_LISTINGS_COUNT_SELECTORS = [
     '.css-18mfln5-StyledText'                  # Fallback
 ] 
 
-# ------------------------------ IMAGE CLASSIFICATION ------------------------------
-
-VEHICLE_IMAGE_KEYWORDS = ['vehicle', 'media/vehicle']
-CUSTOMER_IMAGE_KEYWORDS = ['profilePhoto', 'driver']
-
 VEHICLE_BRANDS = [
     'Hyundai', 'Toyota', 'Honda', 'Nissan', 'Ford', 'Chevrolet', 
     'BMW', 'Mercedes', 'Audi', 'Volkswagen', 'Mazda', 'Subaru'
@@ -127,10 +135,9 @@ MONTH_NAMES = [
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
 ]
 
-DATE_SEPARATORS = ['-', 'to', '–', '—']
+# Valid years for vehicle parsing (2017-2025)
+VALID_YEARS = [str(year) for year in range(2017, 2026)]
 
-
-# ------------------------------ EARNINGS SELECTORS ------------------------------
 
 EARNINGS_TOTAL_SELECTOR = 'h2[data-testid="earningsFilterSummary-total"] span'
 EARNINGS_TOTAL_TEXT_SELECTOR = 'h2[data-testid="earningsFilterSummary-total"]'
@@ -145,7 +152,6 @@ EARNINGS_TOOLTIP_SELECTOR = 'span[data-testid="tooltipPanel-content"] span.css-1
 VEHICLE_EARNINGS_HEADER_SELECTOR = '.css-1wmkkoy-StyledTableHeaderRow'
 VEHICLE_EARNINGS_ROW_SELECTOR = '.css-4a2atv-StyledTableRow'
 
-VEHICLE_EARNINGS_IMAGE_SELECTOR = 'div.css-q4kmj6-MediaObjectWrapper img'
 VEHICLE_EARNINGS_NAME_SELECTOR = 'p.css-nmsfeq-StyledText-StyledMakeModelYear'
 VEHICLE_EARNINGS_DETAILS_SELECTOR = 'p.css-47w2m9-StyledText-StyledMakeModelYear-StyledLicenseAndTrim'
 VEHICLE_EARNINGS_AMOUNT_SELECTOR = 'p.css-14bos0l-StyledText span'
@@ -163,14 +169,12 @@ REVIEWS_HEADER_SELECTORS = [
     '[data-testid="reviews-header"]',                    # Primary
     '.css-1rqnw09-reviewsColumnHeaderStyles h2'          # Fallback
 ]
-REVIEWS_COUNT_SELECTORS = REVIEWS_HEADER_SELECTORS
 REVIEWS_CATEGORY_SELECTOR = '.css-1rqnw09-reviewsColumnHeaderStyles p.css-v7tkns-StyledText'
 
 REVIEW_LIST_CONTAINER_SELECTOR = '[data-testid="reviewList-container"]'
 REVIEW_ITEM_SELECTOR = '[data-testid="reviewList-review"]'
 
 REVIEW_CUSTOMER_LINK_SELECTOR = 'a[rel="nofollow"][href*="/drivers/"]'
-REVIEW_CUSTOMER_IMAGE_SELECTOR = 'a[rel="nofollow"][href*="/drivers/"] svg, a[rel="nofollow"][href*="/drivers/"] img'
 REVIEW_STAR_RATING_SELECTOR = '.css-1qr3nc0-StarRating-Container [aria-label*="Rating:"]'
 REVIEW_CUSTOMER_NAME_SELECTOR = '.css-ov1ktg p.css-j2jl8y-StyledText span:first-child'
 REVIEW_DATE_SELECTOR = '.css-ov1ktg p.css-j2jl8y-StyledText span.css-s0p4kp-StyledText'
@@ -186,29 +190,6 @@ REVIEW_RESPOND_BUTTON_SELECTOR = '[data-testid="respondToReviewView-showForm"]'
 REVIEW_FILLED_STAR_SELECTOR = '.css-10pswck svg[fill="#121214"]'
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
-
-def is_vehicle_related(text: str | None, src_url: str | None) -> bool:
-    """Return True if the image is vehicle-related based on alt text or URL."""
-    if not text and not src_url:
-        return False
-    
-    text_lower = (text or '').lower()
-    url_lower = (src_url or '').lower()
-    
-    return any(keyword in text_lower or keyword in url_lower 
-              for keyword in VEHICLE_IMAGE_KEYWORDS)
-
-def is_customer_related(data_testid: str | None, src_url: str | None) -> bool:
-    """Return True if the image is customer-related based on attributes."""
-    if not data_testid and not src_url:
-        return False
-    
-    testid_check = data_testid and any(keyword in data_testid 
-                                      for keyword in CUSTOMER_IMAGE_KEYWORDS)
-    url_check = src_url and any(keyword in src_url.lower() 
-                               for keyword in CUSTOMER_IMAGE_KEYWORDS)
-    
-    return testid_check or url_check
 
 def contains_month_name(text: str | None) -> bool:
     """Return True if the text contains any month name."""

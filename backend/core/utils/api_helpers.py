@@ -1,6 +1,6 @@
 # ------------------------------ IMPORTS ------------------------------
 from fastapi import HTTPException
-from core.db.operations.turo_operations import get_or_create_account
+from core.db.operations.sessions import get_or_create_account
 
 # ------------------------------ API HELPER FUNCTIONS ------------------------------
 
