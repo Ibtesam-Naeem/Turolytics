@@ -5,7 +5,7 @@ from playwright.async_api import Page
 
 from core.utils.logger import logger
 from core.utils.browser_helpers import scroll_to_bottom_and_wait, safe_text
-from .helpers import navigate_to_page
+from .helpers import navigate_to_page, process_items_in_parallel
 from .selectors import (
     TRIPS_BOOKED_URL, TRIPS_HISTORY_URL,
     TRIPS_UPCOMING_LIST, TRIP_HISTORY_LIST, TRIP_CARD,
@@ -17,20 +17,17 @@ EMPTY_BOOKED = {"trips": [], "total_trips": 0, "dates": [], "scraped_at": None}
 EMPTY_HISTORY = {"trips": [], "total_trips": 0, "completed_trips": 0, "cancelled_trips": 0, "months": [], "scraped_at": None}
 
 async def extract_trip_cards_data(page: Page, card_selector: str, list_selector: str, page_name: str) -> list[dict]:
-    """Generic function to extract trip cards data."""
+    """Generic function to extract trip cards data using parallel processing."""
     try:
         await page.wait_for_selector(list_selector, timeout=10000)
         trip_cards = await page.query_selector_all(card_selector)
         logger.debug(f"Found {len(trip_cards)} trip cards on {page_name}")
         
-        trips_list = []
-        for i, card in enumerate(trip_cards):
-            try:
-                trip_data = await extract_complete_trip_data(card, i)
-                trips_list.append(trip_data)
-           
-            except Exception as e:
-                logger.debug(f"Error scraping {page_name} trip card {i}: {e}")
+        trips_list = await process_items_in_parallel(
+            trip_cards,
+            extract_complete_trip_data,
+            item_type=f"{page_name} trip card"
+        )
         
         return trips_list
 
@@ -80,8 +77,7 @@ async def scrape_booked_trips(page: Page):
         logger.exception(f"Error scraping booked trips: {e}")
         return None
 
-# ------------------------------ HISTORY TRIPS SCRAPING ------------------------------
-
+# ------------------------------ HISTORY TRIPS SCRAPING -----------------------------
 async def scrape_trip_history(page: Page):
     """Scrape all completed trips data from the trip history page."""
     try:

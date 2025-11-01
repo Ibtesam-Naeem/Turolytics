@@ -114,7 +114,7 @@ class ScrapingService:
             results = {}
         
             try:
-                login_result = await complete_turo_login(headless=False, account_id=account_id, email=email, password=password)
+                login_result = await complete_turo_login(headless=True, account_id=account_id, email=email, password=password)
                 if not login_result:
                     raise Exception("Login failed")
                 

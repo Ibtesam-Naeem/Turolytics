@@ -1,4 +1,5 @@
 # ------------------------------ IMPORTS ------------------------------
+import asyncio
 import re
 from typing import Optional, Dict, Any, List
 from playwright.async_api import ElementHandle
@@ -324,13 +325,16 @@ async def extract_vehicle_ratings(card: ElementHandle, card_index: int) -> Dict[
         return {'rating': None, 'trip_count': None}
 
 async def extract_complete_vehicle_data(card: ElementHandle, card_index: int) -> Dict[str, Any]:
-    """Extract complete vehicle data from a vehicle card."""
+    """Extract complete vehicle data from a vehicle card using parallel processing."""
     try:
-        status = await extract_vehicle_status(card, card_index)
-        name_data = await extract_vehicle_name(card, card_index)
-        details = await extract_vehicle_details(card, card_index)
-        trip_info = await extract_vehicle_trip_info(card, card_index)
-        ratings = await extract_vehicle_ratings(card, card_index)
+        # Process all extraction steps in parallel
+        status, name_data, details, trip_info, ratings = await asyncio.gather(
+            extract_vehicle_status(card, card_index),
+            extract_vehicle_name(card, card_index),
+            extract_vehicle_details(card, card_index),
+            extract_vehicle_trip_info(card, card_index),
+            extract_vehicle_ratings(card, card_index)
+        )
         
         return {
             'status': status,

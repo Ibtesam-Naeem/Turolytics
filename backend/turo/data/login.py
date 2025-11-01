@@ -219,7 +219,7 @@ async def restore_session(page: Page, account_id: int) -> bool:
         logger.warning(f"Could not restore storage state: {e}")
         return False
 
-async def complete_turo_login(headless: bool = False, account_id: int = 1, email: str = None, password: str = None) -> Optional[Tuple[Page, BrowserContext, Browser]]:
+async def complete_turo_login(headless: bool = True, account_id: int = 1, email: str = None, password: str = None) -> Optional[Tuple[Page, BrowserContext, Browser]]:
     """Log into Turo using manual email/password and 2FA input."""
     try:
         logger.info("Initiating Turo login automation...")

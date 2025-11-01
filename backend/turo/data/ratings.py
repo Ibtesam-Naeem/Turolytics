@@ -6,7 +6,7 @@ from playwright.async_api import Page
 
 from core.utils.logger import logger
 from core.utils.browser_helpers import safe_text
-from .helpers import navigate_to_page, extract_with_regex, extract_number, try_selectors, get_text
+from .helpers import navigate_to_page, extract_with_regex, extract_number, try_selectors, get_text, process_items_in_parallel
 from .selectors import (
     BUSINESS_RATINGS_URL, RATINGS_OVERALL_SELECTOR, RATINGS_OVERALL_CATEGORY_SELECTOR,
     RATINGS_TRIPS_COUNT_SELECTOR, RATINGS_RATINGS_COUNT_SELECTOR, RATINGS_AVERAGE_SELECTOR,
@@ -142,19 +142,17 @@ async def extract_individual_review(review_element, review_index: int) -> dict[s
         }
 
 async def extract_all_reviews(page: Page) -> list[dict[str, Any]]:
-    """Extract all reviews from the reviews section."""
+    """Extract all reviews from the reviews section using parallel processing."""
     try:
         await page.wait_for_selector(REVIEW_LIST_CONTAINER_SELECTOR, timeout=10000)
         review_elements = await page.query_selector_all(REVIEW_ITEM_SELECTOR)
         logger.debug(f"Found {len(review_elements)} review elements")
         
-        reviews = []
-        for i, review_element in enumerate(review_elements):
-            try:
-                review_data = await extract_individual_review(review_element, i)
-                reviews.append(review_data)
-            except Exception as e:
-                logger.debug(f"Error extracting review {i+1}: {e}")
+        reviews = await process_items_in_parallel(
+            review_elements,
+            extract_individual_review,
+            item_type="review"
+        )
         
         return reviews
 

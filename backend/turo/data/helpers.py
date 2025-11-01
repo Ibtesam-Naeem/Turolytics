@@ -1,6 +1,7 @@
 # ------------------------------ IMPORTS ------------------------------
+import asyncio
 import re
-from typing import Optional, List, Any, Union, Dict
+from typing import Optional, List, Any, Union, Dict, Callable, Awaitable
 from playwright.async_api import Page, ElementHandle, Frame
 
 from core.utils.browser_helpers import safe_text
@@ -347,4 +348,41 @@ def extract_vehicle_info(vehicle_name: str) -> Dict[str, Optional[str]]:
             }
     
     return {"full_name": cleaned_name, "year": None, "make": None, "model": None}
+
+# ------------------------------ PARALLEL PROCESSING HELPERS ------------------------------
+
+async def process_items_in_parallel(
+    items: List[Any],
+    extract_func: Callable[[Any, int], Awaitable[Any]],
+    item_type: str = "item"
+) -> List[Any]:
+    """Process multiple items (e.g., cards, elements) in parallel.
+    
+    Args:
+        items: List of items to process (e.g., ElementHandle objects)
+        extract_func: Async function that takes (item, index) and returns extracted data
+        item_type: Type name for logging purposes (e.g., "vehicle card", "trip card")
+        
+    Returns:
+        List of extracted data, with None values filtered out (failed extractions)
+    """
+    if not items:
+        return []
+    
+    async def extract_with_error_handling(item: Any, index: int):
+        """Extract data with error handling."""
+        try:
+            return await extract_func(item, index)
+        except Exception as e:
+            logger.debug(f"Error processing {item_type} {index}: {e}")
+            return None
+    
+    # Process all items in parallel
+    tasks = [extract_with_error_handling(item, i) for i, item in enumerate(items)]
+    results = await asyncio.gather(*tasks)
+    
+    # Filter out None results (failed extractions)
+    return [result for result in results if result is not None]
+
+# ------------------------------ END OF FILE ------------------------------
 

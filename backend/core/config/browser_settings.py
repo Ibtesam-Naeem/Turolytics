@@ -11,7 +11,7 @@ USER_AGENT = settings.scraping.user_agent
 
 DEFAULT_VIEWPORT = {"width": 1366, "height": 768}
 DEFAULT_TIMEOUT = 30000
-DEFAULT_HEADLESS = False
+DEFAULT_HEADLESS = True
 
 BROWSER_LAUNCH_ARGS = [
     "--no-sandbox",
