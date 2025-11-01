@@ -5,8 +5,7 @@ from datetime import datetime
 from playwright.async_api import Page
 
 from core.utils.logger import logger
-from core.utils.browser_helpers import safe_text
-from .helpers import navigate_to_page
+from .helpers import navigate_to_page, process_items_in_parallel
 from .selectors import (
     VEHICLES_LISTINGS_URL, VEHICLES_VIEW_SELECTORS, VEHICLE_CARD,
     VEHICLES_LISTINGS_GRID_SELECTORS
@@ -30,21 +29,17 @@ async def find_vehicle_container(page: Page) -> str | None:
     return None
 
 async def extract_vehicle_cards(page: Page) -> list[dict]:
-    """Extract all vehicle cards data."""
+    """Extract all vehicle cards data using parallel processing."""
     try:
         await page.wait_for_selector(VEHICLE_CARD, timeout=10000)
         vehicle_cards = await page.query_selector_all(VEHICLE_CARD)
         logger.info(f"Found {len(vehicle_cards)} vehicle cards on listings page")
         
-        vehicles_list = []
-        for i, card in enumerate(vehicle_cards):
-            try:
-                vehicle_data = await extract_complete_vehicle_data(card, i)
-                vehicles_list.append(vehicle_data)
-            
-            except Exception as e:
-                logger.debug(f"Error scraping vehicle card {i}: {e}")
-                continue
+        vehicles_list = await process_items_in_parallel(
+            vehicle_cards,
+            extract_complete_vehicle_data,
+            item_type="vehicle card"
+        )
         
         return vehicles_list
 
@@ -84,6 +79,5 @@ async def scrape_vehicle_listings(page: Page):
     except Exception as e:
         logger.exception(f"Error scraping vehicle listings: {e}")
         return None
-
 
 # ------------------------------ END OF FILE ------------------------------
