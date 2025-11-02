@@ -226,6 +226,21 @@ async def check_for_success_element(page: Page, success_selectors: List[str], if
 
 # ------------------------------ PARALLEL PROCESSING HELPERS ------------------------------
 
+def count_statuses(items: List[Any], status_key: str = 'status', default: int = 0) -> Dict[str, int]:
+    """Count status occurrences in a list of items.
+    
+    Args:
+        items: List of dictionaries/objects with status information
+        status_key: Key to access status in each item (default: 'status')
+        default: Default count for missing statuses (default: 0)
+        
+    Returns:
+        Dictionary mapping status values to counts
+    """
+    from collections import Counter
+    status_counts = Counter(item.get(status_key) for item in items if item.get(status_key))
+    return dict(status_counts)
+
 async def process_items_in_parallel(
     items: List[Any],
     extract_func: Callable[[Any, int], Awaitable[Any]],

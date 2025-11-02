@@ -1,11 +1,10 @@
 # ------------------------------ IMPORTS ------------------------------
-from collections import Counter
 from datetime import datetime
 from playwright.async_api import Page
 
 from core.utils.logger import logger
 from core.utils.browser_helpers import scroll_to_bottom_and_wait
-from .helpers import navigate_to_page, process_items_in_parallel, get_text, extract_texts_from_elements
+from .helpers import navigate_to_page, process_items_in_parallel, get_text, extract_texts_from_elements, count_statuses
 from .selectors import (
     TRIPS_BOOKED_URL, TRIPS_HISTORY_URL,
     TRIPS_UPCOMING_LIST, TRIP_HISTORY_LIST, TRIP_CARD,
@@ -84,13 +83,13 @@ async def scrape_trip_history(page: Page):
         
         months_list = await extract_month_headers(page)
         
-        status_counts = Counter(trip.get('status') for trip in trips_list)
+        status_counts = count_statuses(trips_list, status_key='status')
         
         trip_history_data = {
             "trips": trips_list,
             "total_trips": len(trips_list),
-            "completed_trips": status_counts.get('completed', 0),
-            "cancelled_trips": status_counts.get('cancelled', 0),
+            "completed_trips": status_counts.get('COMPLETED', 0),
+            "cancelled_trips": status_counts.get('CANCELLED', 0),
             "months": months_list,
             "scraped_at": datetime.utcnow().isoformat()
         }

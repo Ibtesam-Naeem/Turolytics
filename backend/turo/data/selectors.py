@@ -24,7 +24,6 @@ LOGIN_SUCCESS_URLS = [
     "**/trips/booked?recentUpdates=true", "**/account", "**/profile"
 ]
 
-# Login success indicators
 LOGIN_SUCCESS_SELECTORS = [
     '[data-testid="user-menu"]', '.user-menu', '.account-menu',
     '[aria-label*="Account"]', '[aria-label*="Profile"]', '.avatar', '.user-avatar'

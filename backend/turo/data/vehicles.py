@@ -1,11 +1,10 @@
 # ------------------------------ IMPORTS ------------------------------
-from collections import Counter
 from datetime import datetime
 
 from playwright.async_api import Page
 
 from core.utils.logger import logger
-from .helpers import navigate_to_page, process_items_in_parallel
+from .helpers import navigate_to_page, process_items_in_parallel, count_statuses
 from .selectors import (
     VEHICLES_LISTINGS_URL, VEHICLE_CARD
 )
@@ -42,7 +41,7 @@ async def scrape_vehicle_listings(page: Page):
             return None
         
         vehicles_list = await extract_vehicle_cards(page)
-        status_counts = Counter(v.get('status') for v in vehicles_list)
+        status_counts = count_statuses(vehicles_list, status_key='status')
         listed_vehicles = status_counts.get('Listed', 0)
         snoozed_vehicles = status_counts.get('Snoozed', 0)
         
