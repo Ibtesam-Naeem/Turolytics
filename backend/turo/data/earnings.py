@@ -6,7 +6,7 @@ from datetime import datetime
 from core.utils.logger import logger
 from core.utils.browser_helpers import safe_text
 from core.utils.data_helpers import parse_amount
-from .helpers import navigate_to_page, extract_with_regex, try_selectors, get_text
+from .helpers import navigate_to_page, extract_with_regex
 from .selectors import (
     BUSINESS_EARNINGS_URL, EARNINGS_TOTAL_SELECTOR, EARNINGS_TOTAL_TEXT_SELECTOR,
     EARNINGS_LEGEND_SELECTOR, EARNINGS_LEGEND_TAG_SELECTOR, EARNINGS_AMOUNT_SELECTOR,
@@ -33,10 +33,25 @@ def build_summary(vehicle_earnings: list, earnings_breakdown: list) -> dict[str,
 async def extract_total_earnings(page: Page) -> dict[str, Optional[str]]:
     """Extract total earnings amount and text from the earnings page."""
     try:
-        amount = await get_text(page, EARNINGS_TOTAL_SELECTOR)
-        full_text = await get_text(page, EARNINGS_TOTAL_TEXT_SELECTOR)
+        # Wait for the total earnings element to be available
+        await page.wait_for_selector(EARNINGS_TOTAL_TEXT_SELECTOR, timeout=10000)
+        
+        amount_element = await page.query_selector(EARNINGS_TOTAL_SELECTOR)
+        amount = await safe_text(amount_element)
+        
+        text_element = await page.query_selector(EARNINGS_TOTAL_TEXT_SELECTOR)
+        full_text = await safe_text(text_element)
+        
+        # If we got the text but not the amount, try to extract amount from text
+        if not amount and full_text:
+            # Try to extract amount using regex from the full text
+            amount_match = extract_with_regex(full_text, r'\$[\d,]+\.?\d*')
+            if amount_match:
+                amount = amount_match
         
         year = extract_with_regex(full_text or '', r'earned\s+in\s+(\d{4})') if full_text else None
+        
+        logger.debug(f"Extracted total earnings - amount: {amount}, text: {full_text[:50] if full_text else None}, year: {year}")
         
         return {
             'amount': amount,
@@ -44,7 +59,7 @@ async def extract_total_earnings(page: Page) -> dict[str, Optional[str]]:
             'year': year
         }
     except Exception as e:
-        logger.debug(f"Error extracting total earnings: {e}")
+        logger.warning(f"Error extracting total earnings: {e}")
         return {'amount': None, 'text': None, 'year': None}
 
 async def extract_earnings_breakdown(page: Page) -> list[dict[str, Optional[str]]]:
@@ -94,15 +109,26 @@ async def extract_vehicle_earnings(page: Page) -> list[dict[str, Optional[str]]]
                 details_element = await row.query_selector(VEHICLE_EARNINGS_DETAILS_SELECTOR)
                 details_text = await safe_text(details_element)
                 
-                lines = details_text.split('\n') if details_text else []
+                # Parse license plate and trim from details text
+                # Format is typically: "LICENSE_PLATE • TRIM" or just "LICENSE_PLATE"
+                license_plate = None
+                trim = None
+                
+                if details_text:
+                    # Split by " • " to separate license plate and trim
+                    parts = details_text.split(' • ')
+                    if len(parts) >= 1:
+                        license_plate = parts[0].strip()
+                    if len(parts) >= 2:
+                        trim = parts[1].strip()
                 
                 amount_element = await row.query_selector(VEHICLE_EARNINGS_AMOUNT_SELECTOR)
                 earnings_amount = await safe_text(amount_element)
                 
                 vehicle_data = {
                     'vehicle_name': vehicle_name,
-                    'license_plate': lines[0].strip() if len(lines) >= 1 else None,
-                    'trim': lines[1].strip() if len(lines) >= 2 else None,
+                    'license_plate': license_plate,
+                    'trim': trim,
                     'earnings_amount': earnings_amount
                 }
                 
