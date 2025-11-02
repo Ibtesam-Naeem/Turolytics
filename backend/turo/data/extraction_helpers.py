@@ -14,7 +14,7 @@ from .selectors import (
     contains_month_name, contains_vehicle_brand,
     VEHICLE_STATUS_SELECTORS, VEHICLE_NAME_SELECTORS,
     VEHICLE_DETAILS_SELECTORS, VEHICLE_TRIP_INFO_SELECTORS, VEHICLE_RATINGS_SELECTORS,
-    VALID_YEARS, VEHICLE_BRANDS, MONTH_NAMES, VEHICLE_STATUSES
+    VALID_YEARS, VEHICLE_BRANDS, MONTH_NAMES, VEHICLE_STATUSES, YEAR_PATTERN_REGEX, YEAR_PATTERN_NON_CAPTURING
 )
 
 def clean_text(text: str, patterns_to_remove: List[str] = None) -> str:
@@ -190,11 +190,19 @@ async def extract_complete_trip_data(card: ElementHandle, card_index: int) -> Di
 async def extract_month_headers(page) -> list:
     """Extract month headers from the page."""
     try:
-        months = await extract_texts_from_elements(
-            page, 
-            MONTH_HEADER_SELECTORS[0],
-            filter_func=lambda t: '2024' in t or '2025' in t
-        )
+        year_pattern = re.compile(r"\b20\d{2}\b")
+        months: list[str] = []
+
+        for selector in MONTH_HEADER_SELECTORS:
+            results = await extract_texts_from_elements(
+                page,
+                selector,
+                filter_func=lambda t, pattern=year_pattern: bool(pattern.search(t or ""))
+            )
+            if results:
+                months.extend(results)
+                break
+
         return months
 
     except Exception as e:
@@ -245,10 +253,11 @@ async def extract_vehicle_name(card: ElementHandle, card_index: int) -> Dict[str
                                         break
                             break
                     
+                    year_pattern = YEAR_PATTERN_NON_CAPTURING
                     patterns = [
-                        r'([A-Za-z]+)\s+([A-Za-z0-9]+)\s+(201[7-9]|202[0-5])',
-                        r'([A-Za-z]+)\s+([A-Za-z0-9]+).*?(201[7-9]|202[0-5])',
-                        r'([A-Za-z]+)\s+([A-Za-z0-9]+)\s+(201[7-9]|202[0-5])[0-9]*\.?[0-9]*[A-Za-z]*'
+                        r'([A-Za-z]+)\s+([A-Za-z0-9]+)\s+(' + year_pattern + r')',
+                        r'([A-Za-z]+)\s+([A-Za-z0-9]+).*?(' + year_pattern + r')',
+                        r'([A-Za-z]+)\s+([A-Za-z0-9]+)\s+(' + year_pattern + r')[0-9]*\.?[0-9]*[A-Za-z]*'
                     ]
                     
                     for pattern in patterns:
@@ -260,19 +269,19 @@ async def extract_vehicle_name(card: ElementHandle, card_index: int) -> Dict[str
                                 'year': year
                             }
                     
-                    year_match = re.search(r'\b(201[7-9]|202[0-5])\b', cleaned)
+                    year_match = re.search(YEAR_PATTERN_REGEX, cleaned)
                     if year_match:
                         year = year_match.group(1)
-                        name = re.sub(r'\b(201[7-9]|202[0-5])\b', '', cleaned).strip()
+                        name = re.sub(YEAR_PATTERN_REGEX, '', cleaned).strip()
                         if name:
                             return {'name': name, 'year': year}
                     
                     cleaned = clean_text(cleaned)
                     if len(cleaned.split()) >= 2:
-                        year_match = re.search(r'\b(201[7-9]|202[0-5])\b', cleaned)
+                        year_match = re.search(YEAR_PATTERN_REGEX, cleaned)
                         if year_match:
                             year = year_match.group(1)
-                            name = re.sub(r'\b(201[7-9]|202[0-5])\b', '', cleaned).strip()
+                            name = re.sub(YEAR_PATTERN_REGEX, '', cleaned).strip()
                             return {'name': name, 'year': year}
                         return {'name': cleaned, 'year': None}
         return {'name': None, 'year': None}

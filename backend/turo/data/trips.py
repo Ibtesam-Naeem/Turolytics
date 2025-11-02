@@ -49,7 +49,11 @@ async def scrape_booked_trips(page: Page):
         
         location_text = await get_text(page, LOCATION)
         time_text = await get_text(page, TIME_INFO)
-        dates_list = await extract_texts_from_elements(page, DATE_HEADER_SELECTORS[0])
+        dates_list = []
+        for selector in DATE_HEADER_SELECTORS:
+            dates_list = await extract_texts_from_elements(page, selector)
+            if dates_list:
+                break
         
         booked_trips_data = {
             "trips": trips_list,

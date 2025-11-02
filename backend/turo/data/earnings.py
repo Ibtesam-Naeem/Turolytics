@@ -5,8 +5,7 @@ from typing import Optional, Any
 from playwright.async_api import Page
 
 from core.utils.logger import logger
-from core.utils.data_helpers import parse_amount
-from .helpers import navigate_to_page, extract_with_regex, get_text, process_items_in_parallel
+from .helpers import navigate_to_page, extract_with_regex, get_text, process_items_in_parallel, parse_amount
 from .selectors import (
     BUSINESS_EARNINGS_URL, EARNINGS_TOTAL_SELECTOR, EARNINGS_TOTAL_TEXT_SELECTOR,
     EARNINGS_LEGEND_SELECTOR, EARNINGS_LEGEND_TAG_SELECTOR, EARNINGS_AMOUNT_SELECTOR,

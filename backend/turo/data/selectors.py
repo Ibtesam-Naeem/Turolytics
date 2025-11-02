@@ -125,6 +125,10 @@ MONTH_NAMES = [
 # Valid years for vehicle parsing (2017-2025)
 VALID_YEARS = [str(year) for year in range(2017, 2026)]
 
+# Year pattern regex built from VALID_YEARS (non-capturing group version for embedding)
+YEAR_PATTERN_REGEX = r'\b(' + '|'.join(VALID_YEARS) + r')\b'
+YEAR_PATTERN_NON_CAPTURING = r'\b(?:' + '|'.join(VALID_YEARS) + r')\b'
+
 # ------------------------------ RATINGS SELECTORS ------------------------------
 
 RATINGS_OVERALL_SELECTOR = '[data-testid="cardAccordion-headerSuffix"] p.css-1vmc2vr-StyledText'

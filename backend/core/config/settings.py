@@ -9,21 +9,6 @@ load_dotenv()
 
 # ------------------------------ CONFIGURATION CLASSES ------------------------------
 @dataclass
-class DatabaseConfig:
-    """PostgreSQL database configuration."""
-    url: str = os.getenv("DATABASE_URL", "")
-    pool_size: int = int(os.getenv("DB_POOL_SIZE", "5"))
-    max_overflow: int = int(os.getenv("DB_MAX_OVERFLOW", "10"))
-    
-    def __post_init__(self):
-        """Validate database configuration."""
-        if not self.url:
-            raise ValueError(
-                "DATABASE_URL environment variable is required. "
-                "Example: postgresql://user:password@localhost:5432/dbname"
-            )
-
-@dataclass
 class ScrapingConfig:
     """Scraping configuration."""
     timeout: int = int(os.getenv("SCRAPING_TIMEOUT", "300")) 
@@ -65,7 +50,6 @@ class Settings:
     """Main application settings."""
     
     def __init__(self):
-        self.database = DatabaseConfig()
         self.scraping = ScrapingConfig()
         self.cors = CORSConfig()
         self.security = SecurityConfig()

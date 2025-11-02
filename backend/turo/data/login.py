@@ -182,42 +182,9 @@ async def handle_two_factor_auth(page: Page) -> bool:
 
 async def restore_session(page: Page, account_id: int) -> bool:
     """Try to restore session from storage state."""
-    storage_state = get_storage_state(account_id)
-    if not storage_state:
-        return False
-    
-    logger.info("Attempting session restore via database storage state...")
-    try:
-        cookies = storage_state.get('cookies', [])
-        if cookies:
-            for cookie in cookies:
-                if 'domain' not in cookie and 'url' not in cookie:
-                    cookie['domain'] = '.turo.com'
-                if 'path' not in cookie:
-                    cookie['path'] = '/'
-            try:
-                await page.context.add_cookies(cookies)
-
-            except Exception as cookie_error:
-                logger.warning(f"Could not add cookies: {cookie_error}")
-        
-        await page.context.add_init_script("localStorage.clear(); sessionStorage.clear();")
-        
-        origins = storage_state.get('origins', [])
-        
-        if origins:
-            origin_data = origins[0]
-            for key, value in origin_data.get('localStorage', []):
-                await page.context.add_init_script(f"localStorage.setItem('{key}', '{value}');")
-            for key, value in origin_data.get('sessionStorage', []):
-                await page.context.add_init_script(f"sessionStorage.setItem('{key}', '{value}');")
-        
-        logger.info("Storage state injected successfully")
-        return await verify_session_authenticated(page)
-
-    except Exception as e:
-        logger.warning(f"Could not restore storage state: {e}")
-        return False
+    # Database storage removed - session restore disabled for now
+    # TODO: Implement file-based storage state restore if needed
+    return False
 
 async def complete_turo_login(headless: bool = True, account_id: int = 1, email: str = None, password: str = None) -> Optional[Tuple[Page, BrowserContext, Browser]]:
     """Log into Turo using manual email/password and 2FA input."""

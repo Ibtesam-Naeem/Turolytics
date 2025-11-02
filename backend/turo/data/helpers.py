@@ -19,6 +19,18 @@ def extract_number(text: str) -> Optional[float]:
     match = extract_with_regex(text, r'(\d+\.?\d*)')
     return float(match) if match else None
 
+def parse_amount(amount_str: str) -> Optional[float]:
+    """Parse amount string like '$100.00' into a float."""
+    if not amount_str:
+        return None
+
+    try:
+        cleaned = amount_str.replace('$', '').replace(',', '')
+        return float(cleaned)
+        
+    except (ValueError, TypeError):
+        return None
+
 async def try_selectors(
     element: Union[Page, ElementHandle], 
     selectors: List[str], 

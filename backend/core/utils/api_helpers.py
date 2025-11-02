@@ -1,6 +1,5 @@
 # ------------------------------ IMPORTS ------------------------------
 from fastapi import HTTPException
-from core.db.operations.sessions import get_or_create_account
 
 # ------------------------------ API HELPER FUNCTIONS ------------------------------
 
@@ -13,9 +12,8 @@ def validate_credentials(email: str, password: str) -> None:
 
 def get_account_id(email: str) -> int:
     """Get or create account and return account ID."""
-    account_id = get_or_create_account(email)
-    if not account_id:
-        raise HTTPException(status_code=500, detail="Failed to create or retrieve account")
-    return account_id
+    # Database removed - return default account ID for now
+    # TODO: Implement file-based account management if needed
+    return 1
 
 # ------------------------------ END OF FILE ------------------------------
