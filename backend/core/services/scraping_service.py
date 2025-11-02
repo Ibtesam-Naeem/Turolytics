@@ -13,6 +13,7 @@ from turo.data.login import complete_turo_login
 from turo.data.vehicles import scrape_vehicle_listings
 from turo.data.trips import scrape_all_trips
 from turo.data.ratings import scrape_ratings_data
+from turo.data.earnings import scrape_all_earnings_data
 
 # ------------------------------ LOGGING ------------------------------
 logger = logging.getLogger(__name__)
@@ -73,6 +74,7 @@ class ScrapingType(Enum):
     VEHICLES = "vehicles"
     TRIPS = "trips"
     REVIEWS = "reviews"
+    EARNINGS = "earnings"
     ALL = "all"
 
 # ------------------------------ SCRAPING SERVICE ------------------------------
@@ -85,6 +87,7 @@ class ScrapingService:
             ScrapingType.VEHICLES: self._wrap_scraper_result(scrape_vehicle_listings, "listings"),
             ScrapingType.TRIPS: scrape_all_trips,
             ScrapingType.REVIEWS: self._wrap_scraper_result(scrape_ratings_data, "ratings"),
+            ScrapingType.EARNINGS: scrape_all_earnings_data,
         }
         self._semaphore = asyncio.Semaphore(settings.scraping.max_concurrent_tasks)
     
@@ -258,7 +261,7 @@ class ScrapingService:
             Task ID for tracking the scraping operation
         """
         task_id = self._generate_task_id(ScrapingType.ALL, account_id)
-        all_types = [ScrapingType.VEHICLES, ScrapingType.TRIPS, ScrapingType.REVIEWS]
+        all_types = [ScrapingType.VEHICLES, ScrapingType.TRIPS, ScrapingType.REVIEWS, ScrapingType.EARNINGS]
         self._update_task_status(task_id, TaskStatus.PENDING, "Queued for execution", scraper_types=[t.value for t in all_types])
         
         task = asyncio.create_task(self._execute_scraping_session(all_types, account_id, task_id, email, password))

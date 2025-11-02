@@ -4,8 +4,8 @@ from datetime import datetime
 from playwright.async_api import Page
 
 from core.utils.logger import logger
-from core.utils.browser_helpers import scroll_to_bottom_and_wait, safe_text
-from .helpers import navigate_to_page, process_items_in_parallel
+from core.utils.browser_helpers import scroll_to_bottom_and_wait
+from .helpers import navigate_to_page, process_items_in_parallel, get_text, extract_texts_from_elements
 from .selectors import (
     TRIPS_BOOKED_URL, TRIPS_HISTORY_URL,
     TRIPS_UPCOMING_LIST, TRIP_HISTORY_LIST, TRIP_CARD,
@@ -48,18 +48,9 @@ async def scrape_booked_trips(page: Page):
         
         trips_list = await extract_trip_cards_data(page, TRIP_CARD, TRIPS_UPCOMING_LIST, "booked")
         
-        location_element = await page.query_selector(LOCATION)
-        location_text = await safe_text(location_element) if location_element else None
-        
-        time_element = await page.query_selector(TIME_INFO)
-        time_text = await safe_text(time_element) if time_element else None
-        
-        date_headers = await page.query_selector_all(DATE_HEADER_SELECTORS[0])
-        dates_list = []
-        for header in date_headers:
-            text = await safe_text(header)
-            if text:
-                dates_list.append(text)
+        location_text = await get_text(page, LOCATION)
+        time_text = await get_text(page, TIME_INFO)
+        dates_list = await extract_texts_from_elements(page, DATE_HEADER_SELECTORS[0])
         
         booked_trips_data = {
             "trips": trips_list,
@@ -119,11 +110,13 @@ async def scrape_all_trips(page: Page):
         logger.info("Starting to scrape all trips data...")
         
         booked_data = await scrape_booked_trips(page)
+        booked_success = booked_data is not None
         if not booked_data:
             logger.warning("Failed to scrape booked trips data")
             booked_data = EMPTY_BOOKED.copy()
         
         history_data = await scrape_trip_history(page)
+        history_success = history_data is not None
         if not history_data:
             logger.warning("Failed to scrape trip history data")
             history_data = EMPTY_HISTORY.copy()
@@ -132,8 +125,8 @@ async def scrape_all_trips(page: Page):
             "booked_trips": booked_data,
             "trip_history": history_data,
             "scraping_success": {
-                "booked": booked_data is not None,
-                "history": history_data is not None
+                "booked": booked_success,
+                "history": history_success
             }
         }
         

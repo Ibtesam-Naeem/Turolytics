@@ -5,9 +5,8 @@ TRIPS_BOOKED_URL = "https://turo.com/ca/en/trips/booked"
 TRIPS_HISTORY_URL = "https://turo.com/ca/en/trips/history"
 
 VEHICLES_LISTINGS_URL = "https://turo.com/ca/en/vehicles/listings"
-BUSINESS_EARNINGS_URL = "https://turo.com/ca/en/business/earnings"
 BUSINESS_RATINGS_URL = "https://turo.com/ca/en/business/reviews"
-INBOX_MESSAGES_URL = "https://turo.com/ca/en/inbox/messages/thread"
+BUSINESS_EARNINGS_URL = "https://turo.com/ca/en/business/earnings"
 
 # ------------------------------ LOGIN SELECTORS ------------------------------
 
@@ -38,15 +37,7 @@ TRIP_HISTORY_LIST = '[data-testid="trip-history-list"]'
 
 TRIP_CARD = '[data-testid="baseTripCard"]'
 
-VEHICLES_LISTINGS_GRID_SELECTORS = [
-    '[data-testid="vehicles-listings-grid"]',  # Primary
-    '.css-3j7pzn-VehicleListingsGrid'          # Fallback
-]
 VEHICLE_CARD = '[data-testid="vehicle-listing-details-card"]'
-VEHICLES_VIEW_SELECTORS = [
-    '[data-testid="vehicles-view"]',  # Primary
-    '.css-7r5omw-VehiclesView'        # Fallback
-]
 
 MONTH_HEADER_SELECTORS = [
     '[data-testid="month-header"]',  # Primary
@@ -118,15 +109,12 @@ VEHICLE_RATINGS_SELECTORS = [
     '.css-s1wb9o-spaceBetween p:last-child'
 ]
 
-VEHICLE_LISTINGS_COUNT_SELECTORS = [
-    '[data-testid="vehicle-listings-count"]',  # Primary
-    '.css-18mfln5-StyledText'                  # Fallback
-] 
-
 VEHICLE_BRANDS = [
     'Hyundai', 'Toyota', 'Honda', 'Nissan', 'Ford', 'Chevrolet', 
     'BMW', 'Mercedes', 'Audi', 'Volkswagen', 'Mazda', 'Subaru'
 ]
+
+VEHICLE_STATUSES = ['Listed', 'Snoozed', 'Unavailable', 'Maintenance']
 
 # ------------------------------ DATE PATTERNS ------------------------------
 
@@ -137,24 +125,6 @@ MONTH_NAMES = [
 
 # Valid years for vehicle parsing (2017-2025)
 VALID_YEARS = [str(year) for year in range(2017, 2026)]
-
-
-EARNINGS_TOTAL_SELECTOR = 'h2[data-testid="earningsFilterSummary-total"] span'
-EARNINGS_TOTAL_TEXT_SELECTOR = 'h2[data-testid="earningsFilterSummary-total"]'
-
-EARNINGS_LEGEND_SELECTOR = '.legend'
-EARNINGS_LEGEND_TAG_SELECTOR = '.legend-tag'
-
-EARNINGS_AMOUNT_SELECTOR = '.css-bgx7g9-StyledText'
-EARNINGS_TYPE_SELECTOR = '.css-foqw77-StyledText'
-EARNINGS_TOOLTIP_SELECTOR = 'span[data-testid="tooltipPanel-content"] span.css-1afgvk6-StyledText'
-
-VEHICLE_EARNINGS_HEADER_SELECTOR = '.css-1wmkkoy-StyledTableHeaderRow'
-VEHICLE_EARNINGS_ROW_SELECTOR = '.css-4a2atv-StyledTableRow'
-
-VEHICLE_EARNINGS_NAME_SELECTOR = 'p.css-nmsfeq-StyledText-StyledMakeModelYear'
-VEHICLE_EARNINGS_DETAILS_SELECTOR = 'p.css-47w2m9-StyledText-StyledMakeModelYear-StyledLicenseAndTrim'
-VEHICLE_EARNINGS_AMOUNT_SELECTOR = 'p.css-14bos0l-StyledText span'
 
 # ------------------------------ RATINGS SELECTORS ------------------------------
 
@@ -184,10 +154,25 @@ REVIEW_TEXT_SELECTOR = '.css-1e0dz7l-ReviewBody p.css-14bos0l-StyledText'
 REVIEW_AREAS_IMPROVEMENT_SELECTOR = '[data-testid="reviewsAreasOfImprovement-badge"]'
 REVIEW_HOST_RESPONSE_SELECTOR = '.css-1ojqf3u-Well-ReviewReplyContainer'
 
-REVIEW_SEE_FULL_BUTTON_SELECTOR = 'button:has-text("See full review")'
-REVIEW_RESPOND_BUTTON_SELECTOR = '[data-testid="respondToReviewView-showForm"]'
-
 REVIEW_FILLED_STAR_SELECTOR = '.css-10pswck svg[fill="#121214"]'
+
+# ------------------------------ EARNINGS SELECTORS ------------------------------
+
+EARNINGS_TOTAL_SELECTOR = '[data-testid="earnings-total"]'
+EARNINGS_TOTAL_TEXT_SELECTOR = '[data-testid="earnings-total-text"]'
+
+EARNINGS_LEGEND_SELECTOR = '[data-testid="earnings-legend"]'
+EARNINGS_LEGEND_TAG_SELECTOR = '[data-testid="earnings-legend-tag"]'
+EARNINGS_AMOUNT_SELECTOR = '[data-testid="earnings-amount"]'
+EARNINGS_TYPE_SELECTOR = '[data-testid="earnings-type"]'
+EARNINGS_TOOLTIP_SELECTOR = '[data-testid="earnings-tooltip"]'
+
+VEHICLE_EARNINGS_HEADER_SELECTOR = '[data-testid="vehicle-earnings-header"]'
+VEHICLE_EARNINGS_ROW_SELECTOR = '[data-testid="vehicle-earnings-row"]'
+VEHICLE_EARNINGS_IMAGE_SELECTOR = '[data-testid="vehicle-earnings-image"]'
+VEHICLE_EARNINGS_NAME_SELECTOR = '[data-testid="vehicle-earnings-name"]'
+VEHICLE_EARNINGS_DETAILS_SELECTOR = '[data-testid="vehicle-earnings-details"]'
+VEHICLE_EARNINGS_AMOUNT_SELECTOR = '[data-testid="vehicle-earnings-amount"]'
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
 

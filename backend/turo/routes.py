@@ -1,6 +1,6 @@
 # ------------------------------ IMPORTS ------------------------------
 from fastapi import APIRouter, HTTPException
-from typing import List, Optional, Dict, Any
+from typing import Optional, Dict, Any
 from pydantic import BaseModel
 import logging
 
@@ -8,18 +8,6 @@ from core.services.scraping_service import ScrapingService
 from core.utils.api_helpers import validate_credentials, get_account_id
 
 logger = logging.getLogger(__name__)
-
-# ------------------------------ HELPER FUNCTIONS ------------------------------
-
-def get_account_id_from_params(account_id: Optional[int], email: Optional[str]) -> int:
-    """Get account ID from either account_id or email parameter."""
-    if not account_id and not email:
-        raise HTTPException(status_code=400, detail="Either account_id or email is required")
-    
-    if not account_id and email:
-        return get_account_id(email)
-    
-    return account_id
 
 # ------------------------------ ROUTER SETUP ------------------------------
 router = APIRouter(prefix="/turo", tags=["turo"])

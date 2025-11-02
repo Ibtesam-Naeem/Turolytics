@@ -24,16 +24,7 @@ async def try_selectors(
     selectors: List[str], 
     validator=None
 ) -> Optional[str]:
-    """Try multiple selectors and return first valid result.
-    
-    Args:
-        element: Page or ElementHandle to query
-        selectors: List of CSS selectors to try
-        validator: Optional function to validate the extracted text
-        
-    Returns:
-        First valid text found, or None if none match
-    """
+    """Try multiple selectors and return first valid result."""
     for selector in selectors:
         try:
             target = await element.query_selector(selector)
@@ -45,31 +36,33 @@ async def try_selectors(
     return None
 
 async def get_text(element: Union[Page, ElementHandle], selector: str) -> Optional[str]:
-    """Get text from an element using a selector.
-    
-    Args:
-        element: Page or ElementHandle to query
-        selector: CSS selector to find the element
-        
-    Returns:
-        Text content if found, None otherwise
-    """
+    """Get text from an element using a selector."""
     target = await element.query_selector(selector)
     return await safe_text(target)
+
+async def extract_texts_from_elements(
+    element: Union[Page, ElementHandle], 
+    selector: str,
+    filter_func: Optional[Callable[[str], bool]] = None
+) -> List[str]:
+    """Extract text content from multiple elements matching a selector."""
+    try:
+        elements = await element.query_selector_all(selector)
+        texts = []
+        for el in elements:
+            text = await safe_text(el)
+            if text:
+                if not filter_func or filter_func(text):
+                    texts.append(text)
+        return texts
+    except Exception as e:
+        logger.debug(f"Error extracting texts from elements: {e}")
+        return []
 
 # ------------------------------ NAVIGATION HELPERS ------------------------------
 
 async def navigate_to_page(page: Page, url: str, page_name: str) -> bool:
-    """Generic navigation function for Turo pages.
-    
-    Args:
-        page: Playwright page object
-        url: URL to navigate to
-        page_name: Human-readable name for logging
-        
-    Returns:
-        True if navigation successful, False otherwise
-    """
+    """Generic navigation function for Turo pages."""
     try:
         logger.info(f"Navigating to {page_name}...")
         await page.goto(url, wait_until="domcontentloaded")
@@ -82,16 +75,7 @@ async def navigate_to_page(page: Page, url: str, page_name: str) -> bool:
 # ------------------------------ TURO LOGIN HELPERS ------------------------------
 
 async def get_iframe_content(page: Page, timeout: int = 8000) -> Optional[Frame]:
-    """
-    Get the iframe content frame for Turo login forms.
-
-    Args:
-        page: Playwright page object.
-        timeout: Timeout in milliseconds for iframe selector.
-
-    Returns:
-        Frame: The iframe content frame, or None if not found.
-    """
+    """Get the iframe content frame for Turo login forms."""
     try:
         iframe = await page.wait_for_selector('iframe[data-testid="managedIframe"]', timeout=timeout)
         return await iframe.content_frame()
@@ -123,17 +107,7 @@ async def click_continue_button_with_retry(page: Page, iframe_content: Frame, co
             return False
 
 async def search_for_error_messages(page: Page, iframe_content: Optional[Frame] = None, error_messages: Optional[List[str]] = None) -> Optional[str]:
-    """
-    Search for specific error messages on the page and in iframe.
-    
-    Args:
-        page: Playwright page object
-        iframe_content: Iframe content frame if available
-        error_messages: List of error messages to search for. If None, uses default Turo-specific errors.
-        
-    Returns:
-        str | None: Error message if found, None otherwise
-    """
+    """Search for specific error messages on the page and in iframe."""
     if error_messages is None:
         error_messages = [
             'Please enter a valid email',
@@ -155,33 +129,29 @@ async def search_for_error_messages(page: Page, iframe_content: Optional[Frame] 
         '[class*="alert"]'
     ]
     
-    for error_msg in error_messages:
-        try:
-            element = await page.query_selector(f'text="{error_msg}"')
-            if element:
-                return error_msg
-                
-            element = await page.query_selector(f'text*="{error_msg}"')
-
-            if element:
-                return error_msg
-                
-        except Exception:
-            continue
-    
-    if iframe_content:
-        for error_msg in error_messages:
+    async def search_in_target(target, error_msgs):
+        """Search for error messages in a given target (page or iframe)."""
+        for error_msg in error_msgs:
             try:
-                element = await iframe_content.query_selector(f'text="{error_msg}"')
+                element = await target.query_selector(f'text="{error_msg}"')
                 if element:
                     return error_msg
                     
-                element = await iframe_content.query_selector(f'text*="{error_msg}"')
+                element = await target.query_selector(f'text*="{error_msg}"')
                 if element:
                     return error_msg
-                
             except Exception:
                 continue
+        return None
+    
+    result = await search_in_target(page, error_messages)
+    if result:
+        return result
+    
+    if iframe_content:
+        result = await search_in_target(iframe_content, error_messages)
+        if result:
+            return result
     
     search_targets = [page]
     if iframe_content:
@@ -209,14 +179,7 @@ async def search_for_error_messages(page: Page, iframe_content: Optional[Frame] 
     return None
 
 async def clear_form_inputs(page: Page, input_selectors: List[str], iframe_content: Optional[Frame] = None) -> None:
-    """
-    Clear form input fields on form submission failure.
-    
-    Args:
-        page: Playwright page object
-        input_selectors: List of CSS selectors for input fields to clear
-        iframe_content: Iframe content frame if available
-    """
+    """Clear form input fields on form submission failure."""
     try:
         if iframe_content:
             try:
@@ -243,17 +206,7 @@ async def clear_form_inputs(page: Page, input_selectors: List[str], iframe_conte
         pass
 
 async def check_for_success_element(page: Page, success_selectors: List[str], iframe_content: Optional[Frame] = None) -> bool:
-    """
-    Check if success indicators are found, indicating successful form submission.
-    
-    Args:
-        page: Playwright page object
-        success_selectors: List of CSS selectors for success indicators
-        iframe_content: Iframe content frame if available
-        
-    Returns:
-        bool: True if success element found, False otherwise
-    """
+    """Check if success indicators are found, indicating successful form submission."""
     try:
         for selector in success_selectors:
             element = await page.query_selector(selector)
@@ -271,84 +224,6 @@ async def check_for_success_element(page: Page, success_selectors: List[str], if
     except Exception:
         return False
 
-# ------------------------------ VEHICLE DATA EXTRACTION ------------------------------
-
-def extract_vehicle_info(vehicle_name: str) -> Dict[str, Optional[str]]:
-    """Extract year, make, model from Turo vehicle name string.
-    
-    Args:
-        vehicle_name: Raw vehicle name string from Turo UI
-        
-    Returns:
-        Dict with 'full_name', 'year', 'make', 'model' keys
-    """
-    if not vehicle_name:
-        return {"full_name": None, "year": None, "make": None, "model": None}
-    
-    cleaned_name = vehicle_name
-    
-    status_prefixes = ['Snoozed', 'Listed', 'Unavailable', 'Maintenance']
-    for prefix in status_prefixes:
-        if cleaned_name.startswith(prefix):
-            cleaned_name = cleaned_name[len(prefix):].strip()
-            break
-
-    extra_patterns = [
-        r' • [A-Z0-9]+.*',  
-        r'No trips.*',       
-        r'Vehicle actions.*', 
-        r'Last trip:.*',     
-    ]
-    
-    for pattern in extra_patterns:
-        cleaned_name = re.sub(pattern, '', cleaned_name).strip()
-    
-    parts = cleaned_name.split()
-    if len(parts) >= 3:
-        year = None
-        year_index = -1
-        for i, part in enumerate(parts):
-            if part.isdigit() and len(part) == 4 and 1900 <= int(part) <= 2030:
-                year = int(part)
-                year_index = i
-                break
-        
-        if year is not None:
-            if year_index == 0: 
-                make = parts[1] if len(parts) > 1 else None
-                model = ' '.join(parts[2:]) if len(parts) > 2 else None
-            elif year_index == len(parts) - 1: 
-                make = parts[0] if len(parts) > 1 else None
-                model = ' '.join(parts[1:year_index]) if year_index > 1 else None
-            else:  
-                make = parts[0] if year_index > 0 else None
-                model = ' '.join(parts[year_index+1:]) if year_index < len(parts) - 1 else None
-            
-            return {
-                "full_name": f"{make} {model} {year}".strip() if make and model else cleaned_name,
-                "year": year,
-                "make": make,
-                "model": model
-            }
-    
-    # Fallback: try to extract year from anywhere in the string
-    year_match = re.search(r'\b(19|20)\d{2}\b', cleaned_name)
-    if year_match:
-        year = int(year_match.group())
-        without_year = re.sub(r'\b(19|20)\d{2}\b', '', cleaned_name).strip()
-        parts = without_year.split()
-        if len(parts) >= 2:
-            make = parts[0]
-            model = ' '.join(parts[1:])
-            return {
-                "full_name": f"{make} {model} {year}".strip(),
-                "year": year,
-                "make": make,
-                "model": model
-            }
-    
-    return {"full_name": cleaned_name, "year": None, "make": None, "model": None}
-
 # ------------------------------ PARALLEL PROCESSING HELPERS ------------------------------
 
 async def process_items_in_parallel(
@@ -356,16 +231,7 @@ async def process_items_in_parallel(
     extract_func: Callable[[Any, int], Awaitable[Any]],
     item_type: str = "item"
 ) -> List[Any]:
-    """Process multiple items (e.g., cards, elements) in parallel.
-    
-    Args:
-        items: List of items to process (e.g., ElementHandle objects)
-        extract_func: Async function that takes (item, index) and returns extracted data
-        item_type: Type name for logging purposes (e.g., "vehicle card", "trip card")
-        
-    Returns:
-        List of extracted data, with None values filtered out (failed extractions)
-    """
+    """Process multiple items (e.g., cards, elements) in parallel."""
     if not items:
         return []
     
@@ -377,11 +243,9 @@ async def process_items_in_parallel(
             logger.debug(f"Error processing {item_type} {index}: {e}")
             return None
     
-    # Process all items in parallel
     tasks = [extract_with_error_handling(item, i) for i, item in enumerate(items)]
     results = await asyncio.gather(*tasks)
     
-    # Filter out None results (failed extractions)
     return [result for result in results if result is not None]
 
 # ------------------------------ END OF FILE ------------------------------

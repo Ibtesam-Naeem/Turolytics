@@ -6,7 +6,7 @@ from playwright.async_api import ElementHandle
 
 from core.utils.logger import logger
 from core.utils.browser_helpers import safe_text
-from .helpers import extract_with_regex, try_selectors, get_text
+from .helpers import extract_with_regex, try_selectors, get_text, extract_texts_from_elements
 from .selectors import (
     TRIP_DATE_SELECTORS, VEHICLE_SELECTORS, CUSTOMER_SELECTORS,
     CANCELLATION_SELECTOR, LICENSE_PLATE_SELECTORS,
@@ -14,7 +14,7 @@ from .selectors import (
     contains_month_name, contains_vehicle_brand,
     VEHICLE_STATUS_SELECTORS, VEHICLE_NAME_SELECTORS,
     VEHICLE_DETAILS_SELECTORS, VEHICLE_TRIP_INFO_SELECTORS, VEHICLE_RATINGS_SELECTORS,
-    VALID_YEARS, VEHICLE_BRANDS
+    VALID_YEARS, VEHICLE_BRANDS, MONTH_NAMES, VEHICLE_STATUSES
 )
 
 def clean_text(text: str, patterns_to_remove: List[str] = None) -> str:
@@ -61,7 +61,7 @@ def parse_cancellation_from_text(raw_text: str) -> Dict[str, Optional[str]]:
             cleaned = re.sub(r'[A-Z][a-z]+\s+[A-Z][a-z]+\s+\d{4}', '', cleaned)
             cleaned = re.sub(r'\d{4}', '', cleaned)
             cleaned = cleaned.strip()
-            if cleaned and not cleaned.startswith(('Oct', 'Sep', 'Aug', 'Jul', 'Jun', 'May', 'Apr', 'Mar', 'Feb', 'Jan')):
+            if cleaned and not cleaned.startswith(tuple(MONTH_NAMES)):
                 cancellation_data['cancelled_by'] = cleaned
         
         if cancellation_data['cancelled_by'] and cancellation_data['cancelled_date']:
@@ -79,21 +79,13 @@ async def extract_customer_name(card: ElementHandle, card_index: int) -> Optiona
         try:
             raw_text = await card.text_content() or ''
             
+            # If cancelled, reuse parse_cancellation_from_text to extract customer name
             if 'cancelled' in raw_text.lower() and ' cancelled on ' in raw_text:
-                name_match = re.search(r'\d{4}\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+cancelled on', raw_text)
-               
-                if name_match:
-                    return name_match.group(1).strip()
-                
-                before_cancelled = raw_text.split(' cancelled on ', 1)[0]
-                cleaned = re.sub(r'[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}', '', before_cancelled)
-                cleaned = re.sub(r'[A-Z][a-z]+\s+[A-Z][a-z]+\s+\d{4}', '', cleaned)
-                cleaned = re.sub(r'\d{4}', '', cleaned) 
-                cleaned = cleaned.strip()
-                
-                if cleaned and not cleaned.startswith(('Oct', 'Sep', 'Aug', 'Jul', 'Jun', 'May', 'Apr', 'Mar', 'Feb', 'Jan')):
-                    return cleaned
+                cancellation_data = parse_cancellation_from_text(raw_text)
+                if cancellation_data.get('cancelled_by'):
+                    return cancellation_data['cancelled_by']
             
+            # Fallback: search for customer name with # pattern
             for line in raw_text.split('\n'):
                 if '#' in line and any(char.isalpha() for char in line):
                     customer_text = line.strip()
@@ -163,21 +155,32 @@ async def extract_trip_id_and_url(card: ElementHandle) -> Dict[str, Optional[str
 # ------------------------------ COMPREHENSIVE EXTRACTION ------------------------------
 
 async def extract_complete_trip_data(card: ElementHandle, card_index: int) -> Dict[str, Any]:
-    """Extract all available data from a trip card."""
+    """Extract all available data from a trip card using parallel processing."""
     try:
-        trip_data = {'card_index': card_index}
+        trip_id_data, customer_name, trip_status = await asyncio.gather(
+            extract_trip_id_and_url(card),
+            extract_customer_name(card, card_index),
+            extract_trip_status(card)
+        )
         
-        trip_data.update(await extract_trip_id_and_url(card))
-        trip_data['customer_name'] = await extract_customer_name(card, card_index)
-        trip_data.update(await extract_trip_status(card))
-
+        trip_dates, vehicle_info, license_plate = await asyncio.gather(
+            extract_trip_dates(card),
+            extract_vehicle_info(card),
+            extract_license_plate(card)
+        )
+        
+        trip_data = {'card_index': card_index}
+        trip_data.update(trip_id_data)
+        trip_data['customer_name'] = customer_name
+        trip_data.update(trip_status)
         trip_data.update({
-            'trip_dates': await extract_trip_dates(card),
-            'vehicle': await extract_vehicle_info(card),
-            'license_plate': await extract_license_plate(card)
+            'trip_dates': trip_dates,
+            'vehicle': vehicle_info,
+            'license_plate': license_plate
         })
         
         return trip_data
+
     except Exception as e:
         logger.error(f"Error extracting trip data for card {card_index}: {e}")
         return {'card_index': card_index, 'error': str(e)}
@@ -187,13 +190,13 @@ async def extract_complete_trip_data(card: ElementHandle, card_index: int) -> Di
 async def extract_month_headers(page) -> list:
     """Extract month headers from the page."""
     try:
-        headers = await page.query_selector_all(MONTH_HEADER_SELECTORS[0])
-        months = []
-        for header in headers:
-            text = await safe_text(header)
-            if text and ('2024' in text or '2025' in text):
-                months.append(text)
+        months = await extract_texts_from_elements(
+            page, 
+            MONTH_HEADER_SELECTORS[0],
+            filter_func=lambda t: '2024' in t or '2025' in t
+        )
         return months
+
     except Exception as e:
         logger.warning(f"Error extracting month headers: {e}")
         return []
@@ -205,13 +208,13 @@ async def extract_vehicle_status(card: ElementHandle, card_index: int) -> Option
     try:
         status_text = await try_selectors(card, VEHICLE_STATUS_SELECTORS)
         if status_text:
-            for status in ['Listed', 'Snoozed', 'Unavailable', 'Maintenance']:
+            for status in VEHICLE_STATUSES:
                 if status in status_text:
                     return status
         
         raw_text = await card.text_content()
         if raw_text:
-            for status in ['Listed', 'Snoozed', 'Unavailable', 'Maintenance']:
+            for status in VEHICLE_STATUSES:
                 if status in raw_text:
                     return status
         return None
@@ -221,11 +224,7 @@ async def extract_vehicle_status(card: ElementHandle, card_index: int) -> Option
         return None
 
 async def extract_vehicle_name(card: ElementHandle, card_index: int) -> Dict[str, Optional[str]]:
-    """Extract vehicle name and year from a vehicle card.
-    
-    Returns:
-        Dict with 'name' (without year) and 'year' keys, or {'name': None, 'year': None} if not found
-    """
+    """Extract vehicle name and year from a vehicle card."""
     try:
         text_to_parse = await try_selectors(card, VEHICLE_NAME_SELECTORS) or await card.text_content()
         if not text_to_parse:
@@ -236,7 +235,7 @@ async def extract_vehicle_name(card: ElementHandle, card_index: int) -> Dict[str
             if any(year in line for year in VALID_YEARS):
                 if any(brand in line for brand in VEHICLE_BRANDS):
                     cleaned = line
-                    for prefix in ['Snoozed', 'Listed', 'Unavailable', 'Maintenance']:
+                    for prefix in VEHICLE_STATUSES:
                         if cleaned.startswith(prefix):
                             cleaned = cleaned[len(prefix):].strip()
                             if len(cleaned.split()) == 1 and len(cleaned) > 1:
@@ -327,7 +326,6 @@ async def extract_vehicle_ratings(card: ElementHandle, card_index: int) -> Dict[
 async def extract_complete_vehicle_data(card: ElementHandle, card_index: int) -> Dict[str, Any]:
     """Extract complete vehicle data from a vehicle card using parallel processing."""
     try:
-        # Process all extraction steps in parallel
         status, name_data, details, trip_info, ratings = await asyncio.gather(
             extract_vehicle_status(card, card_index),
             extract_vehicle_name(card, card_index),

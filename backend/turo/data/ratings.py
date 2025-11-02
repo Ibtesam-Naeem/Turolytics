@@ -5,8 +5,7 @@ from typing import Any, Optional
 from playwright.async_api import Page
 
 from core.utils.logger import logger
-from core.utils.browser_helpers import safe_text
-from .helpers import navigate_to_page, extract_with_regex, extract_number, try_selectors, get_text, process_items_in_parallel
+from .helpers import navigate_to_page, extract_with_regex, extract_number, try_selectors, get_text, process_items_in_parallel, extract_texts_from_elements
 from .selectors import (
     BUSINESS_RATINGS_URL, RATINGS_OVERALL_SELECTOR, RATINGS_OVERALL_CATEGORY_SELECTOR,
     RATINGS_TRIPS_COUNT_SELECTOR, RATINGS_RATINGS_COUNT_SELECTOR, RATINGS_AVERAGE_SELECTOR,
@@ -22,11 +21,8 @@ from .selectors import (
 async def extract_overall_rating(page: Page) -> dict[str, str | None]:
     """Extract overall rating percentage and category."""
     try:
-        percentage_element = await page.query_selector(RATINGS_OVERALL_SELECTOR)
-        percentage = await safe_text(percentage_element)
-        
-        category_element = await page.query_selector(RATINGS_OVERALL_CATEGORY_SELECTOR)
-        category = await safe_text(category_element)
+        percentage = await get_text(page, RATINGS_OVERALL_SELECTOR)
+        category = await get_text(page, RATINGS_OVERALL_CATEGORY_SELECTOR)
         
         return {
             'percentage': percentage,
@@ -55,11 +51,8 @@ async def extract_trip_metrics(page: Page) -> dict[str, int | float | None]:
 async def extract_reviews_header(page: Page) -> dict[str, str | int | None]:
     """Extract reviews section header information."""
     try:
-        title_element = await page.query_selector(REVIEWS_HEADER_SELECTORS[0])
-        title_text = await safe_text(title_element)
-        
-        category_element = await page.query_selector(REVIEWS_CATEGORY_SELECTOR)
-        category_text = await safe_text(category_element)
+        title_text = await get_text(page, REVIEWS_HEADER_SELECTORS[0])
+        category_text = await get_text(page, REVIEWS_CATEGORY_SELECTOR)
         
         count = None
         if title_text:
@@ -113,12 +106,7 @@ async def extract_individual_review(review_element, review_index: int) -> dict[s
         vehicle_info = await get_text(review_element, REVIEW_VEHICLE_INFO_SELECTOR)
         review_text = await get_text(review_element, REVIEW_TEXT_SELECTOR)
         
-        improvement_elements = await review_element.query_selector_all(REVIEW_AREAS_IMPROVEMENT_SELECTOR)
-        areas_of_improvement = []
-        for element in improvement_elements:
-            text = await safe_text(element)
-            if text:
-                areas_of_improvement.append(text)
+        areas_of_improvement = await extract_texts_from_elements(review_element, REVIEW_AREAS_IMPROVEMENT_SELECTOR)
         
         response_text = await get_text(review_element, REVIEW_HOST_RESPONSE_SELECTOR)
         
