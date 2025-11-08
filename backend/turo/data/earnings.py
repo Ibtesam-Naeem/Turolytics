@@ -2,38 +2,19 @@
 from playwright.async_api import Page
 from typing import Optional, Any, List
 from datetime import datetime
-import re
 
 from core.utils.logger import logger
-from core.utils.browser_helpers import safe_text, safe_scrape
-from core.utils.data_helpers import parse_amount
+from core.utils.browser_helpers import safe_text, safe_scrape, try_selectors
+from core.utils.data_helpers import parse_amount, extract_with_regex
 from .selectors import (
     BUSINESS_EARNINGS_URL, EARNINGS_TOTAL_SELECTOR, EARNINGS_TOTAL_TEXT_SELECTOR,
     EARNINGS_LEGEND_SELECTOR, EARNINGS_LEGEND_TAG_SELECTOR, EARNINGS_AMOUNT_SELECTOR,
     EARNINGS_TYPE_SELECTOR, EARNINGS_TOOLTIP_SELECTOR, VEHICLE_EARNINGS_HEADER_SELECTOR,
-    VEHICLE_EARNINGS_ROW_SELECTOR, VEHICLE_EARNINGS_IMAGE_SELECTOR, VEHICLE_EARNINGS_NAME_SELECTOR,
+    VEHICLE_EARNINGS_ROW_SELECTOR, VEHICLE_EARNINGS_NAME_SELECTOR,
     VEHICLE_EARNINGS_DETAILS_SELECTOR, VEHICLE_EARNINGS_AMOUNT_SELECTOR
 )
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
-
-async def try_selectors(page: Page, selectors: List[str]) -> Optional[str]:
-    """Try multiple selectors and return first valid result."""
-    for selector in selectors:
-        try:
-            element = await page.query_selector(selector)
-            text = await safe_text(element)
-            if text:
-                return text.strip()
-                
-        except Exception:
-            continue
-    return None
-
-def extract_with_regex(text: str, pattern: str, group: int = 1) -> Optional[str]:
-    """Extract text using regex pattern."""
-    match = re.search(pattern, text)
-    return match.group(group) if match else None
 
 def build_summary(vehicle_earnings: list, earnings_breakdown: list) -> dict[str, Any]:
     """Build summary data for earnings."""
@@ -48,22 +29,6 @@ def build_summary(vehicle_earnings: list, earnings_breakdown: list) -> dict[str,
 
 # ------------------------------ EARNINGS PAGE SCRAPING ------------------------------
 
-async def navigate_to_earnings_page(page: Page) -> bool:
-    """Navigate to the business earnings page."""
-    try:
-        logger.info("Navigating to Business Earnings page...")
-        await page.goto(BUSINESS_EARNINGS_URL, wait_until="domcontentloaded")
-        await page.wait_for_timeout(2000)
-        
-        success = "business/earnings" in page.url
-        if success:
-            logger.info("Successfully navigated to Business Earnings page")
-        else:
-            logger.warning(f"Navigation may have failed. Current URL: {page.url}")
-        return success
-    except Exception as e:
-        logger.exception(f"Error navigating to Business Earnings: {e}")
-        return False
 
 @safe_scrape({'amount': None, 'text': None, 'year': None})
 async def extract_total_earnings(page: Page) -> dict[str, Optional[str]]:
@@ -115,7 +80,6 @@ async def extract_vehicle_earnings(page: Page) -> list[dict[str, Optional[str]]]
     vehicles = []
     for i, row in enumerate(vehicle_rows):
         try:
-            image_element = await row.query_selector(VEHICLE_EARNINGS_IMAGE_SELECTOR)
             details_text = await safe_text(await row.query_selector(VEHICLE_EARNINGS_DETAILS_SELECTOR))
             
             lines = details_text.split('\n') if details_text else []
@@ -124,9 +88,7 @@ async def extract_vehicle_earnings(page: Page) -> list[dict[str, Optional[str]]]
                 'vehicle_name': await safe_text(await row.query_selector(VEHICLE_EARNINGS_NAME_SELECTOR)),
                 'license_plate': lines[0].strip() if len(lines) >= 1 else None,
                 'trim': lines[1].strip() if len(lines) >= 2 else None,
-                'earnings_amount': await safe_text(await row.query_selector(VEHICLE_EARNINGS_AMOUNT_SELECTOR)),
-                'image_url': await image_element.get_attribute('src') if image_element else None,
-                'image_alt': await image_element.get_attribute('alt') if image_element else None
+                'earnings_amount': await safe_text(await row.query_selector(VEHICLE_EARNINGS_AMOUNT_SELECTOR))
             }
             
             vehicles.append(vehicle_data)
@@ -141,9 +103,9 @@ async def scrape_earnings_data(page: Page) -> Optional[dict[str, Any]]:
     try:
         logger.info("Starting to scrape earnings data...")
         
-        if not await navigate_to_earnings_page(page):
-            logger.error("Failed to navigate to earnings page")
-            return None
+        logger.info("Navigating to Business Earnings page...")
+        await page.goto(BUSINESS_EARNINGS_URL, wait_until="domcontentloaded")
+        await page.wait_for_timeout(2000)
         
         total_earnings = await extract_total_earnings(page)
         earnings_breakdown = await extract_earnings_breakdown(page)

@@ -31,6 +31,12 @@ ENV/
 
 # Session Storage
 backend/session/
+backend/sessions/
+
+# Scraped Data
+backend/data/
+
+# JSON files (session and data)
 *.json
 *.swo
 *~

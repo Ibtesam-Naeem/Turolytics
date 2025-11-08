@@ -13,24 +13,6 @@ from .extraction_helpers import extract_complete_trip_data, extract_month_header
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
 
-async def navigate_to_page(page: Page, url: str, expected_path: str, page_name: str) -> bool:
-    """Generic navigation function for trips pages."""
-    try:
-        logger.info(f"Navigating to {page_name}...")
-        await page.goto(url, wait_until="domcontentloaded")
-        await page.wait_for_timeout(2000)
-        
-        success = expected_path in page.url
-        if success:
-            logger.info(f"Successfully navigated to {page_name}")
-        else:
-            logger.warning(f"Navigation may have failed. Current URL: {page.url}")
-        return success
-   
-    except Exception as e:
-        logger.exception(f"Error navigating to {page_name}: {e}")
-        return False
-
 async def extract_trip_cards_data(page: Page, card_selector: str, list_selector: str, page_name: str) -> list[dict]:
     """Generic function to extract trip cards data."""
     try:
@@ -61,18 +43,14 @@ async def extract_trip_cards_data(page: Page, card_selector: str, list_selector:
 
 # ------------------------------ BOOKED TRIPS SCRAPING ------------------------------
 
-async def navigate_to_booked_trips(page: Page) -> bool:
-    """Navigate to the booked trips page under the Trips section."""
-    return await navigate_to_page(page, TRIPS_BOOKED_URL, "trips/booked", "Trips -> Booked")
-
 async def scrape_booked_trips(page: Page):
     """Scrape all booked/upcoming trips data from the booked trips page."""
     try:
         logger.info("Starting to scrape booked trips data...")
         
-        if not await navigate_to_booked_trips(page):
-            logger.error("Failed to navigate to booked trips page")
-            return None
+        logger.info("Navigating to Trips -> Booked page...")
+        await page.goto(TRIPS_BOOKED_URL, wait_until="domcontentloaded")
+        await page.wait_for_timeout(2000)
         
         trips_list = await extract_trip_cards_data(page, TRIP_CARD, TRIPS_UPCOMING_LIST, "booked")
         
@@ -104,18 +82,14 @@ async def scrape_booked_trips(page: Page):
 
 # ------------------------------ HISTORY TRIPS SCRAPING ------------------------------
 
-async def navigate_to_trip_history(page: Page) -> bool:
-    """Navigate to the trip history page under the Trips section."""
-    return await navigate_to_page(page, TRIPS_HISTORY_URL, "trips/history", "Trips -> History")
-
 async def scrape_trip_history(page: Page):
     """Scrape all completed trips data from the trip history page."""
     try:
         logger.info("Starting to scrape trip history data...")
         
-        if not await navigate_to_trip_history(page):
-            logger.error("Failed to navigate to trip history page")
-            return None
+        logger.info("Navigating to Trips -> History page...")
+        await page.goto(TRIPS_HISTORY_URL, wait_until="domcontentloaded")
+        await page.wait_for_timeout(2000)
         
         await scroll_to_bottom_and_wait(page)
         

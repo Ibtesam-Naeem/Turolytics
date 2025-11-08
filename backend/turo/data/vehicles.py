@@ -13,24 +13,6 @@ from .extraction_helpers import extract_complete_vehicle_data
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
 
-async def navigate_to_page(page: Page, url: str, expected_path: str, page_name: str) -> bool:
-    """Generic navigation function for vehicle pages."""
-    try:
-        logger.info(f"Navigating to {page_name}...")
-        await page.goto(url, wait_until="domcontentloaded")
-        await page.wait_for_timeout(2000)
-        
-        success = expected_path in page.url
-        if success:
-            logger.info(f"Successfully navigated to {page_name}")
-        else:
-            logger.warning(f"Navigation may have failed. Current URL: {page.url}")
-        return success
-        
-    except Exception as e:
-        logger.exception(f"Error navigating to {page_name}: {e}")
-        return False
-
 async def find_vehicle_container(page: Page) -> str | None:
     """Find the vehicle container using multiple selectors."""
     selectors = VEHICLES_VIEW_SELECTORS + VEHICLES_LISTINGS_GRID_SELECTORS + [VEHICLE_CARD]
@@ -82,18 +64,14 @@ async def extract_vehicle_cards_data(page: Page) -> list[dict]:
 
 # ------------------------------ VEHICLE LISTINGS SCRAPING ------------------------------
 
-async def navigate_to_vehicle_listings(page: Page) -> bool:
-    """Navigate to the vehicle listings page."""
-    return await navigate_to_page(page, VEHICLES_LISTINGS_URL, "vehicles/listings", "Vehicle Listings")
-
 async def scrape_vehicle_listings(page: Page):
     """Scrape all vehicle listings data from the vehicle listings page."""
     try:
         logger.info("Starting to scrape vehicle listings data...")
         
-        if not await navigate_to_vehicle_listings(page):
-            logger.error("Failed to navigate to vehicle listings page")
-            return None
+        logger.info("Navigating to Vehicle Listings page...")
+        await page.goto(VEHICLES_LISTINGS_URL, wait_until="domcontentloaded")
+        await page.wait_for_timeout(2000)
         
         await find_vehicle_container(page)
         

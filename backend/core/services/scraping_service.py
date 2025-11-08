@@ -1,11 +1,13 @@
 # ------------------------------ IMPORTS ------------------------------
 import asyncio
 import logging
-from typing import Optional, Dict, Any, Callable, Sequence
+from typing import Optional, Dict, Any, Sequence
 from datetime import datetime
 from enum import Enum
 
 from core.config.settings import settings
+from core.utils.file_storage import save_scraped_data_to_json
+from core.security.session import save_storage_state
 
 from turo.data.login import complete_turo_login
 from turo.data.vehicles import scrape_all_vehicle_data
@@ -90,11 +92,18 @@ class ScrapingService:
                         results[scraper_type.value] = None
                 
                 if any(results.values()):
+                    # Save scraped data to JSON file
+                    json_path = save_scraped_data_to_json(account_id, results, task_id)
+                    
+                    # Save session state for future logins
+                    if context:
+                        await save_storage_state(context, account_id=account_id)
+                    
                     self._update_task_status(
                         task_id, 
                         TaskStatus.COMPLETED, 
                         "Scraping completed successfully",
-                        {"scraped_data": results},
+                        {"scraped_data": results, "json_file": json_path},
                         scraper_types=[t.value for t in scrapers]
                     )
                 else:
@@ -145,68 +154,6 @@ class ScrapingService:
     
     # ------------------------------ PUBLIC API ------------------------------
     
-    async def scrape_vehicles(self, account_id: int, email: str = None, password: str = None) -> str:
-        """Scrape vehicles data.
-        
-        Args:
-            account_id: Account ID to associate scraped data with
-            
-        Returns:
-            Task ID for tracking the scraping operation
-        """
-        task_id = self._generate_task_id(ScrapingType.VEHICLES, account_id)
-        self._update_task_status(task_id, TaskStatus.PENDING, "Queued for execution", scraper_types=["vehicles"])
-        asyncio.create_task(self._execute_scraping_session([ScrapingType.VEHICLES], account_id, task_id, email, password))
-        return task_id
-    
-    async def scrape_trips(self, account_id: int, email: str = None, password: str = None) -> str:
-        """Scrape trips data.
-        
-        Args:
-            account_id: Account ID to associate scraped data with
-            email: Turo email for login
-            password: Turo password for login
-            
-        Returns:
-            Task ID for tracking the scraping operation
-        """
-        task_id = self._generate_task_id(ScrapingType.TRIPS, account_id)
-        self._update_task_status(task_id, TaskStatus.PENDING, "Queued for execution", scraper_types=["trips"])
-        asyncio.create_task(self._execute_scraping_session([ScrapingType.TRIPS], account_id, task_id, email, password))
-        return task_id
-    
-    async def scrape_earnings(self, account_id: int, email: str = None, password: str = None) -> str:
-        """Scrape earnings data.
-        
-        Args:
-            account_id: Account ID to associate scraped data with
-            email: Turo email for login
-            password: Turo password for login
-            
-        Returns:
-            Task ID for tracking the scraping operation
-        """
-        task_id = self._generate_task_id(ScrapingType.EARNINGS, account_id)
-        self._update_task_status(task_id, TaskStatus.PENDING, "Queued for execution", scraper_types=["earnings"])
-        asyncio.create_task(self._execute_scraping_session([ScrapingType.EARNINGS], account_id, task_id, email, password))
-        return task_id
-    
-    async def scrape_reviews(self, account_id: int, email: str = None, password: str = None) -> str:
-        """Scrape reviews data.
-        
-        Args:
-            account_id: Account ID to associate scraped data with
-            email: Turo email for login
-            password: Turo password for login
-            
-        Returns:
-            Task ID for tracking the scraping operation
-        """
-        task_id = self._generate_task_id(ScrapingType.REVIEWS, account_id)
-        self._update_task_status(task_id, TaskStatus.PENDING, "Queued for execution", scraper_types=["reviews"])
-        asyncio.create_task(self._execute_scraping_session([ScrapingType.REVIEWS], account_id, task_id, email, password))
-        return task_id
-    
     async def scrape_all(self, account_id: int, email: str = None, password: str = None) -> str:
         """Scrape all data types in a single session.
         
@@ -236,41 +183,5 @@ class ScrapingService:
     def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
         """Get task status."""
         return self.active_tasks.get(task_id)
-    
-    def get_all_tasks(self) -> Dict[str, Dict[str, Any]]:
-        """Get all tasks."""
-        return self.active_tasks
-    
-    def clear_completed_tasks(self, keep_recent: int = 10):
-        """Clear completed and failed tasks, keeping recent ones for debugging.
-        
-        Args:
-            keep_recent: Number of recent completed/failed tasks to retain
-        """
-        completed_tasks = [
-            (task_id, task_data) 
-            for task_id, task_data in self.active_tasks.items() 
-            if task_data["status"] in [TaskStatus.COMPLETED.value, TaskStatus.FAILED.value]
-        ]
-        
-        completed_tasks.sort(key=lambda x: x[1]["updated_at"], reverse=True)
-        recent_completed = {task_id: task_data for task_id, task_data in completed_tasks[:keep_recent]}
-        
-        self.active_tasks = {
-            task_id: task_data 
-            for task_id, task_data in self.active_tasks.items() 
-            if task_data["status"] == TaskStatus.RUNNING.value
-        }
-        
-        self.active_tasks.update(recent_completed)
-        
-        logger.info(f"Cleared old tasks, kept {len(recent_completed)} recent completed/failed tasks")
-    
-    def get_task_count(self) -> Dict[str, int]:
-        """Get task count by status."""
-        counts = {status.value: 0 for status in TaskStatus}
-        for task_data in self.active_tasks.values():
-            counts[task_data["status"]] += 1
-        return counts
 
 # ------------------------------ END OF FILE ------------------------------

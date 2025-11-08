@@ -1,27 +1,9 @@
 # ------------------------------ IMPORTS ------------------------------
-from playwright.async_api import Page, Frame
-from typing import Optional, Callable, Awaitable
-from functools import wraps
-import re
+from playwright.async_api import Page, ElementHandle
+from typing import Optional, List, Callable, Union
 from core.utils.logger import logger
 
 # ------------------------------ BROWSER HELPER FUNCTIONS ------------------------------
-async def retry_operation(func: Callable[..., Awaitable[bool]], attempts: int = 3, *args, **kwargs) -> bool:
-    """Retry an operation with specified number of attempts."""
-    for attempt in range(attempts):
-        if await func(*args, **kwargs):
-            return True
-        logger.debug(f"Attempt {attempt+1}/{attempts} failed.")
-    return False
-
-async def close_browser_safely(browser) -> None:
-    """Safely close browser with error handling."""
-    try:
-        if browser:
-            await browser.close()
-            
-    except Exception as e:
-        logger.warning(f"Error during browser cleanup: {e}")
 
 async def get_iframe_content(page, timeout: int = 8000):
     """
@@ -68,19 +50,47 @@ async def safe_text(element, default: Optional[str] = None) -> Optional[str]:
     text = await element.text_content()
     return text.strip() if text else default
 
+async def try_selectors(
+    target: Union[Page, ElementHandle],
+    selectors: List[str],
+    validator: Optional[Callable[[str], bool]] = None
+) -> Optional[str]:
+    """Try multiple selectors on Page or ElementHandle and return first valid result.
+    
+    Args:
+        target: Page or ElementHandle to query
+        selectors: List of CSS selectors to try
+        validator: Optional function to validate the extracted text
+        
+    Returns:
+        First valid text found, or None if none found
+    """
+    for selector in selectors:
+        try:
+            if isinstance(target, Page):
+                element = await target.query_selector(selector)
+            else:  # ElementHandle
+                element = await target.query_selector(selector)
+            
+            text = await safe_text(element)
+            if text and (not validator or validator(text)):
+                return text.strip()
+        except Exception:
+            continue
+    return None
+
 # ------------------------------ DECORATORS ------------------------------
 def safe_scrape(default_return):
     """Decorator for safe scraping functions with consistent error handling."""
     def decorator(func):
-        @wraps(func)
         async def wrapper(*args, **kwargs):
             try:
                 return await func(*args, **kwargs)
-
             except Exception as e:
                 logger.debug(f"Error in {func.__name__}: {e}")
                 return default_return
-
+        wrapper.__name__ = func.__name__
+        wrapper.__doc__ = func.__doc__
         return wrapper
     return decorator
 

@@ -1,39 +1,22 @@
 # ------------------------------ IMPORTS ------------------------------
-import re
 from datetime import datetime
 from typing import Any, Optional
 from playwright.async_api import Page
 
 from core.utils.logger import logger
-from core.utils.browser_helpers import safe_text
+from core.utils.browser_helpers import safe_text, try_selectors
+from core.utils.data_helpers import extract_with_regex
 from .selectors import (
     BUSINESS_RATINGS_URL, RATINGS_OVERALL_SELECTOR, RATINGS_OVERALL_CATEGORY_SELECTOR,
     RATINGS_TRIPS_COUNT_SELECTOR, RATINGS_RATINGS_COUNT_SELECTOR, RATINGS_AVERAGE_SELECTOR,
     REVIEWS_HEADER_SELECTORS, REVIEWS_CATEGORY_SELECTOR,
     REVIEW_LIST_CONTAINER_SELECTOR, REVIEW_ITEM_SELECTOR, REVIEW_CUSTOMER_LINK_SELECTOR,
-    REVIEW_CUSTOMER_IMAGE_SELECTOR, REVIEW_STAR_RATING_SELECTOR, REVIEW_CUSTOMER_NAME_SELECTOR,
+    REVIEW_STAR_RATING_SELECTOR, REVIEW_CUSTOMER_NAME_SELECTOR,
     REVIEW_DATE_SELECTOR, REVIEW_VEHICLE_INFO_SELECTOR, REVIEW_TEXT_SELECTOR,
     REVIEW_AREAS_IMPROVEMENT_SELECTOR, REVIEW_HOST_RESPONSE_SELECTOR, REVIEW_FILLED_STAR_SELECTOR
 )
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
-
-async def try_selectors(element, selectors: list[str]) -> Optional[str]:
-    """Try multiple selectors and return first valid result."""
-    for selector in selectors:
-        try:
-            target = await element.query_selector(selector)
-            text = await safe_text(target)
-            if text:
-                return text.strip()
-        except Exception:
-            continue
-    return None
-
-def extract_with_regex(text: str, pattern: str, group: int = 1) -> Optional[str]:
-    """Extract text using regex pattern."""
-    match = re.search(pattern, text)
-    return match.group(group) if match else None
 
 def extract_number(text: str) -> Optional[float]:
     """Extract number from text using regex."""
@@ -42,22 +25,6 @@ def extract_number(text: str) -> Optional[float]:
 
 # ------------------------------ RATINGS PAGE SCRAPING ------------------------------
 
-async def navigate_to_ratings_page(page: Page) -> bool:
-    """Navigate to the business ratings page."""
-    try:
-        logger.info("Navigating to Business Reviews page...")
-        await page.goto(BUSINESS_RATINGS_URL, wait_until="domcontentloaded")
-        await page.wait_for_timeout(2000)
-        
-        success = "business/reviews" in page.url
-        if success:
-            logger.info("Successfully navigated to Business Reviews page")
-        else:
-            logger.warning(f"Navigation may have failed. Current URL: {page.url}")
-        return success
-    except Exception as e:
-        logger.exception(f"Error navigating to Business Reviews: {e}")
-        return False
 
 async def extract_overall_rating(page: Page) -> dict[str, str | None]:
     """Extract overall rating percentage and category."""
@@ -142,12 +109,6 @@ async def extract_individual_review(review_element, review_index: int) -> dict[s
             href = await customer_link.get_attribute('href')
             customer_id = extract_with_regex(href or '', r'/drivers/(\d+)') if href else None
         
-        customer_image = await review_element.query_selector(REVIEW_CUSTOMER_IMAGE_SELECTOR)
-        image_url, image_alt = None, None
-        if customer_image and await customer_image.evaluate('el => el.tagName') == 'IMG':
-            image_url = await customer_image.get_attribute('src')
-            image_alt = await customer_image.get_attribute('alt')
-        
         customer_name = await try_selectors(review_element, [REVIEW_CUSTOMER_NAME_SELECTOR])
         if not customer_name:
             alternative_selectors = ['p span:first-child', '.css-j2jl8y-StyledText span', 'span:first-child', 'p span', 'span']
@@ -168,8 +129,6 @@ async def extract_individual_review(review_element, review_index: int) -> dict[s
         return {
             'customer_name': customer_name,
             'customer_id': customer_id,
-            'customer_image_url': image_url,
-            'customer_image_alt': image_alt,
             'rating': await extract_star_rating(review_element),
             'date': date,
             'vehicle_info': vehicle_info,
@@ -181,7 +140,7 @@ async def extract_individual_review(review_element, review_index: int) -> dict[s
     except Exception as e:
         logger.debug(f"Error extracting individual review {review_index}: {e}")
         return {
-            'customer_name': None, 'customer_id': None, 'customer_image_url': None, 'customer_image_alt': None,
+            'customer_name': None, 'customer_id': None,
             'rating': None, 'date': None, 'vehicle_info': None, 'review_text': None,
             'areas_of_improvement': [], 'host_response': None, 'has_host_response': False
         }
@@ -218,9 +177,9 @@ async def scrape_ratings_data(page: Page) -> dict[str, Any] | None:
     try:
         logger.info("Starting to scrape ratings data...")
         
-        if not await navigate_to_ratings_page(page):
-            logger.error("Failed to navigate to ratings page")
-            return None
+        logger.info("Navigating to Business Reviews page...")
+        await page.goto(BUSINESS_RATINGS_URL, wait_until="domcontentloaded")
+        await page.wait_for_timeout(2000)
         
         overall_rating = await extract_overall_rating(page)
         trip_metrics = await extract_trip_metrics(page)

@@ -1,9 +1,6 @@
 # ------------------------------ SESSION HELPERS ------------------------------
-import os
-import json
-import hashlib
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional
 from playwright.async_api import BrowserContext
 
 from core.utils.logger import logger

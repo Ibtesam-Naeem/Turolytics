@@ -4,33 +4,17 @@ from typing import Optional, Dict, Any, List
 from playwright.async_api import ElementHandle
 
 from core.utils.logger import logger
-from core.utils.browser_helpers import safe_text
+from core.utils.browser_helpers import safe_text, try_selectors
+from core.utils.data_helpers import extract_with_regex
 from .selectors import (
     TRIP_DATE_SELECTORS, VEHICLE_SELECTORS, CUSTOMER_SELECTORS,
-    CANCELLATION_SELECTOR, LICENSE_PLATE_SELECTORS, ALL_IMAGES,
-    MONTH_HEADER_SELECTORS, is_vehicle_related, is_customer_related,
-    contains_month_name, contains_vehicle_brand,
-    VEHICLE_STATUS_SELECTORS, VEHICLE_IMAGE_SELECTORS, VEHICLE_NAME_SELECTORS,
+    CANCELLATION_SELECTOR, LICENSE_PLATE_SELECTORS,
+    MONTH_HEADER_SELECTORS, contains_month_name, contains_vehicle_brand,
+    VEHICLE_STATUS_SELECTORS, VEHICLE_NAME_SELECTORS,
     VEHICLE_DETAILS_SELECTORS, VEHICLE_TRIP_INFO_SELECTORS, VEHICLE_RATINGS_SELECTORS
 )
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
-
-async def try_selectors(card: ElementHandle, selectors: List[str], validator=None) -> Optional[str]:
-    """Try multiple selectors and return first valid result."""
-    for selector in selectors:
-        try:
-            text = await safe_text(card, selector)
-            if text and (not validator or validator(text)):
-                return text.strip()
-        except Exception:
-            continue
-    return None
-
-def extract_with_regex(text: str, pattern: str, group: int = 1) -> Optional[str]:
-    """Extract text using regex pattern."""
-    match = re.search(pattern, text)
-    return match.group(group) if match else None
 
 def clean_text(text: str, patterns_to_remove: List[str] = None) -> str:
     """Clean text by removing unwanted patterns."""
@@ -129,40 +113,6 @@ async def extract_trip_status(card: ElementHandle) -> Dict[str, Any]:
     
     return status_data
 
-# ------------------------------ IMAGE EXTRACTION ------------------------------
-
-async def extract_trip_images(card: ElementHandle) -> Dict[str, list]:
-    """Extract all images from a trip card and classify them."""
-    images_data = {'vehicle_images': [], 'customer_images': [], 'other_images': []}
-    
-    try:
-        for img in await card.query_selector_all(ALL_IMAGES):
-            try:
-                src = await img.get_attribute('src')
-                if not src:
-                    continue
-                
-                alt = await img.get_attribute('alt') or ""
-                data_testid = await img.get_attribute('data-testid') or ""
-                image_info = {'url': src, 'alt': alt, 'data_testid': data_testid}
-                
-                if is_vehicle_related(alt, src):
-                    image_info['type'] = 'vehicle'
-                    images_data['vehicle_images'].append(image_info)
-                elif is_customer_related(data_testid, src):
-                    image_info['type'] = 'customer'
-                    images_data['customer_images'].append(image_info)
-                else:
-                    image_info['type'] = 'unknown'
-                    images_data['other_images'].append(image_info)
-            
-            except Exception:
-                continue
-    except Exception as e:
-        logger.debug(f"Error extracting images: {e}")
-    
-    return images_data
-
 # ------------------------------ LICENSE PLATE EXTRACTION ------------------------------
 
 async def extract_license_plate(card: ElementHandle) -> Optional[str]:
@@ -195,19 +145,12 @@ async def extract_complete_trip_data(card: ElementHandle, card_index: int) -> Di
         trip_data.update(await extract_trip_id_and_url(card))
         trip_data.update(await extract_customer_info(card, card_index))
         trip_data.update(await extract_trip_status(card))
-        trip_data.update(await extract_trip_images(card))
         
         trip_data.update({
             'trip_dates': await extract_trip_dates(card),
             'vehicle': await extract_vehicle_info(card),
             'license_plate': await extract_license_plate(card)
         })
-        
-        if trip_data['vehicle_images']:
-            trip_data['vehicle_image'] = trip_data['vehicle_images'][0]['url']
-        if trip_data['customer_images']:
-            trip_data['customer_profile_image'] = trip_data['customer_images'][0]['url']
-        trip_data['has_customer_photo'] = len(trip_data['customer_images']) > 0
         
         return trip_data
     except Exception as e:
@@ -247,22 +190,6 @@ async def extract_vehicle_status(card: ElementHandle, card_index: int) -> Option
     except Exception as e:
         logger.debug(f"Error extracting vehicle status on card {card_index}: {e}")
         return None
-
-async def extract_vehicle_image(card: ElementHandle, card_index: int) -> Dict[str, Optional[str]]:
-    """Extract vehicle image information from a vehicle card."""
-    for selector in VEHICLE_IMAGE_SELECTORS:
-        try:
-            img_element = await card.query_selector(selector)
-            if img_element:
-                return {
-                    'url': await img_element.get_attribute('src'),
-                    'alt': await img_element.get_attribute('alt'),
-                    'srcset': await img_element.get_attribute('srcset')
-                }
-        
-        except Exception:
-            continue
-    return {'url': None, 'alt': None, 'srcset': None}
 
 async def extract_vehicle_name(card: ElementHandle, card_index: int) -> Optional[str]:
     """Extract vehicle name from a vehicle card, or None if not found."""
@@ -363,7 +290,6 @@ async def extract_complete_vehicle_data(card: ElementHandle, card_index: int) ->
             pass
         
         status = await extract_vehicle_status(card, card_index)
-        image_data = await extract_vehicle_image(card, card_index)
         name = await extract_vehicle_name(card, card_index)
         details = await extract_vehicle_details(card, card_index)
         trip_info = await extract_vehicle_trip_info(card, card_index)
@@ -377,8 +303,7 @@ async def extract_complete_vehicle_data(card: ElementHandle, card_index: int) ->
             'license_plate': details.get('license_plate'),
             'trip_info': trip_info,
             'rating': ratings.get('rating'),
-            'trip_count': ratings.get('trip_count'),
-            'image': image_data
+            'trip_count': ratings.get('trip_count')
         }
     
     except Exception as e:
@@ -386,5 +311,5 @@ async def extract_complete_vehicle_data(card: ElementHandle, card_index: int) ->
         return {
             'vehicle_id': None, 'status': None, 'name': None, 'trim': None,
             'license_plate': None, 'trip_info': None, 'rating': None,
-            'trip_count': None, 'image': {'url': None, 'alt': None, 'srcset': None}
+            'trip_count': None
         }
