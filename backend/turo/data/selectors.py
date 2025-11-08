@@ -1,12 +1,33 @@
 
 # ------------------------------ URLS ------------------------------
+LOGIN_URL = "https://turo.com/ca/en/login"
 TRIPS_BOOKED_URL = "https://turo.com/ca/en/trips/booked"
 TRIPS_HISTORY_URL = "https://turo.com/ca/en/trips/history"
 
 VEHICLES_LISTINGS_URL = "https://turo.com/ca/en/vehicles/listings"
-BUSINESS_EARNINGS_URL = "https://turo.com/ca/en/business/earnings"
 BUSINESS_RATINGS_URL = "https://turo.com/ca/en/business/reviews"
-INBOX_MESSAGES_URL = "https://turo.com/ca/en/inbox/messages/thread"
+BUSINESS_EARNINGS_URL = "https://turo.com/ca/en/business/earnings"
+
+# ------------------------------ LOGIN SELECTORS ------------------------------
+
+CONTINUE_WITH_EMAIL_SELECTOR = ".css-131npuy"
+EMAIL_SELECTOR = 'input[type="email"][name="email"], #email'
+PASSWORD_SELECTOR = 'input[type="password"][name="password"], #password'
+TEXT_CODE_BUTTON = 'button.buttonSchumi--purple'
+CODE_INPUT_SELECTOR = '#challengeCode'
+FINAL_CONTINUE_BUTTON = 'button:has-text("Submit")'
+CONTINUE_BUTTON_TEXT_SELECTOR = "button:has-text('Continue')"
+
+# Login success indicators 
+LOGIN_SUCCESS_URLS = [
+    "**/dashboard", "**/trips", "**/trips/booked", 
+    "**/trips/booked?recentUpdates=true", "**/account", "**/profile"
+]
+
+LOGIN_SUCCESS_SELECTORS = [
+    '[data-testid="user-menu"]', '.user-menu', '.account-menu',
+    '[aria-label*="Account"]', '[aria-label*="Profile"]', '.avatar', '.user-avatar'
+]
 
 # ------------------------------ PAGE SELECTORS ------------------------------
 
@@ -15,15 +36,7 @@ TRIP_HISTORY_LIST = '[data-testid="trip-history-list"]'
 
 TRIP_CARD = '[data-testid="baseTripCard"]'
 
-VEHICLES_LISTINGS_GRID_SELECTORS = [
-    '[data-testid="vehicles-listings-grid"]',  # Primary
-    '.css-3j7pzn-VehicleListingsGrid'          # Fallback
-]
 VEHICLE_CARD = '[data-testid="vehicle-listing-details-card"]'
-VEHICLES_VIEW_SELECTORS = [
-    '[data-testid="vehicles-view"]',  # Primary
-    '.css-7r5omw-VehiclesView'        # Fallback
-]
 
 MONTH_HEADER_SELECTORS = [
     '[data-testid="month-header"]',  # Primary
@@ -68,6 +81,32 @@ LICENSE_PLATE_SELECTORS = [
 TIME_INFO = '.css-18fknbt' 
 LOCATION = '.css-j2jl8y-StyledText'
 
+# ------------------------------ TRIP DETAIL PAGE SELECTORS ------------------------------
+
+TRIP_DETAILS_CONTAINER = '[data-testid="reservationTripDetails"]'
+
+SCHEDULE_DATE_SELECTOR = '[data-testid="schedule-date"]'
+SCHEDULE_TIME_START_SELECTOR = '.css-hrgeud-StyledText-StyledScheduleDateTime'
+SCHEDULE_TIME_END_SELECTOR = '.css-qfa5m1-StyledText-StyledScheduleDateTime'
+
+LOCATION_SECTION_LABEL_SELECTOR = '.detailsSection-label'
+LOCATION_ADDRESS_SELECTOR = '.reservationLocation-address .css-j2jl8y-StyledText'
+
+DETAIL_VEHICLE_NAME_SELECTOR = '.css-1d4ywag-StyledText'
+
+KILOMETERS_INCLUDED_SELECTOR = '.detailsSection .css-14bos0l-StyledText'  
+KILOMETERS_DRIVEN_SELECTOR = '.detailsSection .css-14bos0l-StyledText'  
+KILOMETERS_OVERAGE_SELECTOR = '.distanceIncluded-overageMessage'
+
+EARNINGS_SECTION_SELECTOR = '.reservationDetails-totalEarnings'
+EARNINGS_AMOUNT_SELECTOR = '.reservationDetails-totalEarnings .css-14bos0l-StyledText span'
+EARNINGS_RECEIPT_LINK_SELECTOR = '.reservationDetails-totalEarnings .css-1ycxd8s-linkStyles'
+
+PROTECTION_PLAN_SELECTOR = '.reservationDetails-protection .css-jkt5rs-Button'
+PROTECTION_DEDUCTIBLE_SELECTOR = '.reservationDetails-protection .css-1hf155s-StyledText'
+
+RESERVATION_NUMBER_SELECTOR = '.css-1exfdxm-StyledText'
+
 # ------------------------------ VEHICLE CARD SELECTORS ------------------------------
 
 VEHICLE_STATUS_SELECTORS = [
@@ -95,15 +134,12 @@ VEHICLE_RATINGS_SELECTORS = [
     '.css-s1wb9o-spaceBetween p:last-child'
 ]
 
-VEHICLE_LISTINGS_COUNT_SELECTORS = [
-    '[data-testid="vehicle-listings-count"]',  # Primary
-    '.css-18mfln5-StyledText'                  # Fallback
-] 
-
 VEHICLE_BRANDS = [
     'Hyundai', 'Toyota', 'Honda', 'Nissan', 'Ford', 'Chevrolet', 
-    'BMW', 'Mercedes', 'Audi', 'Volkswagen', 'Mazda', 'Subaru'
+    'BMW', 'Mercedes', 'Audi', 'Volkswagen', 'Mazda', 'Subaru', 'Genesis'
 ]
+
+VEHICLE_STATUSES = ['Listed', 'Snoozed', 'Unavailable', 'Maintenance']
 
 # ------------------------------ DATE PATTERNS ------------------------------
 
@@ -112,8 +148,40 @@ MONTH_NAMES = [
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
 ]
 
-DATE_SEPARATORS = ['-', 'to', '–', '—']
+VALID_YEARS = [str(year) for year in range(2017, 2026)]
 
+YEAR_PATTERN_REGEX = r'\b(' + '|'.join(VALID_YEARS) + r')\b'
+YEAR_PATTERN_NON_CAPTURING = r'\b(?:' + '|'.join(VALID_YEARS) + r')\b'
+
+# ------------------------------ RATINGS SELECTORS ------------------------------
+
+RATINGS_OVERALL_SELECTOR = '[data-testid="cardAccordion-headerSuffix"] p.css-1vmc2vr-StyledText'
+RATINGS_OVERALL_CATEGORY_SELECTOR = '[data-testid="cardAccordion-header"] p.css-1vmc2vr-StyledText'
+
+RATINGS_TRIPS_COUNT_SELECTOR = '[data-testid="ratingsDetails-trips"] p.css-13mmra7-StyledText'
+RATINGS_RATINGS_COUNT_SELECTOR = '[data-testid="ratingsDetails-ratings"] p.css-13mmra7-StyledText'
+RATINGS_AVERAGE_SELECTOR = '[data-testid="ratingsDetails-average"] .css-xbnzaw-StyledText-categoryAverageMetricStyles'
+
+REVIEWS_HEADER_SELECTORS = [
+    '[data-testid="reviews-header"]',                    # Primary
+    '.css-1rqnw09-reviewsColumnHeaderStyles h2'          # Fallback
+]
+REVIEWS_CATEGORY_SELECTOR = '.css-1rqnw09-reviewsColumnHeaderStyles p.css-v7tkns-StyledText'
+
+REVIEW_LIST_CONTAINER_SELECTOR = '[data-testid="reviewList-container"]'
+REVIEW_ITEM_SELECTOR = '[data-testid="reviewList-review"]'
+
+REVIEW_CUSTOMER_LINK_SELECTOR = 'a[rel="nofollow"][href*="/drivers/"]'
+REVIEW_STAR_RATING_SELECTOR = '.css-1qr3nc0-StarRating-Container [aria-label*="Rating:"]'
+REVIEW_CUSTOMER_NAME_SELECTOR = '.css-ov1ktg p.css-j2jl8y-StyledText span:first-child'
+REVIEW_DATE_SELECTOR = '.css-ov1ktg p.css-j2jl8y-StyledText span.css-s0p4kp-StyledText'
+REVIEW_VEHICLE_INFO_SELECTOR = '.css-1e0dz7l-ReviewBody p.css-j2jl8y-StyledText:not(.css-ov1ktg p)'
+REVIEW_TEXT_SELECTOR = '.css-1e0dz7l-ReviewBody p.css-14bos0l-StyledText'
+
+REVIEW_AREAS_IMPROVEMENT_SELECTOR = '[data-testid="reviewsAreasOfImprovement-badge"]'
+REVIEW_HOST_RESPONSE_SELECTOR = '.css-1ojqf3u-Well-ReviewReplyContainer'
+
+REVIEW_FILLED_STAR_SELECTOR = '.css-10pswck svg[fill="#121214"]'
 
 # ------------------------------ EARNINGS SELECTORS ------------------------------
 
@@ -133,40 +201,6 @@ VEHICLE_EARNINGS_ROW_SELECTOR = '.css-4a2atv-StyledTableRow'
 VEHICLE_EARNINGS_NAME_SELECTOR = 'p.css-nmsfeq-StyledText-StyledMakeModelYear'
 VEHICLE_EARNINGS_DETAILS_SELECTOR = 'p.css-47w2m9-StyledText-StyledMakeModelYear-StyledLicenseAndTrim'
 VEHICLE_EARNINGS_AMOUNT_SELECTOR = 'p.css-14bos0l-StyledText span'
-
-# ------------------------------ RATINGS SELECTORS ------------------------------
-
-RATINGS_OVERALL_SELECTOR = '[data-testid="cardAccordion-headerSuffix"] p.css-1vmc2vr-StyledText'
-RATINGS_OVERALL_CATEGORY_SELECTOR = '[data-testid="cardAccordion-header"] p.css-1vmc2vr-StyledText'
-
-RATINGS_TRIPS_COUNT_SELECTOR = '[data-testid="ratingsDetails-trips"] p.css-13mmra7-StyledText'
-RATINGS_RATINGS_COUNT_SELECTOR = '[data-testid="ratingsDetails-ratings"] p.css-13mmra7-StyledText'
-RATINGS_AVERAGE_SELECTOR = '[data-testid="ratingsDetails-average"] .css-xbnzaw-StyledText-categoryAverageMetricStyles'
-
-REVIEWS_HEADER_SELECTORS = [
-    '[data-testid="reviews-header"]',                    # Primary
-    '.css-1rqnw09-reviewsColumnHeaderStyles h2'          # Fallback
-]
-REVIEWS_COUNT_SELECTORS = REVIEWS_HEADER_SELECTORS
-REVIEWS_CATEGORY_SELECTOR = '.css-1rqnw09-reviewsColumnHeaderStyles p.css-v7tkns-StyledText'
-
-REVIEW_LIST_CONTAINER_SELECTOR = '[data-testid="reviewList-container"]'
-REVIEW_ITEM_SELECTOR = '[data-testid="reviewList-review"]'
-
-REVIEW_CUSTOMER_LINK_SELECTOR = 'a[rel="nofollow"][href*="/drivers/"]'
-REVIEW_STAR_RATING_SELECTOR = '.css-1qr3nc0-StarRating-Container [aria-label*="Rating:"]'
-REVIEW_CUSTOMER_NAME_SELECTOR = '.css-ov1ktg p.css-j2jl8y-StyledText span:first-child'
-REVIEW_DATE_SELECTOR = '.css-ov1ktg p.css-j2jl8y-StyledText span.css-s0p4kp-StyledText'
-REVIEW_VEHICLE_INFO_SELECTOR = '.css-1e0dz7l-ReviewBody p.css-j2jl8y-StyledText:not(.css-ov1ktg p)'
-REVIEW_TEXT_SELECTOR = '.css-1e0dz7l-ReviewBody p.css-14bos0l-StyledText'
-
-REVIEW_AREAS_IMPROVEMENT_SELECTOR = '[data-testid="reviewsAreasOfImprovement-badge"]'
-REVIEW_HOST_RESPONSE_SELECTOR = '.css-1ojqf3u-Well-ReviewReplyContainer'
-
-REVIEW_SEE_FULL_BUTTON_SELECTOR = 'button:has-text("See full review")'
-REVIEW_RESPOND_BUTTON_SELECTOR = '[data-testid="respondToReviewView-showForm"]'
-
-REVIEW_FILLED_STAR_SELECTOR = '.css-10pswck svg[fill="#121214"]'
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
 

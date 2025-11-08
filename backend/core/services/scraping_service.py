@@ -10,10 +10,10 @@ from core.utils.file_storage import save_scraped_data_to_json
 from core.security.session import save_storage_state
 
 from turo.data.login import complete_turo_login
-from turo.data.vehicles import scrape_all_vehicle_data
+from turo.data.vehicles import scrape_vehicle_listings
 from turo.data.trips import scrape_all_trips
-from turo.data.earnings import scrape_all_earnings_data
-from turo.data.ratings import scrape_all_ratings_data
+from turo.data.earnings import scrape_earnings_data
+from turo.data.ratings import scrape_ratings_data
 
 
 # ------------------------------ LOGGING ------------------------------
@@ -40,10 +40,10 @@ class ScrapingService:
     def __init__(self):
         self.active_tasks: Dict[str, Dict[str, Any]] = {}
         self._scrapers = {
-            ScrapingType.VEHICLES: scrape_all_vehicle_data,
+            ScrapingType.VEHICLES: scrape_vehicle_listings,
             ScrapingType.TRIPS: scrape_all_trips,
-            ScrapingType.EARNINGS: scrape_all_earnings_data,
-            ScrapingType.REVIEWS: scrape_all_ratings_data,
+            ScrapingType.EARNINGS: scrape_earnings_data,
+            ScrapingType.REVIEWS: scrape_ratings_data,
         }
         self._semaphore = asyncio.Semaphore(settings.scraping.max_concurrent_tasks)
     

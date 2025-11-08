@@ -9,14 +9,6 @@ from core.utils.api_helpers import validate_credentials, get_account_id
 
 logger = logging.getLogger(__name__)
 
-# ------------------------------ HELPER FUNCTIONS ------------------------------
-
-def create_success_response(data: Any, **kwargs) -> Dict[str, Any]:
-    """Create a standardized success response."""
-    response = {"success": True, "data": data}
-    response.update(kwargs)
-    return response
-
 # ------------------------------ ROUTER SETUP ------------------------------
 router = APIRouter(prefix="/turo", tags=["turo"])
 
@@ -55,10 +47,9 @@ async def scrape_all(request: ScrapeRequest) -> ScrapeResponse:
         logger.info(f"Started all data scraping for {request.email}: {task_id}")
         return ScrapeResponse(task_id=task_id, account_id=account_id, scraper_type="all")
     
-    except HTTPException:
-        raise
-
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
         logger.error(f"Error starting all data scraping for {request.email}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to start all data scraping: {str(e)}")
 
@@ -71,14 +62,12 @@ async def get_task_status(task_id: str) -> Dict[str, Any]:
         task_status = scraping_service.get_task_status(task_id)
         if not task_status:
             raise HTTPException(status_code=404, detail="Task not found")
-        return create_success_response(task_status)
-
-    except HTTPException:
-        raise
+        return {"success": True, "data": task_status}
 
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
         logger.error(f"Error getting task status for {task_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get task status: {str(e)}")
-
 
 # ------------------------------ END OF FILE ------------------------------
