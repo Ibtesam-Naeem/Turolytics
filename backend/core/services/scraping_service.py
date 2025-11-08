@@ -13,7 +13,6 @@ from turo.data.trips import scrape_all_trips
 from turo.data.earnings import scrape_all_earnings_data
 from turo.data.ratings import scrape_all_ratings_data
 
-from core.db.operations.turo_operations import save_scraped_data
 
 # ------------------------------ LOGGING ------------------------------
 logger = logging.getLogger(__name__)
@@ -91,14 +90,11 @@ class ScrapingService:
                         results[scraper_type.value] = None
                 
                 if any(results.values()):
-                    self._update_task_status(task_id, TaskStatus.RUNNING, "Saving data to database...", scraper_types=[t.value for t in scrapers])
-                    save_results = save_scraped_data(account_id, results)
-                    
                     self._update_task_status(
                         task_id, 
                         TaskStatus.COMPLETED, 
-                        f"Scraping completed. Saved: {save_results}",
-                        {"save_results": save_results, "scraped_data": results},
+                        "Scraping completed successfully",
+                        {"scraped_data": results},
                         scraper_types=[t.value for t in scrapers]
                     )
                 else:

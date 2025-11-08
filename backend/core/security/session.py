@@ -1,13 +1,16 @@
 # ------------------------------ SESSION HELPERS ------------------------------
+import os
+import json
+import hashlib
+from pathlib import Path
 from typing import Optional, Dict, Any
-from datetime import datetime
+from playwright.async_api import BrowserContext
 
 from core.utils.logger import logger
-from core.config.settings import settings
-from core.db.operations.sessions import (
-    create_session, get_active_session, update_session_usage, 
-    deactivate_session, get_active_session_storage_state
-)
+
+# Session storage directory
+SESSION_DIR = Path("backend/sessions")
+SESSION_DIR.mkdir(parents=True, exist_ok=True)
 
 async def _element_exists(page, selector: str, timeout: int = 2000) -> bool:
     """Check if an element exists on the page within timeout."""
@@ -75,64 +78,48 @@ async def verify_session_authenticated(page):
         logger.warning(f"Session verification failed: {e}")
         return False
 
-async def save_storage_state_to_db(context, account_id: int, user_agent: str = None, 
-                                 ip_address: str = None) -> Optional[str]:
-    """Save current context storage state to database."""
+def _get_session_file_path(account_id: int) -> Path:
+    """Generate session file path based on account_id."""
+    return SESSION_DIR / f"session_{account_id}.json"
+
+async def save_storage_state(context: BrowserContext, account_id: int = None) -> Optional[str]:
+    """Save browser storage state to file.
+    
+    Args:
+        context: Browser context containing the authenticated session
+        account_id: Account ID to identify the session
+        
+    Returns:
+        Path to saved session file or None if failed
+    """
+    if not account_id:
+        return None
+        
     try:
-        storage_state = await context.storage_state()
-        
-        import uuid
-        session_id = str(uuid.uuid4())
-        
-        session = create_session(
-            account_id=account_id,
-            session_id=session_id,
-            storage_state=storage_state,
-            user_agent=user_agent,
-            ip_address=ip_address
-        )
-        
-        if session:
-            logger.info(f"Saved session storage state to database: {session_id}")
-            return session_id
-        else:
-            logger.error("Failed to save session to database")
-            return None
-            
+        session_path = _get_session_file_path(account_id)
+        await context.storage_state(path=str(session_path))
+        logger.info(f"Session storage saved to {session_path}")
+        return str(session_path)
     except Exception as e:
-        logger.error(f"Error saving storage state to database: {e}")
+        logger.error(f"Failed to save storage state: {e}")
         return None
 
-async def save_storage_state(context, account_id: int = None, user_agent: str = None, 
-                           ip_address: str = None) -> Optional[str]:
-    """Save storage state to database only."""
-    if account_id:
-        return await save_storage_state_to_db(
-            context, account_id, user_agent, ip_address
-        )
+def get_storage_state(account_id: int = None) -> Optional[str]:
+    """Get path to saved storage state file if it exists.
     
-    return None
-
-def get_storage_state_from_db(account_id: int) -> Optional[Dict[str, Any]]:
-    """Get storage state from database for an account."""
-    try:
-        storage_state = get_active_session_storage_state(account_id)
-        if storage_state:
-            logger.info(f"Retrieved storage state from database for account {account_id}")
-            return storage_state
-        else:
-            logger.warning(f"No storage state found for account {account_id}")
-            return None
-
-    except Exception as e:
-        logger.error(f"Error retrieving storage state from database: {e}")
+    Args:
+        account_id: Account ID to identify the session
+        
+    Returns:
+        Path to session file or None if not found
+    """
+    if not account_id:
         return None
-
-def get_storage_state(account_id: int = None) -> Optional[Dict[str, Any]]:
-    """Get storage state from database only."""
-    if account_id:
-        return get_storage_state_from_db(account_id)
-    
+        
+    session_path = _get_session_file_path(account_id)
+    if session_path.exists():
+        logger.info(f"Found existing session file: {session_path}")
+        return str(session_path)
     return None
 
 # ------------------------------ END OF FILE ------------------------------

@@ -1,6 +1,6 @@
 # ------------------------------ IMPORTS ------------------------------
+import hashlib
 from fastapi import HTTPException
-from core.db.operations.turo_operations import get_or_create_account
 
 # ------------------------------ API HELPER FUNCTIONS ------------------------------
 
@@ -12,10 +12,10 @@ def validate_credentials(email: str, password: str) -> None:
         raise HTTPException(status_code=400, detail="Password is required")
 
 def get_account_id(email: str) -> int:
-    """Get or create account and return account ID."""
-    account_id = get_or_create_account(email)
-    if not account_id:
-        raise HTTPException(status_code=500, detail="Failed to create or retrieve account")
-    return account_id
+    """Generate account ID from email hash."""
+    # Use hash of email to generate consistent account_id
+    email_hash = int(hashlib.md5(email.encode()).hexdigest()[:8], 16)
+    # Ensure positive integer
+    return abs(email_hash) % (10 ** 9)
 
 # ------------------------------ END OF FILE ------------------------------

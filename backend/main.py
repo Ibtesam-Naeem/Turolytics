@@ -5,33 +5,13 @@ import logging
 from dotenv import load_dotenv
 import os
 
-# Load environment variables
 load_dotenv()
 
 from turo.routes import router as turo_router
-from bouncie.routes import router as bouncie_router
-from plaid.routes import router as plaid_router
-from documents.routes import router as documents_router
-from core.db.database import create_tables, test_connection
 
 # ------------------------------ LOGGING ------------------------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# ------------------------------ DATABASE INITIALIZATION ------------------------------
-def initialize_database():
-    """Initialize database tables on startup."""
-    try:
-        logger.info("Initializing database...")
-        create_tables()
-        test_connection()
-        logger.info("Database initialized successfully!")
-
-    except Exception as e:
-        logger.error(f"Database initialization failed: {e}")
-        raise
-
-initialize_database()
 
 # ------------------------------ FASTAPI APP ------------------------------
 app = FastAPI(
@@ -51,9 +31,6 @@ app.add_middleware(
 
 # ------------------------------ ROUTERS ------------------------------
 app.include_router(turo_router, prefix="/api")
-app.include_router(bouncie_router, prefix="/api")
-app.include_router(plaid_router, prefix="/api")
-app.include_router(documents_router, prefix="/api")
 
 # ------------------------------ HEALTH ENDPOINT ------------------------------
 @app.get("/")
@@ -63,21 +40,10 @@ async def root():
 
 @app.get("/health")
 async def health():
-    """Health check with database status."""
-    try:
-        test_connection()
-        return {
-            "status": "healthy",
-            "database": "connected",
-            "tables": "initialized"
-        }
-
-    except Exception as e:
-        return {
-            "status": "unhealthy",
-            "database": "disconnected",
-            "error": str(e)
-        }
+    """Health check endpoint."""
+    return {
+        "status": "healthy"
+    }
 
 # ------------------------------ MAIN ------------------------------
 if __name__ == "__main__":

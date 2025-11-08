@@ -5,10 +5,7 @@ from pydantic import BaseModel
 import logging
 
 from core.services.scraping_service import ScrapingService
-from core.db.operations.turo_operations import get_database_stats
 from core.utils.api_helpers import validate_credentials, get_account_id
-from core.db.database import get_db_session
-from core.db.base import Vehicle, Trip, Payout, Review, TripStatus
 
 logger = logging.getLogger(__name__)
 
@@ -24,16 +21,6 @@ def safe_float(value) -> Optional[float]:
 def safe_iso_format(dt) -> Optional[str]:
     """Safely format datetime to ISO string."""
     return dt.isoformat() if dt else None
-
-def get_account_id_from_params(account_id: Optional[int], email: Optional[str]) -> int:
-    """Get account ID from either account_id or email parameter."""
-    if not account_id and not email:
-        raise HTTPException(status_code=400, detail="Either account_id or email is required")
-    
-    if not account_id and email:
-        return get_account_id(email)
-    
-    return account_id
 
 def create_success_response(data: Any, count: Optional[int] = None, **kwargs) -> Dict[str, Any]:
     """Create a standardized success response."""
@@ -164,143 +151,5 @@ async def get_task_status(task_id: str) -> Dict[str, Any]:
         logger.error(f"Error getting task status for {task_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get task status: {str(e)}")
 
-@router.get("/accounts/{account_id}/stats")
-async def get_account_stats(account_id: int) -> Dict[str, Any]:
-    """Get statistics for a specific account."""
-    try:
-        if account_id <= 0:
-            raise HTTPException(status_code=400, detail="Invalid account ID")
-        
-        stats = {
-            "account_id": account_id,
-            "database_stats": get_database_stats(account_id),
-            "scraping_tasks": scraping_service.get_task_count()
-        }
-        return create_success_response(stats)
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-        logger.error(f"Error getting stats for account {account_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get account stats: {str(e)}")
-
-# ------------------------------ DATA RETRIEVAL ENDPOINTS ------------------------------
-
-@router.get("/vehicles")
-async def get_vehicles(account_id: Optional[int] = Query(None), email: Optional[str] = Query(None)):
-    """Get all vehicles for an account."""
-    try:
-        account_id = get_account_id_from_params(account_id, email)
-        
-        with get_db_session() as db:
-            vehicles = db.query(Vehicle).filter(Vehicle.account_id == account_id).all()
-            return create_success_response(
-                [vehicle.to_dict() for vehicle in vehicles],
-                count=len(vehicles),
-                account_id=account_id
-            )
-    except Exception as e:
-        logger.error(f"Error getting vehicles for account {account_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get vehicles: {str(e)}")
-
-@router.get("/trips")
-async def get_trips(account_id: Optional[int] = Query(None), email: Optional[str] = Query(None), status: Optional[str] = Query(None), limit: int = Query(50)):
-    """Get trips for an account, optionally filtered by status."""
-    try:
-        account_id = get_account_id_from_params(account_id, email)
-        
-        with get_db_session() as db:
-            query = db.query(Trip).filter(Trip.account_id == account_id)
-            
-            if status:
-                try:
-                    status_enum = TripStatus(status.upper())
-                    query = query.filter(Trip.status == status_enum)
-                except ValueError:
-                    raise HTTPException(status_code=400, detail=f"Invalid status: {status}. Valid values: {[s.value for s in TripStatus]}")
-            
-            trips = query.order_by(Trip.created_at.desc()).limit(limit).all()
-            
-            return create_success_response(
-                [trip.to_dict() for trip in trips],
-                count=len(trips),
-                account_id=account_id,
-                filters={"status": status, "limit": limit}
-            )
-    except Exception as e:
-        logger.error(f"Error getting trips for account {account_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get trips: {str(e)}")
-
-@router.get("/earnings")
-async def get_earnings(account_id: Optional[int] = Query(None), email: Optional[str] = Query(None), limit: int = Query(50)):
-    """Get earnings data for an account."""
-    try:
-        account_id = get_account_id_from_params(account_id, email)
-        
-        with get_db_session() as db:
-            payouts = db.query(Payout).filter(Payout.account_id == account_id).order_by(Payout.created_at.desc()).limit(limit).all()
-            total_amount = sum(safe_float(payout.amount) or 0 for payout in payouts)
-            
-            return create_success_response(
-                [payout.to_dict() for payout in payouts],
-                count=len(payouts),
-                account_id=account_id,
-                total_amount=total_amount
-            )
-    except Exception as e:
-        logger.error(f"Error getting earnings for account {account_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get earnings: {str(e)}")
-
-@router.get("/reviews")
-async def get_reviews(account_id: Optional[int] = Query(None), email: Optional[str] = Query(None), limit: int = Query(50)):
-    """Get reviews for an account."""
-    try:
-        account_id = get_account_id_from_params(account_id, email)
-        
-        with get_db_session() as db:
-            reviews = db.query(Review).filter(Review.account_id == account_id).order_by(Review.created_at.desc()).limit(limit).all()
-            avg_rating = sum(safe_float(review.rating) or 0 for review in reviews) / len(reviews) if reviews else 0
-            
-            return create_success_response(
-                [review.to_dict() for review in reviews],
-                count=len(reviews),
-                account_id=account_id,
-                average_rating=avg_rating
-            )
-    except Exception as e:
-        logger.error(f"Error getting reviews for account {account_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get reviews: {str(e)}")
-
-@router.get("/analytics/summary")
-async def get_analytics_summary(account_id: Optional[int] = Query(None), email: Optional[str] = Query(None)):
-    """Get business analytics summary for an account."""
-    try:
-        account_id = get_account_id_from_params(account_id, email)
-        
-        with get_db_session() as db:
-            vehicle_count = db.query(Vehicle).filter(Vehicle.account_id == account_id).count()
-            trip_count = db.query(Trip).filter(Trip.account_id == account_id).count()
-            completed_trips = db.query(Trip).filter(Trip.account_id == account_id, Trip.status == TripStatus.COMPLETED).count()
-            cancelled_trips = db.query(Trip).filter(Trip.account_id == account_id, Trip.status == TripStatus.CANCELLED).count()
-            review_count = db.query(Review).filter(Review.account_id == account_id).count()
-            
-            payouts = db.query(Payout).filter(Payout.account_id == account_id).all()
-            total_earnings = sum(safe_float(payout.amount) or 0 for payout in payouts)
-            
-            reviews = db.query(Review).filter(Review.account_id == account_id).all()
-            avg_rating = sum(safe_float(review.rating) or 0 for review in reviews) / len(reviews) if reviews else 0
-            
-            summary = {
-                "vehicles": vehicle_count, "total_trips": trip_count, "completed_trips": completed_trips,
-                "cancelled_trips": cancelled_trips, "completion_rate": (completed_trips / trip_count * 100) if trip_count > 0 else 0,
-                "total_earnings": total_earnings, "reviews": review_count, "average_rating": round(avg_rating, 2)
-            }
-            
-            return create_success_response(summary, account_id=account_id)
-    
-    except Exception as e:
-        logger.error(f"Error getting analytics summary for account {account_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get analytics summary: {str(e)}")
 
 # ------------------------------ END OF FILE ------------------------------

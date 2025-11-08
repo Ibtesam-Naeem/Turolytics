@@ -195,56 +195,30 @@ async def handle_two_factor_auth(page: Page) -> bool:
         logger.exception(f"Error during handle_two_factor_auth: {e}")
         return False
 
-async def restore_session(page: Page, account_id: int) -> bool:
-    """Try to restore session from storage state."""
-    storage_state = get_storage_state(account_id)
-    if not storage_state:
-        return False
-    
-    logger.info("Attempting session restore via database storage state...")
-    try:
-        cookies = storage_state.get('cookies', [])
-        if cookies:
-            for cookie in cookies:
-                if 'domain' not in cookie and 'url' not in cookie:
-                    cookie['domain'] = '.turo.com'
-                if 'path' not in cookie:
-                    cookie['path'] = '/'
-            try:
-                await page.context.add_cookies(cookies)
-
-            except Exception as cookie_error:
-                logger.warning(f"Could not add cookies: {cookie_error}")
-        
-        await page.context.add_init_script("localStorage.clear(); sessionStorage.clear();")
-        
-        origins = storage_state.get('origins', [])
-        if origins:
-            origin_data = origins[0]
-            for key, value in origin_data.get('localStorage', []):
-                await page.context.add_init_script(f"localStorage.setItem('{key}', '{value}');")
-            for key, value in origin_data.get('sessionStorage', []):
-                await page.context.add_init_script(f"sessionStorage.setItem('{key}', '{value}');")
-        
-        logger.info("Storage state injected successfully")
-        return await verify_session_authenticated(page)
-
-    except Exception as e:
-        logger.warning(f"Could not restore storage state: {e}")
-        return False
-
 async def complete_turo_login(headless: bool = False, account_id: int = 1, email: str = None, password: str = None) -> Optional[Tuple[Page, BrowserContext, Browser]]:
-    """Log into Turo using manual email/password and 2FA input."""
+    """Log into Turo using manual email/password and 2FA input, or restore existing session."""
     try:
-        logger.info("Initiating Turo login automation...")
+        # Try to restore existing session first
+        storage_state_path = get_storage_state(account_id)
+        if storage_state_path:
+            logger.info(f"Found existing session for account {account_id}, attempting to restore...")
+            page, context, browser = await launch_browser(
+                headless=headless, 
+                storage_state_path=storage_state_path
+            )
+            
+            # Verify session is still valid
+            if await verify_session_authenticated(page):
+                logger.info("Session restored successfully - no login required")
+                return page, context, browser
+            else:
+                logger.info("Existing session invalid, proceeding with fresh login")
+                await browser.close()
         
+        logger.info("Initiating Turo login automation...")
         page, context, browser = await launch_browser(headless=headless, storage_state_path=None)
         
-        if await restore_session(page, account_id):
-            logger.info("Session restored successfully - no login required!")
-            return page, context, browser
-        
-        logger.info("Session expired or invalid, proceeding with fresh login")
+        logger.info("Proceeding with fresh login")
         
         if not await open_turo_login(page):
             return None
