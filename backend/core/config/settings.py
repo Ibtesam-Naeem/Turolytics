@@ -29,7 +29,7 @@ class ScrapingConfig:
     """Scraping configuration."""
     timeout: int = int(os.getenv("SCRAPING_TIMEOUT", "300")) 
     max_concurrent_tasks: int = int(os.getenv("MAX_CONCURRENT_TASKS", "5"))
-    headless: bool = os.getenv("SCRAPING_HEADLESS", "true").lower() == "true"
+    headless: bool = os.getenv("SCRAPING_HEADLESS", "false").lower() == "true"
     user_agent: str = os.getenv("SCRAPING_USER_AGENT", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     retry_attempts: int = int(os.getenv("SCRAPING_RETRY_ATTEMPTS", "3"))
     session_expiry_hours: int = int(os.getenv("SESSION_EXPIRY_HOURS", "24"))

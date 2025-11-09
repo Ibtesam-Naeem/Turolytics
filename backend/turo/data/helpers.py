@@ -81,6 +81,13 @@ async def navigate_to_page(page: Page, url: str, page_name: str) -> bool:
         logger.exception(f"Error navigating to {page_name}: {e}")
         return False
 
+async def navigate_and_extract(page: Page, url: str, page_name: str, extract_func: Callable[[Page], Awaitable[Any]]) -> Optional[Any]:
+    """Navigate to page and extract data with error handling."""
+    if not await navigate_to_page(page, url, page_name):
+        logger.error(f"Failed to navigate to {page_name}")
+        return None
+    return await extract_func(page)
+
 # ------------------------------ TURO LOGIN HELPERS ------------------------------
 
 async def get_iframe_content(page: Page, timeout: int = TIMEOUT_IFRAME) -> Optional[Frame]:
@@ -204,6 +211,23 @@ async def check_for_success_element(page: Page, success_selectors: List[str], if
             except Exception:
                 continue
     return False
+
+# ------------------------------ SCRAPING DECORATORS ------------------------------
+
+def scraping_function(page_name: str):
+    """Decorator for scraping functions that adds logging and error handling."""
+    def decorator(func: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
+        async def wrapper(*args, **kwargs) -> Any:
+            try:
+                logger.info(f"Starting to scrape {page_name}...")
+                result = await func(*args, **kwargs)
+                logger.info(f"{page_name} scraping completed successfully!")
+                return result
+            except Exception as e:
+                logger.exception(f"Error scraping {page_name}: {e}")
+                return None
+        return wrapper
+    return decorator
 
 # ------------------------------ PARALLEL PROCESSING HELPERS ------------------------------
 

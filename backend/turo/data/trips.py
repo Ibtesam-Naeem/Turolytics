@@ -7,7 +7,7 @@ from playwright.async_api import Page
 from core.utils.logger import logger
 from core.utils.browser_helpers import scroll_to_bottom_and_wait
 from core.config.settings import TIMEOUT_SELECTOR_WAIT
-from .helpers import navigate_to_page, process_items_in_parallel, get_text, extract_texts_from_elements, count_statuses
+from .helpers import navigate_to_page, process_items_in_parallel, get_text, extract_texts_from_elements, count_statuses, scraping_function
 from .selectors import (
     TRIPS_BOOKED_URL, TRIPS_HISTORY_URL,
     TRIPS_UPCOMING_LIST, TRIP_HISTORY_LIST, TRIP_CARD,
@@ -39,40 +39,31 @@ async def extract_trip_cards_data(page: Page, card_selector: str, list_selector:
 
 # ------------------------------ BOOKED TRIPS SCRAPING ------------------------------
 
+@scraping_function("booked trips")
 async def scrape_booked_trips(page: Page): 
     """Scrape all booked/upcoming trips data from the booked trips page."""
-    try:
-        logger.info("Starting to scrape booked trips data...")
-        
-        if not await navigate_to_page(page, TRIPS_BOOKED_URL, "Booked Trips"):
-            logger.error("Failed to navigate to booked trips page")
-            return None
-        
-        trips_list = await extract_trip_cards_data(page, TRIP_CARD, TRIPS_UPCOMING_LIST, "booked")
-        
-        location_text = await get_text(page, LOCATION)
-        time_text = await get_text(page, TIME_INFO)
-        dates_list = []
-        for selector in DATE_HEADER_SELECTORS:
-            dates_list = await extract_texts_from_elements(page, selector)
-            if dates_list:
-                break
-        
-        booked_trips_data = {
-            "trips": trips_list,
-            "total_trips": len(trips_list),
-            "dates": dates_list,
-            "location": location_text,
-            "time_info": time_text,
-            "scraped_at": datetime.utcnow().isoformat()
-        }
-        
-        logger.info("Booked trips scraping completed successfully!")
-        return booked_trips_data
-
-    except Exception as e:
-        logger.exception(f"Error scraping booked trips: {e}")
+    if not await navigate_to_page(page, TRIPS_BOOKED_URL, "Booked Trips"):
+        logger.error("Failed to navigate to booked trips page")
         return None
+    
+    trips_list = await extract_trip_cards_data(page, TRIP_CARD, TRIPS_UPCOMING_LIST, "booked")
+    
+    location_text = await get_text(page, LOCATION)
+    time_text = await get_text(page, TIME_INFO)
+    dates_list = []
+    for selector in DATE_HEADER_SELECTORS:
+        dates_list = await extract_texts_from_elements(page, selector)
+        if dates_list:
+            break
+    
+    return {
+        "trips": trips_list,
+        "total_trips": len(trips_list),
+        "dates": dates_list,
+        "location": location_text,
+        "time_info": time_text,
+        "scraped_at": datetime.utcnow().isoformat()
+    }
 
 # ------------------------------ DETAILED TRIP EXTRACTION ------------------------------
 
@@ -146,85 +137,67 @@ async def enrich_trips_with_details(page: Page, trips_list: List[Dict[str, Any]]
     return enriched_trips
 
 # ------------------------------ HISTORY TRIPS SCRAPING -----------------------------
+@scraping_function("trip history")
 async def scrape_trip_history(page: Page, include_details: bool = True):
     """Scrape all completed trips data from the trip history page."""
-    try:
-        logger.info("Starting to scrape trip history data...")
-        
-        if not await navigate_to_page(page, TRIPS_HISTORY_URL, "Trip History"):
-            logger.error("Failed to navigate to trip history page")
-            return None
-        
-        await scroll_to_bottom_and_wait(page)
-        
-        trips_list = await extract_trip_cards_data(page, TRIP_CARD, TRIP_HISTORY_LIST, "history")
-        
-        if include_details and trips_list:
-            trips_list = await enrich_trips_with_details(page, trips_list, batch_size=3)
-        
-        months_list = await extract_month_headers(page)
-        
-        status_counts = count_statuses(trips_list, status_key='status')
-        
-        total_earnings = 0.0
-        trips_with_earnings = 0
-        for trip in trips_list:
-            earnings = trip.get('earnings', {}).get('total_earnings')
-            if earnings is not None:
-                total_earnings += earnings
-                trips_with_earnings += 1
-        
-        trip_history_data = {
-            "trips": trips_list,
-            "total_trips": len(trips_list),
-            "completed_trips": status_counts.get('COMPLETED', 0),
-            "cancelled_trips": status_counts.get('CANCELLED', 0),
-            "months": months_list,
-            "total_earnings": total_earnings if trips_with_earnings > 0 else None,
-            "trips_with_earnings": trips_with_earnings,
-            "scraped_at": datetime.utcnow().isoformat()
-        }
-        
-        logger.info("Trip history scraping completed successfully!")
-        return trip_history_data
-
-    except Exception as e:
-        logger.exception(f"Error scraping trip history: {e}")
+    if not await navigate_to_page(page, TRIPS_HISTORY_URL, "Trip History"):
+        logger.error("Failed to navigate to trip history page")
         return None
+    
+    await scroll_to_bottom_and_wait(page)
+    
+    trips_list = await extract_trip_cards_data(page, TRIP_CARD, TRIP_HISTORY_LIST, "history")
+    
+    if include_details and trips_list:
+        trips_list = await enrich_trips_with_details(page, trips_list, batch_size=3)
+    
+    months_list = await extract_month_headers(page)
+    
+    status_counts = count_statuses(trips_list, status_key='status')
+    
+    total_earnings = 0.0
+    trips_with_earnings = 0
+    for trip in trips_list:
+        earnings = trip.get('earnings', {}).get('total_earnings')
+        if earnings is not None:
+            total_earnings += earnings
+            trips_with_earnings += 1
+    
+    return {
+        "trips": trips_list,
+        "total_trips": len(trips_list),
+        "completed_trips": status_counts.get('COMPLETED', 0),
+        "cancelled_trips": status_counts.get('CANCELLED', 0),
+        "months": months_list,
+        "total_earnings": total_earnings if trips_with_earnings > 0 else None,
+        "trips_with_earnings": trips_with_earnings,
+        "scraped_at": datetime.utcnow().isoformat()
+    }
 
 # ------------------------------ COMBINED TRIPS SCRAPING ------------------------------
 
+@scraping_function("all trips")
 async def scrape_all_trips(page: Page):
     """Scrape both booked trips and trip history data."""
-    try:
-        logger.info("Starting to scrape all trips data...")
-        
-        booked_data = await scrape_booked_trips(page)
-        booked_success = booked_data is not None
-        if not booked_data:
-            logger.warning("Failed to scrape booked trips data")
-            booked_data = EMPTY_BOOKED.copy()
-        
-        history_data = await scrape_trip_history(page)
-        history_success = history_data is not None
-        if not history_data:
-            logger.warning("Failed to scrape trip history data")
-            history_data = EMPTY_HISTORY.copy()
-        
-        all_trips_data = {
-            "booked_trips": booked_data,
-            "trip_history": history_data,
-            "scraping_success": {
-                "booked": booked_success,
-                "history": history_success
-            }
+    booked_data = await scrape_booked_trips(page)
+    booked_success = booked_data is not None
+    if not booked_data:
+        logger.warning("Failed to scrape booked trips data")
+        booked_data = EMPTY_BOOKED.copy()
+    
+    history_data = await scrape_trip_history(page)
+    history_success = history_data is not None
+    if not history_data:
+        logger.warning("Failed to scrape trip history data")
+        history_data = EMPTY_HISTORY.copy()
+    
+    return {
+        "booked_trips": booked_data,
+        "trip_history": history_data,
+        "scraping_success": {
+            "booked": booked_success,
+            "history": history_success
         }
-        
-        logger.info("All trips data scraping completed!")
-        return all_trips_data
-
-    except Exception as e:
-        logger.exception(f"Error scraping all trips data: {e}")
-        return None
+    }
 
 # ------------------------------ END OF FILE ------------------------------

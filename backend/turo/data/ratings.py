@@ -6,7 +6,7 @@ from playwright.async_api import Page
 
 from core.utils.logger import logger
 from core.config.settings import TIMEOUT_SELECTOR_WAIT
-from .helpers import navigate_to_page, extract_with_regex, try_selectors, get_text, process_items_in_parallel, extract_texts_from_elements
+from .helpers import navigate_to_page, extract_with_regex, try_selectors, get_text, process_items_in_parallel, extract_texts_from_elements, scraping_function
 from .selectors import (
     BUSINESS_RATINGS_URL,
     REVIEW_LIST_CONTAINER_SELECTOR, REVIEW_ITEM_SELECTOR, REVIEW_CUSTOMER_LINK_SELECTOR,
@@ -97,37 +97,28 @@ async def extract_all_reviews(page: Page) -> list[dict[str, Any]]:
         logger.debug(f"Error extracting all reviews: {e}")
         return []
 
+@scraping_function("ratings")
 async def scrape_ratings_data(page: Page) -> dict[str, Any] | None:
     """Scrape all ratings and reviews data from the business ratings page."""
-    try:
-        logger.info("Starting to scrape ratings data...")
-        
-        if not await navigate_to_page(page, BUSINESS_RATINGS_URL, "Business Reviews"):
-            logger.error("Failed to navigate to ratings page")
-            return None
-        
-        reviews = await extract_all_reviews(page)
-        
-        individual_ratings = [r.get('rating') for r in reviews if r.get('rating') is not None]
-        calculated_average = sum(individual_ratings) / len(individual_ratings) if individual_ratings else None
-        
-        ratings_data = {
-            'reviews': reviews,
-            'summary': {
-                'total_reviews': len(reviews),
-                'reviews_with_ratings': len(individual_ratings),
-                'reviews_with_responses': len([r for r in reviews if r.get('has_host_response')]),
-                'calculated_average_rating': calculated_average,
-                'scraped_at': datetime.utcnow().isoformat()
-            }
-        }
-        
-        logger.info("Ratings data scraping completed successfully!")
-        return ratings_data
-
-    except Exception as e:
-        logger.exception(f"Error scraping ratings data: {e}")
+    if not await navigate_to_page(page, BUSINESS_RATINGS_URL, "Business Reviews"):
+        logger.error("Failed to navigate to ratings page")
         return None
+    
+    reviews = await extract_all_reviews(page)
+    
+    individual_ratings = [r.get('rating') for r in reviews if r.get('rating') is not None]
+    calculated_average = sum(individual_ratings) / len(individual_ratings) if individual_ratings else None
+    
+    return {
+        'reviews': reviews,
+        'summary': {
+            'total_reviews': len(reviews),
+            'reviews_with_ratings': len(individual_ratings),
+            'reviews_with_responses': len([r for r in reviews if r.get('has_host_response')]),
+            'calculated_average_rating': calculated_average,
+            'scraped_at': datetime.utcnow().isoformat()
+        }
+    }
 
 
 # ------------------------------ END OF FILE ------------------------------

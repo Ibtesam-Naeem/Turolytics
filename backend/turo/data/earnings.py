@@ -6,7 +6,7 @@ from playwright.async_api import Page
 
 from core.utils.logger import logger
 from core.config.settings import TIMEOUT_SELECTOR_WAIT
-from .helpers import navigate_to_page, extract_with_regex, get_text, process_items_in_parallel, parse_amount
+from .helpers import navigate_to_page, extract_with_regex, get_text, process_items_in_parallel, parse_amount, scraping_function
 from .selectors import (
     BUSINESS_EARNINGS_URL, EARNINGS_TOTAL_SELECTOR, EARNINGS_TOTAL_TEXT_SELECTOR,
     EARNINGS_LEGEND_SELECTOR, EARNINGS_LEGEND_TAG_SELECTOR, EARNINGS_AMOUNT_SELECTOR,
@@ -135,33 +135,24 @@ async def extract_vehicle_earnings(page: Page) -> list[dict[str, Optional[str]]]
         logger.debug(f"Error extracting vehicle earnings: {e}")
         return []
 
+@scraping_function("earnings")
 async def scrape_earnings_data(page: Page) -> Optional[dict[str, Any]]:
     """Scrape earnings data from the business earnings page."""
-    try:
-        logger.info("Starting to scrape earnings data...")
-        
-        if not await navigate_to_page(page, BUSINESS_EARNINGS_URL, "Business Earnings"):
-            logger.error("Failed to navigate to earnings page")
-            return None
-        
-        total_earnings, earnings_breakdown, vehicle_earnings = await asyncio.gather(
-            extract_total_earnings(page),
-            extract_earnings_breakdown(page),
-            extract_vehicle_earnings(page)
-        )
-        
-        earnings_data = {
-            'total_earnings': total_earnings,
-            'earnings_breakdown': earnings_breakdown,
-            'vehicle_earnings': vehicle_earnings,
-            'summary': build_summary(vehicle_earnings, earnings_breakdown)
-        }
-        
-        logger.info("Earnings data scraping completed successfully!")
-        return earnings_data
-        
-    except Exception as e:
-        logger.exception(f"Error scraping earnings data: {e}")
+    if not await navigate_to_page(page, BUSINESS_EARNINGS_URL, "Business Earnings"):
+        logger.error("Failed to navigate to earnings page")
         return None
+    
+    total_earnings, earnings_breakdown, vehicle_earnings = await asyncio.gather(
+        extract_total_earnings(page),
+        extract_earnings_breakdown(page),
+        extract_vehicle_earnings(page)
+    )
+    
+    return {
+        'total_earnings': total_earnings,
+        'earnings_breakdown': earnings_breakdown,
+        'vehicle_earnings': vehicle_earnings,
+        'summary': build_summary(vehicle_earnings, earnings_breakdown)
+    }
 
 # ------------------------------ END OF FILE ------------------------------

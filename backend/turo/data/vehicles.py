@@ -5,7 +5,7 @@ from playwright.async_api import Page
 
 from core.utils.logger import logger
 from core.config.settings import TIMEOUT_SELECTOR_WAIT
-from .helpers import navigate_to_page, process_items_in_parallel, count_statuses
+from .helpers import navigate_to_page, process_items_in_parallel, count_statuses, scraping_function
 from .selectors import (
     VEHICLES_LISTINGS_URL, VEHICLE_CARD
 )
@@ -33,33 +33,24 @@ async def extract_vehicle_cards(page: Page) -> list[dict]:
 
 # ------------------------------ VEHICLE LISTINGS SCRAPING ------------------------------
 
+@scraping_function("vehicle listings")
 async def scrape_vehicle_listings(page: Page):
     """Scrape all vehicle listings data from the vehicle listings page."""
-    try:
-        logger.info("Starting to scrape vehicle listings data...")
-        
-        if not await navigate_to_page(page, VEHICLES_LISTINGS_URL, "Vehicle Listings"):
-            logger.error("Failed to navigate to vehicle listings page")
-            return None
-        
-        vehicles_list = await extract_vehicle_cards(page)
-        status_counts = count_statuses(vehicles_list, status_key='status')
-        listed_vehicles = status_counts.get('Listed', 0)
-        snoozed_vehicles = status_counts.get('Snoozed', 0)
-        
-        vehicle_listings_data = {
-            "vehicles": vehicles_list,
-            "total_vehicles": len(vehicles_list),
-            "listed_vehicles": listed_vehicles,
-            "snoozed_vehicles": snoozed_vehicles,
-            "scraped_at": datetime.utcnow().isoformat()
-        }
-        
-        logger.info("Vehicle listings scraping completed successfully!")
-        return vehicle_listings_data
-
-    except Exception as e:
-        logger.exception(f"Error scraping vehicle listings: {e}")
+    if not await navigate_to_page(page, VEHICLES_LISTINGS_URL, "Vehicle Listings"):
+        logger.error("Failed to navigate to vehicle listings page")
         return None
+    
+    vehicles_list = await extract_vehicle_cards(page)
+    status_counts = count_statuses(vehicles_list, status_key='status')
+    listed_vehicles = status_counts.get('Listed', 0)
+    snoozed_vehicles = status_counts.get('Snoozed', 0)
+    
+    return {
+        "vehicles": vehicles_list,
+        "total_vehicles": len(vehicles_list),
+        "listed_vehicles": listed_vehicles,
+        "snoozed_vehicles": snoozed_vehicles,
+        "scraped_at": datetime.utcnow().isoformat()
+    }
 
 # ------------------------------ END OF FILE ------------------------------
