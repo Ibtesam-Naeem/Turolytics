@@ -487,28 +487,8 @@ async def extract_trip_earnings(page: Page) -> Dict[str, Optional[Any]]:
                 if receipt_element:
                     receipt_href = await receipt_element.get_attribute('href')
                     if receipt_href:
-                        if receipt_href.startswith('/'):
-                            earnings_data['receipt_url'] = f"https://turo.com{receipt_href}"
-                        else:
-                            earnings_data['receipt_url'] = receipt_href
+                        earnings_data['receipt_url'] = f"https://turo.com{receipt_href}" if receipt_href.startswith('/') else receipt_href
                 break
-        
-        if not earnings_data['total_earnings']:
-            amount_element = await page.query_selector(EARNINGS_AMOUNT_SELECTOR)
-            if amount_element:
-                amount_text = await safe_text(amount_element)
-                if amount_text:
-                    earnings_data['total_earnings'] = parse_amount(amount_text)
-            
-            if not earnings_data['receipt_url']:
-                receipt_element = await page.query_selector(EARNINGS_RECEIPT_LINK_SELECTOR)
-                if receipt_element:
-                    receipt_href = await receipt_element.get_attribute('href')
-                    if receipt_href:
-                        if receipt_href.startswith('/'):
-                            earnings_data['receipt_url'] = f"https://turo.com{receipt_href}"
-                        else:
-                            earnings_data['receipt_url'] = receipt_href
                     
     except Exception as e:
         logger.debug(f"Error extracting earnings: {e}")
