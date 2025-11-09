@@ -462,20 +462,53 @@ async def extract_trip_earnings(page: Page) -> Dict[str, Optional[Any]]:
     }
     
     try:
-        amount_element = await page.query_selector(EARNINGS_AMOUNT_SELECTOR)
-        if amount_element:
-            amount_text = await safe_text(amount_element)
-            if amount_text:
-                earnings_data['total_earnings'] = parse_amount(amount_text)
+        sections = await page.query_selector_all('.detailsSection')
         
-        receipt_element = await page.query_selector(EARNINGS_RECEIPT_LINK_SELECTOR)
-        if receipt_element:
-            receipt_href = await receipt_element.get_attribute('href')
-            if receipt_href:
-                if receipt_href.startswith('/'):
-                    earnings_data['receipt_url'] = f"https://turo.com{receipt_href}"
-                else:
-                    earnings_data['receipt_url'] = receipt_href
+        for section in sections:
+            label_element = await section.query_selector(LOCATION_SECTION_LABEL_SELECTOR)
+            if not label_element:
+                continue
+            
+            label_text = await safe_text(label_element)
+            if not label_text:
+                continue
+            
+            if 'Total Earnings' in label_text or 'Earnings' in label_text:
+                value_element = await section.query_selector('.css-14bos0l-StyledText span')
+                if not value_element:
+                    value_element = await section.query_selector('.css-14bos0l-StyledText')
+                
+                if value_element:
+                    amount_text = await safe_text(value_element)
+                    if amount_text:
+                        earnings_data['total_earnings'] = parse_amount(amount_text)
+                
+                receipt_element = await section.query_selector('.css-1ycxd8s-linkStyles')
+                if receipt_element:
+                    receipt_href = await receipt_element.get_attribute('href')
+                    if receipt_href:
+                        if receipt_href.startswith('/'):
+                            earnings_data['receipt_url'] = f"https://turo.com{receipt_href}"
+                        else:
+                            earnings_data['receipt_url'] = receipt_href
+                break
+        
+        if not earnings_data['total_earnings']:
+            amount_element = await page.query_selector(EARNINGS_AMOUNT_SELECTOR)
+            if amount_element:
+                amount_text = await safe_text(amount_element)
+                if amount_text:
+                    earnings_data['total_earnings'] = parse_amount(amount_text)
+            
+            if not earnings_data['receipt_url']:
+                receipt_element = await page.query_selector(EARNINGS_RECEIPT_LINK_SELECTOR)
+                if receipt_element:
+                    receipt_href = await receipt_element.get_attribute('href')
+                    if receipt_href:
+                        if receipt_href.startswith('/'):
+                            earnings_data['receipt_url'] = f"https://turo.com{receipt_href}"
+                        else:
+                            earnings_data['receipt_url'] = receipt_href
                     
     except Exception as e:
         logger.debug(f"Error extracting earnings: {e}")
