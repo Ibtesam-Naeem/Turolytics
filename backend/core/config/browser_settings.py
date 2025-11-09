@@ -10,7 +10,6 @@ USER_AGENT = settings.scraping.user_agent
 
 DEFAULT_VIEWPORT = {"width": 1366, "height": 768}
 DEFAULT_TIMEOUT = 30000
-DEFAULT_HEADLESS = False
 
 BROWSER_LAUNCH_ARGS = [
     "--no-sandbox",
@@ -35,7 +34,7 @@ def validate_user_agent(user_agent: str) -> bool:
 
 # ------------------------------ BROWSER LAUNCH FUNCTION ------------------------------
 async def launch_browser(
-    headless: bool = DEFAULT_HEADLESS,
+    headless: bool = None,
     user_agent: str = USER_AGENT,
     viewport: dict[str, int] = DEFAULT_VIEWPORT,
     timeout: int = DEFAULT_TIMEOUT,
@@ -45,7 +44,7 @@ async def launch_browser(
     Launches a Chromium browser with standardized settings.
     
     Args:
-        headless: Whether to run the browser in headless mode.
+        headless: Whether to run the browser in headless mode. If None, uses settings.scraping.headless.
         user_agent: The user agent string to use for the browser context.
         viewport: The viewport size for the browser context.
         timeout: Timeout in milliseconds for page operations.
@@ -58,6 +57,9 @@ async def launch_browser(
         ValueError: If input parameters are invalid.
         Exception: If browser launch or context creation fails.
     """
+    
+    if headless is None:
+        headless = settings.scraping.headless
     
     if not validate_user_agent(user_agent):
         raise ValueError("Invalid user agent string provided")

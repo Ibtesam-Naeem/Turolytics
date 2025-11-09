@@ -4,12 +4,13 @@ from typing import Optional
 from playwright.async_api import BrowserContext
 
 from core.utils.logger import logger
+from core.config.settings import TIMEOUT_SHORT_CHECK, DELAY_VERY_LONG
 
 # Session storage directory
 SESSION_DIR = Path("backend/sessions")
 SESSION_DIR.mkdir(parents=True, exist_ok=True)
 
-async def _element_exists(page, selector: str, timeout: int = 2000) -> bool:
+async def _element_exists(page, selector: str, timeout: int = TIMEOUT_SHORT_CHECK) -> bool:
     """Check if an element exists on the page within timeout."""
     try:
         element = await page.wait_for_selector(selector, timeout=timeout)
@@ -24,7 +25,7 @@ async def verify_session_authenticated(page):
         logger.info("Verifying session authentication...")
         
         await page.goto("https://turo.com/ca/en/trips/booked", wait_until="domcontentloaded")
-        await page.wait_for_timeout(2000) 
+        await page.wait_for_timeout(DELAY_VERY_LONG) 
         current_url = page.url
         if "login" in current_url or "signin" in current_url:
             logger.info("Session invalid - redirected to login page")

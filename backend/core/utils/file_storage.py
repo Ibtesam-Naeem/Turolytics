@@ -51,31 +51,5 @@ def save_scraped_data_to_json(account_id: int, scraped_data: Dict[str, Any], tas
         logger.error(f"Failed to save scraped data to JSON: {e}")
         return None
 
-def get_latest_scraped_data(account_id: int) -> Optional[Dict[str, Any]]:
-    """Get the most recent scraped data file for an account.
-    
-    Args:
-        account_id: Account ID to look up
-        
-    Returns:
-        Dictionary containing scraped data or None if not found
-    """
-    try:
-        pattern = f"scraped_data_{account_id}_*.json"
-        matching_files = list(DATA_DIR.glob(pattern))
-        
-        if not matching_files:
-            return None
-        
-        # Sort by modification time, get most recent
-        latest_file = max(matching_files, key=lambda p: p.stat().st_mtime)
-        
-        with open(latest_file, 'r', encoding='utf-8') as f:
-            return json.load(f)
-            
-    except Exception as e:
-        logger.error(f"Failed to load scraped data: {e}")
-        return None
-
 # ------------------------------ END OF FILE ------------------------------
 

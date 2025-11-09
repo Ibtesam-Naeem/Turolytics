@@ -5,6 +5,7 @@ from typing import Optional, Any
 from playwright.async_api import Page
 
 from core.utils.logger import logger
+from core.config.settings import TIMEOUT_SELECTOR_WAIT
 from .helpers import navigate_to_page, extract_with_regex, get_text, process_items_in_parallel, parse_amount
 from .selectors import (
     BUSINESS_EARNINGS_URL, EARNINGS_TOTAL_SELECTOR, EARNINGS_TOTAL_TEXT_SELECTOR,
@@ -42,7 +43,7 @@ def parse_license_plate_and_trim(details_text: str) -> tuple[Optional[str], Opti
 async def extract_total_earnings(page: Page) -> dict[str, Optional[str]]:
     """Extract total earnings amount and year from the earnings page."""
     try:
-        await page.wait_for_selector(EARNINGS_TOTAL_TEXT_SELECTOR, timeout=10000)
+        await page.wait_for_selector(EARNINGS_TOTAL_TEXT_SELECTOR, timeout=TIMEOUT_SELECTOR_WAIT)
         
         amount = await get_text(page, EARNINGS_TOTAL_SELECTOR)
         full_text = await get_text(page, EARNINGS_TOTAL_TEXT_SELECTOR)
@@ -79,7 +80,7 @@ async def extract_earnings_breakdown_item(tag, tag_index: int) -> Optional[dict[
 async def extract_earnings_breakdown(page: Page) -> list[dict[str, Optional[str]]]:
     """Extract earnings breakdown by type from the legend section using parallel processing."""
     try:
-        await page.wait_for_selector(EARNINGS_LEGEND_SELECTOR, timeout=10000)
+        await page.wait_for_selector(EARNINGS_LEGEND_SELECTOR, timeout=TIMEOUT_SELECTOR_WAIT)
         legend_tags = await page.query_selector_all(EARNINGS_LEGEND_TAG_SELECTOR)
         
         breakdown = await process_items_in_parallel(
@@ -120,7 +121,7 @@ async def extract_vehicle_earnings_row(row, row_index: int) -> dict[str, Optiona
 async def extract_vehicle_earnings(page: Page) -> list[dict[str, Optional[str]]]:
     """Extract vehicle-specific earnings from the earnings table using parallel processing."""
     try:
-        await page.wait_for_selector(VEHICLE_EARNINGS_HEADER_SELECTOR, timeout=10000)
+        await page.wait_for_selector(VEHICLE_EARNINGS_HEADER_SELECTOR, timeout=TIMEOUT_SELECTOR_WAIT)
         vehicle_rows = await page.query_selector_all(VEHICLE_EARNINGS_ROW_SELECTOR)
         
         vehicles = await process_items_in_parallel(
@@ -158,6 +159,7 @@ async def scrape_earnings_data(page: Page) -> Optional[dict[str, Any]]:
         
         logger.info("Earnings data scraping completed successfully!")
         return earnings_data
+        
     except Exception as e:
         logger.exception(f"Error scraping earnings data: {e}")
         return None

@@ -6,6 +6,7 @@ from playwright.async_api import Page
 
 from core.utils.logger import logger
 from core.utils.browser_helpers import scroll_to_bottom_and_wait
+from core.config.settings import TIMEOUT_SELECTOR_WAIT
 from .helpers import navigate_to_page, process_items_in_parallel, get_text, extract_texts_from_elements, count_statuses
 from .selectors import (
     TRIPS_BOOKED_URL, TRIPS_HISTORY_URL,
@@ -20,7 +21,7 @@ EMPTY_HISTORY = {"trips": [], "total_trips": 0, "completed_trips": 0, "cancelled
 async def extract_trip_cards_data(page: Page, card_selector: str, list_selector: str, page_name: str) -> list[dict]:
     """Generic function to extract trip cards data using parallel processing."""
     try:
-        await page.wait_for_selector(list_selector, timeout=10000)
+        await page.wait_for_selector(list_selector, timeout=TIMEOUT_SELECTOR_WAIT)
         trip_cards = await page.query_selector_all(card_selector)
         logger.debug(f"Found {len(trip_cards)} trip cards on {page_name}")
         
@@ -86,7 +87,6 @@ async def enrich_trips_with_details(page: Page, trips_list: List[Dict[str, Any]]
     
     logger.info(f"Starting to enrich {total_trips} trips with detailed data (batch size: {batch_size})...")
     
-    # Process trips in batches
     for i in range(0, total_trips, batch_size):
         batch = trips_list[i:i + batch_size]
         batch_num = (i // batch_size) + 1

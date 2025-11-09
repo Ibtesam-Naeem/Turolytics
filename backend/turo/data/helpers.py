@@ -8,6 +8,7 @@ from playwright.async_api import Page, ElementHandle, Frame
 
 from core.utils.browser_helpers import safe_text
 from core.utils.logger import logger
+from core.config.settings import TIMEOUT_IFRAME, TIMEOUT_SELECTOR_WAIT, DELAY_LONG, DELAY_SHORT
 
 # ------------------------------ COMMON EXTRACTION HELPERS ------------------------------
 
@@ -82,7 +83,7 @@ async def navigate_to_page(page: Page, url: str, page_name: str) -> bool:
 
 # ------------------------------ TURO LOGIN HELPERS ------------------------------
 
-async def get_iframe_content(page: Page, timeout: int = 8000) -> Optional[Frame]:
+async def get_iframe_content(page: Page, timeout: int = TIMEOUT_IFRAME) -> Optional[Frame]:
     """Get the iframe content frame for Turo login forms."""
     try:
         iframe = await page.wait_for_selector('iframe[data-testid="managedIframe"]', timeout=timeout)
@@ -94,18 +95,18 @@ async def get_iframe_content(page: Page, timeout: int = 8000) -> Optional[Frame]
 async def click_continue_button_with_retry(page: Page, iframe_content: Frame, continue_button_selector: str = "button:has-text('Continue')") -> bool:
     """Click the continue button with retry logic for iframe reloads."""
     try:
-        submit_btn = await iframe_content.wait_for_selector(continue_button_selector, timeout=8000)
+        submit_btn = await iframe_content.wait_for_selector(continue_button_selector, timeout=TIMEOUT_IFRAME)
         await submit_btn.click(force=True, delay=100)
-        await page.wait_for_timeout(1500)
+        await page.wait_for_timeout(DELAY_LONG)
         return True
     except Exception as e:
         logger.debug("Retrying button click after iframe reload...")
         try:
-            iframe = await page.wait_for_selector('iframe[data-testid="managedIframe"]', timeout=8000)
+            iframe = await page.wait_for_selector('iframe[data-testid="managedIframe"]', timeout=TIMEOUT_IFRAME)
             iframe_content = await iframe.content_frame()
-            submit_btn = await iframe_content.wait_for_selector(continue_button_selector, timeout=8000)
+            submit_btn = await iframe_content.wait_for_selector(continue_button_selector, timeout=TIMEOUT_IFRAME)
             await submit_btn.click(force=True, delay=100)
-            await page.wait_for_timeout(1500)
+            await page.wait_for_timeout(DELAY_LONG)
             return True
             
         except Exception as retry_error:
@@ -185,7 +186,7 @@ async def clear_form_inputs(page: Page, input_selectors: List[str], iframe_conte
                 input_element = await target.query_selector(selector)
                 if input_element:
                     await input_element.fill('')
-            await page.wait_for_timeout(500)
+            await page.wait_for_timeout(DELAY_SHORT)
         except Exception:
             pass
 

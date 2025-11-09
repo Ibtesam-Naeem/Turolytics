@@ -46,7 +46,7 @@ async def scrape_all(request: ScrapeRequest) -> ScrapeResponse:
         
         logger.info(f"Started all data scraping for {request.email}: {task_id}")
         return ScrapeResponse(task_id=task_id, account_id=account_id, scraper_type="all")
-    
+
     except Exception as e:
         if isinstance(e, HTTPException):
             raise

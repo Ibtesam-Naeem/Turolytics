@@ -4,6 +4,7 @@ from datetime import datetime
 from playwright.async_api import Page
 
 from core.utils.logger import logger
+from core.config.settings import TIMEOUT_SELECTOR_WAIT
 from .helpers import navigate_to_page, process_items_in_parallel, count_statuses
 from .selectors import (
     VEHICLES_LISTINGS_URL, VEHICLE_CARD
@@ -13,7 +14,7 @@ from .extraction_helpers import extract_complete_vehicle_data
 async def extract_vehicle_cards(page: Page) -> list[dict]:
     """Extract all vehicle cards data using parallel processing when threshold is met."""
     try:
-        await page.wait_for_selector(VEHICLE_CARD, timeout=10000)
+        await page.wait_for_selector(VEHICLE_CARD, timeout=TIMEOUT_SELECTOR_WAIT)
         vehicle_cards = await page.query_selector_all(VEHICLE_CARD)
         logger.info(f"Found {len(vehicle_cards)} vehicle cards on listings page")
         

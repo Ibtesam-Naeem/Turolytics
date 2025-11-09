@@ -5,6 +5,7 @@ from typing import Any, Optional
 from playwright.async_api import Page
 
 from core.utils.logger import logger
+from core.config.settings import TIMEOUT_SELECTOR_WAIT
 from .helpers import navigate_to_page, extract_with_regex, try_selectors, get_text, process_items_in_parallel, extract_texts_from_elements
 from .selectors import (
     BUSINESS_RATINGS_URL,
@@ -80,7 +81,7 @@ async def extract_individual_review(review_element, review_index: int) -> dict[s
 async def extract_all_reviews(page: Page) -> list[dict[str, Any]]:
     """Extract all reviews from the reviews section using parallel processing."""
     try:
-        await page.wait_for_selector(REVIEW_LIST_CONTAINER_SELECTOR, timeout=10000)
+        await page.wait_for_selector(REVIEW_LIST_CONTAINER_SELECTOR, timeout=TIMEOUT_SELECTOR_WAIT)
         review_elements = await page.query_selector_all(REVIEW_ITEM_SELECTOR)
         logger.debug(f"Found {len(review_elements)} review elements")
         

@@ -7,6 +7,22 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ------------------------------ TIMEOUT CONSTANTS ------------------------------
+# Timeout values in milliseconds
+TIMEOUT_SELECTOR_WAIT = 10000  # Standard selector wait timeout
+TIMEOUT_PAGE_LOAD = 30000  # Page load timeout
+TIMEOUT_IFRAME = 8000  # Iframe content wait timeout
+TIMEOUT_QUICK_CHECK = 5000  # Quick element check timeout
+TIMEOUT_SHORT_CHECK = 2000  # Short element check timeout
+
+# Delay values in milliseconds
+DELAY_SHORT = 300  # Short delay between actions
+DELAY_MEDIUM = 800  # Medium delay between actions
+DELAY_LONG = 1500  # Long delay between actions
+DELAY_VERY_LONG = 2000  # Very long delay between actions
+DELAY_PAGE_LOAD = 1200  # Delay after page load
+DELAY_FORM_SUBMIT = 1000  # Delay after form submission
+
 # ------------------------------ CONFIGURATION CLASSES ------------------------------
 @dataclass
 class ScrapingConfig:

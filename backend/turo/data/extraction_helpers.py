@@ -6,6 +6,7 @@ from playwright.async_api import ElementHandle, Page
 
 from core.utils.logger import logger
 from core.utils.browser_helpers import safe_text
+from core.config.settings import TIMEOUT_SELECTOR_WAIT, TIMEOUT_PAGE_LOAD
 from .helpers import extract_with_regex, try_selectors, get_text, extract_texts_from_elements, parse_amount
 from .selectors import (
     TRIP_DATE_SELECTORS, VEHICLE_SELECTORS, CUSTOMER_SELECTORS,
@@ -540,8 +541,8 @@ async def extract_complete_trip_detail_data(page: Page, trip_url: str) -> Dict[s
     }
     
     try:
-        await page.goto(trip_url, wait_until="domcontentloaded", timeout=30000)
-        await page.wait_for_selector(TRIP_DETAILS_CONTAINER, timeout=10000)
+        await page.goto(trip_url, wait_until="domcontentloaded", timeout=TIMEOUT_PAGE_LOAD)
+        await page.wait_for_selector(TRIP_DETAILS_CONTAINER, timeout=TIMEOUT_SELECTOR_WAIT)
         
         results = await asyncio.gather(
             extract_trip_schedule(page),

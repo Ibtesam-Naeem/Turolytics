@@ -1,15 +1,12 @@
 # ------------------------------ IMPORTS ------------------------------
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import logging
 from dotenv import load_dotenv
 
 load_dotenv()
 
 from turo.routes import router as turo_router
-
-# ------------------------------ LOGGING ------------------------------
-logging.basicConfig(level=logging.INFO)
+from core.config.settings import settings
 
 # ------------------------------ FASTAPI APP ------------------------------
 app = FastAPI(
