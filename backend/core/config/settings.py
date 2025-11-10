@@ -60,6 +60,20 @@ class APIConfig:
     port: int = int(os.getenv("API_PORT", "8000"))
     debug: bool = os.getenv("API_DEBUG", "false").lower() == "true"
 
+@dataclass
+class DatabaseConfig:
+    """Database configuration."""
+    host: str = os.getenv("DB_HOST", "localhost")
+    port: int = int(os.getenv("DB_PORT", "5432"))
+    user: str = os.getenv("DB_USER", "postgres")
+    password: str = os.getenv("DB_PASSWORD", "")
+    database: str = os.getenv("DB_NAME", "turolytics2_0")
+    
+    @property
+    def database_url(self) -> str:
+        """Get SQLAlchemy database URL."""
+        return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
+
 # ------------------------------ MAIN SETTINGS CLASS ------------------------------
 
 class Settings:
@@ -70,6 +84,7 @@ class Settings:
         self.cors = CORSConfig()
         self.security = SecurityConfig()
         self.api = APIConfig()
+        self.database = DatabaseConfig()
         
         self._setup_logging()
     

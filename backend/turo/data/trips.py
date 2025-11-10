@@ -18,8 +18,19 @@ from .extraction_helpers import extract_complete_trip_data, extract_month_header
 EMPTY_BOOKED = {"trips": [], "total_trips": 0, "dates": [], "scraped_at": None}
 EMPTY_HISTORY = {"trips": [], "total_trips": 0, "completed_trips": 0, "cancelled_trips": 0, "months": [], "scraped_at": None}
 
-async def extract_trip_cards_data(page: Page, card_selector: str, list_selector: str, page_name: str) -> list[dict]:
-    """Generic function to extract trip cards data using parallel processing."""
+async def extract_trip_cards_data(page: Page, card_selector: str, list_selector: str, page_name: str, existing_trip_ids: set[str] = None) -> list[dict]:
+    """Generic function to extract trip cards data using parallel processing.
+    
+    Args:
+        page: Playwright page object
+        card_selector: CSS selector for trip cards
+        list_selector: CSS selector for the list container
+        page_name: Name of the page for logging
+        existing_trip_ids: Set of trip_ids that already exist in database (to skip)
+    """
+    if existing_trip_ids is None:
+        existing_trip_ids = set()
+    
     try:
         await page.wait_for_selector(list_selector, timeout=TIMEOUT_SELECTOR_WAIT)
         trip_cards = await page.query_selector_all(card_selector)
@@ -31,7 +42,16 @@ async def extract_trip_cards_data(page: Page, card_selector: str, list_selector:
             item_type=f"{page_name} trip card"
         )
         
-        return trips_list
+        # Filter out trips we already have
+        new_trips = [trip for trip in trips_list if trip.get('trip_id') not in existing_trip_ids]
+        skipped_count = len(trips_list) - len(new_trips)
+        
+        if skipped_count > 0:
+            logger.info(f"Skipped {skipped_count} already-scraped trips on {page_name}, processing {len(new_trips)} new trips")
+        elif len(new_trips) > 0:
+            logger.info(f"Processing {len(new_trips)} new trips on {page_name}")
+        
+        return new_trips
 
     except Exception as e:
         logger.exception(f"Error extracting {page_name} trip cards: {e}")
@@ -40,13 +60,21 @@ async def extract_trip_cards_data(page: Page, card_selector: str, list_selector:
 # ------------------------------ BOOKED TRIPS SCRAPING ------------------------------
 
 @scraping_function("booked trips")
-async def scrape_booked_trips(page: Page): 
-    """Scrape all booked/upcoming trips data from the booked trips page."""
+async def scrape_booked_trips(page: Page, existing_trip_ids: set[str] = None): 
+    """Scrape all booked/upcoming trips data from the booked trips page.
+    
+    Args:
+        page: Playwright page object
+        existing_trip_ids: Set of trip_ids that already exist in database (to skip)
+    """
+    if existing_trip_ids is None:
+        existing_trip_ids = set()
+    
     if not await navigate_to_page(page, TRIPS_BOOKED_URL, "Booked Trips"):
         logger.error("Failed to navigate to booked trips page")
         return None
     
-    trips_list = await extract_trip_cards_data(page, TRIP_CARD, TRIPS_UPCOMING_LIST, "booked")
+    trips_list = await extract_trip_cards_data(page, TRIP_CARD, TRIPS_UPCOMING_LIST, "booked", existing_trip_ids)
     
     location_text = await get_text(page, LOCATION)
     time_text = await get_text(page, TIME_INFO)
@@ -138,15 +166,24 @@ async def enrich_trips_with_details(page: Page, trips_list: List[Dict[str, Any]]
 
 # ------------------------------ HISTORY TRIPS SCRAPING -----------------------------
 @scraping_function("trip history")
-async def scrape_trip_history(page: Page, include_details: bool = True):
-    """Scrape all completed trips data from the trip history page."""
+async def scrape_trip_history(page: Page, include_details: bool = True, existing_trip_ids: set[str] = None):
+    """Scrape all completed trips data from the trip history page.
+    
+    Args:
+        page: Playwright page object
+        include_details: Whether to enrich trips with detailed data
+        existing_trip_ids: Set of trip_ids that already exist in database (to skip)
+    """
+    if existing_trip_ids is None:
+        existing_trip_ids = set()
+    
     if not await navigate_to_page(page, TRIPS_HISTORY_URL, "Trip History"):
         logger.error("Failed to navigate to trip history page")
         return None
     
     await scroll_to_bottom_and_wait(page)
     
-    trips_list = await extract_trip_cards_data(page, TRIP_CARD, TRIP_HISTORY_LIST, "history")
+    trips_list = await extract_trip_cards_data(page, TRIP_CARD, TRIP_HISTORY_LIST, "history", existing_trip_ids)
     
     if include_details and trips_list:
         trips_list = await enrich_trips_with_details(page, trips_list, batch_size=3)
@@ -177,15 +214,23 @@ async def scrape_trip_history(page: Page, include_details: bool = True):
 # ------------------------------ COMBINED TRIPS SCRAPING ------------------------------
 
 @scraping_function("all trips")
-async def scrape_all_trips(page: Page):
-    """Scrape both booked trips and trip history data."""
-    booked_data = await scrape_booked_trips(page)
+async def scrape_all_trips(page: Page, existing_trip_ids: set[str] = None):
+    """Scrape both booked trips and trip history data.
+    
+    Args:
+        page: Playwright page object
+        existing_trip_ids: Set of trip_ids that already exist in database (to skip)
+    """
+    if existing_trip_ids is None:
+        existing_trip_ids = set()
+    
+    booked_data = await scrape_booked_trips(page, existing_trip_ids=existing_trip_ids)
     booked_success = booked_data is not None
     if not booked_data:
         logger.warning("Failed to scrape booked trips data")
         booked_data = EMPTY_BOOKED.copy()
     
-    history_data = await scrape_trip_history(page)
+    history_data = await scrape_trip_history(page, existing_trip_ids=existing_trip_ids)
     history_success = history_data is not None
     if not history_data:
         logger.warning("Failed to scrape trip history data")

@@ -1,14 +1,14 @@
 # ------------------------------ SESSION HELPERS ------------------------------
-from pathlib import Path
 from typing import Optional
+import json
+import tempfile
+from datetime import datetime, timedelta
 from playwright.async_api import BrowserContext
 
 from core.utils.logger import logger
-from core.config.settings import TIMEOUT_SHORT_CHECK, DELAY_VERY_LONG
-
-# Session storage directory
-SESSION_DIR = Path("backend/sessions")
-SESSION_DIR.mkdir(parents=True, exist_ok=True)
+from core.config.settings import TIMEOUT_SHORT_CHECK, DELAY_VERY_LONG, settings
+from core.database import SessionLocal
+from core.database.models import Account, SessionStorage
 
 async def _element_exists(page, selector: str, timeout: int = TIMEOUT_SHORT_CHECK) -> bool:
     """Check if an element exists on the page within timeout."""
@@ -76,48 +76,115 @@ async def verify_session_authenticated(page):
         logger.warning(f"Session verification failed: {e}")
         return False
 
-def _get_session_file_path(account_id: int) -> Path:
-    """Generate session file path based on account_id."""
-    return SESSION_DIR / f"session_{account_id}.json"
-
 async def save_storage_state(context: BrowserContext, account_id: int = None) -> Optional[str]:
-    """Save browser storage state to file.
-    
-    Args:
-        context: Browser context containing the authenticated session
-        account_id: Account ID to identify the session
-        
-    Returns:
-        Path to saved session file or None if failed
-    """
+    """Save browser storage state to database only."""
     if not account_id:
         return None
         
     try:
-        session_path = _get_session_file_path(account_id)
-        await context.storage_state(path=str(session_path))
-        logger.info(f"Session storage saved to {session_path}")
-        return str(session_path)
+        storage_state = await context.storage_state()
+        storage_state_json = json.dumps(storage_state)
+        
+        try:
+            db = SessionLocal()
+            try:
+                account = db.query(Account).filter(Account.account_id == account_id).first()
+                if not account:
+                    account = Account(account_id=account_id)
+                    db.add(account)
+                    db.commit()
+                    db.refresh(account)
+                
+                session_storage = db.query(SessionStorage).filter(SessionStorage.account_id == account.id).first()
+                if not session_storage:
+                    session_storage = SessionStorage(account_id=account.id)
+                    db.add(session_storage)
+                
+                session_storage.storage_state = storage_state_json
+                expires_at = datetime.utcnow() + timedelta(hours=settings.scraping.session_expiry_hours)
+                session_storage.expires_at = expires_at
+                
+                db.commit()
+                logger.info(f"Session storage saved to database for account {account_id}")
+                return str(account_id)
+            
+            except Exception as e:
+                logger.error(f"Error saving session storage to database: {e}")
+                db.rollback()
+                return None
+            
+            finally:
+                db.close()
+        
+        except Exception as e:
+            logger.error(f"Could not save session storage to database: {e}")
+            return None
+        
     except Exception as e:
         logger.error(f"Failed to save storage state: {e}")
         return None
 
 def get_storage_state(account_id: int = None) -> Optional[str]:
-    """Get path to saved storage state file if it exists.
-    
-    Args:
-        account_id: Account ID to identify the session
-        
-    Returns:
-        Path to session file or None if not found
-    """
+    """Get storage state from database and save to temporary file for Playwright."""
     if not account_id:
         return None
+    
+    try:
+        db = SessionLocal()
+        try:
+            account = db.query(Account).filter(Account.account_id == account_id).first()
+            if not account:
+                logger.info(f"No account found for account_id {account_id}")
+                return None
+            
+            logger.debug(f"Found account {account_id} (DB ID: {account.id})")
+            
+            session_storage = db.query(SessionStorage).filter(
+                SessionStorage.account_id == account.id
+            ).first()
+            
+            if not session_storage:
+                logger.info(f"No session storage record found for account {account_id}")
+                return None
+            
+            if not session_storage.storage_state:
+                logger.info(f"Session storage exists but storage_state is empty for account {account_id}")
+                return None
+            
+            logger.debug(f"Found session storage for account {account_id}, expires_at: {session_storage.expires_at}")
+            
+            if session_storage.expires_at:
+                from datetime import timezone
+                now = datetime.now(timezone.utc)
+                expires_at = session_storage.expires_at
+                
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
+                else:
+                    expires_at = expires_at.astimezone(timezone.utc)
+                
+                if expires_at < now:
+                    logger.info(f"Session expired for account {account_id} (expired at {expires_at}, now is {now})")
+                    return None
+                logger.debug(f"Session not expired (expires at {expires_at}, now is {now})")
+            
+            temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8')
+            temp_file.write(session_storage.storage_state)
+            temp_file.flush()
+            temp_file.close()
+            
+            logger.info(f"Retrieved session storage from database for account {account_id} - temp file: {temp_file.name}")
+            return temp_file.name
+            
+        except Exception as e:
+            logger.error(f"Error retrieving session storage from database: {e}")
+            return None
         
-    session_path = _get_session_file_path(account_id)
-    if session_path.exists():
-        logger.info(f"Found existing session file: {session_path}")
-        return str(session_path)
-    return None
+        finally:
+            db.close()
+            
+    except Exception as e:
+        logger.error(f"Error connecting to database: {e}")
+        return None
 
 # ------------------------------ END OF FILE ------------------------------

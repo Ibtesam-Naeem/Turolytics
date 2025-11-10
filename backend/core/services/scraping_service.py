@@ -6,8 +6,9 @@ from datetime import datetime
 from enum import Enum
 
 from core.config.settings import settings
-from core.utils.file_storage import save_scraped_data_to_json
 from core.security.session import save_storage_state
+from core.database import SessionLocal
+from core.database.db_service import DatabaseService
 
 from turo.data.login import complete_turo_login
 from turo.data.vehicles import scrape_vehicle_listings
@@ -46,40 +47,47 @@ class ScrapingService:
             ScrapingType.REVIEWS: scrape_ratings_data,
         }
         self._semaphore = asyncio.Semaphore(settings.scraping.max_concurrent_tasks)
+        self._background_tasks: set = set()
+        self._all_scraper_types = [ScrapingType.VEHICLES, ScrapingType.TRIPS, ScrapingType.EARNINGS, ScrapingType.REVIEWS]
     
     async def _execute_scraping_session(self, scrapers: Sequence[ScrapingType], account_id: int, task_id: str, email: str = None, password: str = None) -> Dict[str, Any]:
-        """Execute a scraping session with multiple scrapers.
-        
-        Runs multiple scrapers under a single logged-in browser session for efficiency.
-        This approach reduces login overhead and maintains session state across scrapers.
-        
-        Args:
-            scrapers: Sequence of scraper types to execute
-            account_id: Account ID for data association
-            task_id: Unique task identifier for tracking
-            
-        Returns:
-            Dict containing results from all scrapers
-        """
+        """Execute a scraping session with multiple scrapers."""
         async with self._semaphore:
             page, context, browser = None, None, None
             results = {}
+            scraper_types_list = [t.value for t in scrapers]
         
             try:
+                db = SessionLocal()
+                try:
+                    existing_trip_ids = DatabaseService.get_existing_trip_ids(db, account_id)
+                    existing_customer_ids = DatabaseService.get_existing_customer_ids(db, account_id)
+                    logger.info(f"Found {len(existing_trip_ids)} existing trips and {len(existing_customer_ids)} existing reviews - will skip these during scraping")
+                except Exception as e:
+                    logger.warning(f"Error fetching existing IDs: {e}. Will scrape all data.")
+                    existing_trip_ids = set()
+                    existing_customer_ids = set()
+                finally:
+                    db.close()
+                
                 login_result = await complete_turo_login(account_id=account_id, email=email, password=password)
                 if not login_result:
                     raise Exception("Login failed")
                 
                 page, context, browser = login_result
-                self._update_task_status(task_id, TaskStatus.RUNNING, "Login successful, starting scraping...", scraper_types=[t.value for t in scrapers])
+                self._update_task_status(task_id, TaskStatus.RUNNING, "Login successful, starting scraping...", scraper_types=scraper_types_list)
                 
                 for scraper_type in scrapers:
                     try:
-                        self._update_task_status(task_id, TaskStatus.RUNNING, f"Scraping {scraper_type.value}...", scraper_types=[t.value for t in scrapers])
-                        
+                        logger.info(f"Scraping {scraper_type.value}...")
                         scraper_func = self._scrapers[scraper_type]
-                        # Pass the logged-in page to the scraper function
-                        data = await scraper_func(page)
+                        
+                        if scraper_type == ScrapingType.TRIPS:
+                            data = await scraper_func(page, existing_trip_ids=existing_trip_ids)
+                        elif scraper_type == ScrapingType.REVIEWS:
+                            data = await scraper_func(page, existing_customer_ids=existing_customer_ids)
+                        else:
+                            data = await scraper_func(page)
                         
                         if data:
                             results[scraper_type.value] = data
@@ -92,26 +100,34 @@ class ScrapingService:
                         results[scraper_type.value] = None
                 
                 if any(results.values()):
-                    # Save scraped data to JSON file
-                    json_path = save_scraped_data_to_json(account_id, results, task_id)
-                    
-                    # Save session state for future logins
                     if context:
                         await save_storage_state(context, account_id=account_id)
+                    
+                    try:
+                        db = SessionLocal()
+                        try:
+                            DatabaseService.save_scraped_data(db, account_id, results)
+                            logger.info(f"Successfully saved scraped data to database for account {account_id}")
+                        except Exception as e:
+                            logger.error(f"Error saving scraped data to database: {e}")
+                        finally:
+                            db.close()
+                    except Exception as e:
+                        logger.error(f"Error creating database session: {e}")
                     
                     self._update_task_status(
                         task_id, 
                         TaskStatus.COMPLETED, 
                         "Scraping completed successfully",
-                        {"scraped_data": results, "json_file": json_path},
-                        scraper_types=[t.value for t in scrapers]
+                        {"scraped_data": results},
+                        scraper_types=scraper_types_list
                     )
                 else:
-                    self._update_task_status(task_id, TaskStatus.FAILED, "No data scraped from any source", scraper_types=[t.value for t in scrapers])
+                    self._update_task_status(task_id, TaskStatus.FAILED, "No data scraped from any source", scraper_types=scraper_types_list)
                     
             except Exception as e:
                 logger.error(f"Scraping session failed: {e}")
-                self._update_task_status(task_id, TaskStatus.FAILED, f"Session failed: {str(e)}", scraper_types=[t.value for t in scrapers])
+                self._update_task_status(task_id, TaskStatus.FAILED, f"Session failed: {str(e)}", scraper_types=scraper_types_list)
             finally:
                 if browser:
                     try:
@@ -155,24 +171,11 @@ class ScrapingService:
     # ------------------------------ PUBLIC API ------------------------------
     
     async def scrape_all(self, account_id: int, email: str = None, password: str = None) -> str:
-        """Scrape all data types in a single session.
-        
-        Args:
-            account_id: Account ID to associate scraped data with
-            email: Turo email for login
-            password: Turo password for login
-            
-        Returns:
-            Task ID for tracking the scraping operation
-        """
+        """Scrape all data types in a single session."""
         task_id = self._generate_task_id(ScrapingType.ALL, account_id)
-        all_types = [ScrapingType.VEHICLES, ScrapingType.TRIPS, ScrapingType.EARNINGS, ScrapingType.REVIEWS]
-        self._update_task_status(task_id, TaskStatus.PENDING, "Queued for execution", scraper_types=[t.value for t in all_types])
+        self._update_task_status(task_id, TaskStatus.PENDING, "Queued for execution", scraper_types=[t.value for t in self._all_scraper_types])
         
-        task = asyncio.create_task(self._execute_scraping_session(all_types, account_id, task_id, email, password))
-        
-        if not hasattr(self, '_background_tasks'):
-            self._background_tasks = set()
+        task = asyncio.create_task(self._execute_scraping_session(self._all_scraper_types, account_id, task_id, email, password))
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
         

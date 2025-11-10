@@ -22,7 +22,7 @@ class ScrapeRequest(BaseModel):
     password: str
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "email": "user@example.com",
                 "password": "your_password"

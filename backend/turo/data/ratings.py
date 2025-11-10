@@ -78,8 +78,16 @@ async def extract_individual_review(review_element, review_index: int) -> dict[s
             'areas_of_improvement': [], 'host_response': None, 'has_host_response': False
         }
 
-async def extract_all_reviews(page: Page) -> list[dict[str, Any]]:
-    """Extract all reviews from the reviews section using parallel processing."""
+async def extract_all_reviews(page: Page, existing_customer_ids: set[str] = None) -> list[dict[str, Any]]:
+    """Extract all reviews from the reviews section using parallel processing.
+    
+    Args:
+        page: Playwright page object
+        existing_customer_ids: Set of customer_ids that already exist in database (to skip)
+    """
+    if existing_customer_ids is None:
+        existing_customer_ids = set()
+    
     try:
         await page.wait_for_selector(REVIEW_LIST_CONTAINER_SELECTOR, timeout=TIMEOUT_SELECTOR_WAIT)
         review_elements = await page.query_selector_all(REVIEW_ITEM_SELECTOR)
@@ -91,20 +99,37 @@ async def extract_all_reviews(page: Page) -> list[dict[str, Any]]:
             item_type="review"
         )
         
-        return reviews
+        # Filter out reviews we already have
+        new_reviews = [review for review in reviews if review.get('customer_id') not in existing_customer_ids]
+        skipped_count = len(reviews) - len(new_reviews)
+        
+        if skipped_count > 0:
+            logger.info(f"Skipped {skipped_count} already-scraped reviews, processing {len(new_reviews)} new reviews")
+        elif len(new_reviews) > 0:
+            logger.info(f"Processing {len(new_reviews)} new reviews")
+        
+        return new_reviews
 
     except Exception as e:
         logger.debug(f"Error extracting all reviews: {e}")
         return []
 
 @scraping_function("ratings")
-async def scrape_ratings_data(page: Page) -> dict[str, Any] | None:
-    """Scrape all ratings and reviews data from the business ratings page."""
+async def scrape_ratings_data(page: Page, existing_customer_ids: set[str] = None) -> dict[str, Any] | None:
+    """Scrape all ratings and reviews data from the business ratings page.
+    
+    Args:
+        page: Playwright page object
+        existing_customer_ids: Set of customer_ids that already exist in database (to skip)
+    """
+    if existing_customer_ids is None:
+        existing_customer_ids = set()
+    
     if not await navigate_to_page(page, BUSINESS_RATINGS_URL, "Business Reviews"):
         logger.error("Failed to navigate to ratings page")
         return None
     
-    reviews = await extract_all_reviews(page)
+    reviews = await extract_all_reviews(page, existing_customer_ids=existing_customer_ids)
     
     individual_ratings = [r.get('rating') for r in reviews if r.get('rating') is not None]
     calculated_average = sum(individual_ratings) / len(individual_ratings) if individual_ratings else None
