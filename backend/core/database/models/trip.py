@@ -16,7 +16,6 @@ class Trip(Base):
     vehicle_id = Column(Integer, ForeignKey("vehicles.id"), nullable=True, index=True)
     
     trip_id = Column(String, nullable=False, index=True, comment="Turo trip ID")
-    reservation_number = Column(String, nullable=True, index=True, comment="Reservation number")
     trip_url = Column(String, nullable=True, comment="Trip URL on Turo")
     
     customer_name = Column(String, nullable=True, comment="Customer name")
@@ -26,8 +25,6 @@ class Trip(Base):
     cancellation_info = Column(String, nullable=True, comment="Cancellation information")
     cancelled_by = Column(String, nullable=True, comment="Who cancelled the trip")
     cancelled_date = Column(String, nullable=True, comment="Cancellation date")
-    
-    trip_dates = Column(String, nullable=True, comment="Trip dates string (e.g., 'Nov 1 - Nov 7')")
     
     start_date = Column(String, nullable=True, comment="Start date (e.g., 'Sat, Nov 1')")
     start_time = Column(String, nullable=True, comment="Start time (e.g., '4:30 p.m.')")
@@ -42,12 +39,9 @@ class Trip(Base):
     overage_rate = Column(Float, nullable=True, comment="Overage rate per kilometer")
     
     total_earnings = Column(Float, nullable=True, comment="Total earnings amount")
-    receipt_url = Column(String, nullable=True, comment="Receipt URL")
     
     protection_plan = Column(String, nullable=True, comment="Protection plan name (e.g., '75 plan')")
     deductible = Column(String, nullable=True, comment="Deductible amount (e.g., '$0')")
-    
-    card_index = Column(Integer, nullable=True, comment="Card index from scraping")
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -55,6 +49,27 @@ class Trip(Base):
     
     account = relationship("Account", back_populates="trips")
     vehicle = relationship("Vehicle", back_populates="trips")
+    
+    @property
+    def receipt_url(self) -> str:
+        """Generate receipt URL dynamically from trip_id."""
+        if self.trip_id:
+            return f"https://turo.com/ca/en/reservation/{self.trip_id}/receipt"
+        return None
+    
+    @property
+    def reservation_number(self) -> str:
+        """Reservation number is the same as trip_id."""
+        return self.trip_id
+    
+    @property
+    def trip_dates(self) -> str:
+        """Generate trip dates string from start_date and end_date."""
+        if self.start_date and self.end_date:
+            start = self.start_date.split(', ')[-1] if ', ' in self.start_date else self.start_date
+            end = self.end_date.split(', ')[-1] if ', ' in self.end_date else self.end_date
+            return f"{start} - {end}"
+        return None
     
     def __repr__(self):
         return f"<Trip(id={self.id}, trip_id={self.trip_id}, status={self.status})>"

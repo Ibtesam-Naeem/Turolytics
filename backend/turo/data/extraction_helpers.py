@@ -457,8 +457,7 @@ async def extract_trip_kilometers(page: Page) -> Dict[str, Optional[Any]]:
 async def extract_trip_earnings(page: Page) -> Dict[str, Optional[Any]]:
     """Extract earnings information from trip detail page."""
     earnings_data = {
-        'total_earnings': None,
-        'receipt_url': None
+        'total_earnings': None
     }
     
     try:
@@ -483,11 +482,6 @@ async def extract_trip_earnings(page: Page) -> Dict[str, Optional[Any]]:
                     if amount_text:
                         earnings_data['total_earnings'] = parse_amount(amount_text)
                 
-                receipt_element = await section.query_selector('.css-1ycxd8s-linkStyles')
-                if receipt_element:
-                    receipt_href = await receipt_element.get_attribute('href')
-                    if receipt_href:
-                        earnings_data['receipt_url'] = f"https://turo.com{receipt_href}" if receipt_href.startswith('/') else receipt_href
                 break
                     
     except Exception as e:
@@ -523,24 +517,8 @@ async def extract_trip_protection(page: Page) -> Dict[str, Optional[str]]:
     return protection_data
 
 async def extract_trip_metadata(page: Page) -> Dict[str, Optional[str]]:
-    """Extract metadata like reservation number."""
-    metadata = {
-        'reservation_number': None
-    }
-    
-    try:
-        reservation_element = await page.query_selector(RESERVATION_NUMBER_SELECTOR)
-        if reservation_element:
-            reservation_text = await safe_text(reservation_element)
-            if reservation_text:
-                number_match = extract_with_regex(reservation_text, r'#(\d+)')
-                if number_match:
-                    metadata['reservation_number'] = number_match
-                    
-    except Exception as e:
-        logger.debug(f"Error extracting metadata: {e}")
-    
-    return metadata
+    """Extract metadata from trip detail page."""
+    return {}
 
 async def extract_complete_trip_detail_data(page: Page, trip_url: str) -> Dict[str, Any]:
     """Extract all detailed trip data from a trip detail page."""

@@ -9,6 +9,7 @@ from core.utils.logger import logger
 from core.config.settings import TIMEOUT_SHORT_CHECK, DELAY_VERY_LONG, settings
 from core.database import SessionLocal
 from core.database.models import Account, SessionStorage
+from core.database.db_service import DatabaseService
 
 async def _element_exists(page, selector: str, timeout: int = TIMEOUT_SHORT_CHECK) -> bool:
     """Check if an element exists on the page within timeout."""
@@ -88,7 +89,7 @@ async def save_storage_state(context: BrowserContext, account_id: int = None) ->
         try:
             db = SessionLocal()
             try:
-                account = db.query(Account).filter(Account.account_id == account_id).first()
+                account = DatabaseService.get_account_by_id(db, account_id)
                 if not account:
                     account = Account(account_id=account_id)
                     db.add(account)
@@ -132,7 +133,7 @@ def get_storage_state(account_id: int = None) -> Optional[str]:
     try:
         db = SessionLocal()
         try:
-            account = db.query(Account).filter(Account.account_id == account_id).first()
+            account = DatabaseService.get_account_by_id(db, account_id)
             if not account:
                 logger.info(f"No account found for account_id {account_id}")
                 return None
