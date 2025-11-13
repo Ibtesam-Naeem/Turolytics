@@ -10,7 +10,7 @@ from core.utils.api_helpers import validate_credentials, get_account_id
 logger = logging.getLogger(__name__)
 
 # ------------------------------ ROUTER SETUP ------------------------------
-router = APIRouter(prefix="/turo", tags=["turo"])
+router = APIRouter()
 
 # ------------------------------ SERVICES ------------------------------
 scraping_service = ScrapingService()
