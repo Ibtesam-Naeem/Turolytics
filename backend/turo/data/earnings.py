@@ -148,6 +148,12 @@ async def scrape_earnings_data(page: Page) -> Optional[dict[str, Any]]:
         extract_vehicle_earnings(page)
     )
     
+    year = total_earnings.get('year') if total_earnings else None
+    if year:
+        for breakdown_item in earnings_breakdown:
+            if breakdown_item:
+                breakdown_item['year'] = year
+    
     return {
         'total_earnings': total_earnings,
         'earnings_breakdown': earnings_breakdown,
