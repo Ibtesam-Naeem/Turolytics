@@ -5,38 +5,37 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import logging
 
-load_dotenv()
-
-from turo.routes import router as turo_router
-from core.config.settings import settings
 from core.database import init_db
+from core.config.settings import settings
+from turo.routes import router as turo_router
+from bouncie.routes import router as bouncie_router
 
-# ------------------------------ LOGGING ------------------------------
-logger = logging.getLogger(__name__)
+# ------------------------------ SETUP ------------------------------
+load_dotenv()
+logger = logging.getLogger("turolytics")
 
-# ------------------------------ LIFESPAN EVENTS ------------------------------
+# ------------------------------ LIFESPAN ------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Handle application startup and shutdown events."""
+    """Handle startup and shutdown events."""
     try:
         logger.info("Initializing database...")
         init_db()
-        logger.info("Database initialized successfully")
-    
+        logger.info("Database initialized successfully\n")
+   
     except Exception as e:
-        logger.error(f"Failed to initialize database: {e}")
-
+        logger.error(f"Database initialization failed: {e}\n")
     yield
 
-# ------------------------------ FASTAPI APP ------------------------------
+# ------------------------------ APP ------------------------------
 app = FastAPI(
     title="Turolytics API",
     description="Backend API for Turolytics",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
-# ------------------------------ CORS MIDDLEWARE ------------------------------
+# ------------------------------ CORS ------------------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -46,24 +45,21 @@ app.add_middleware(
 )
 
 # ------------------------------ ROUTERS ------------------------------
-app.include_router(turo_router, prefix="/api")
+app.include_router(turo_router, prefix="/api/turo", tags=["Turo"])
+app.include_router(bouncie_router, prefix="/api/bouncie", tags=["Bouncie"])
 
-# ------------------------------ HEALTH ENDPOINT ------------------------------
-@app.get("/")
+# ------------------------------ HEALTH ENDPOINTS ------------------------------
+@app.get("/", tags=["Health"])
 async def root():
-    """Root endpoint."""
     return {"message": "Turolytics API", "status": "running"}
 
-@app.get("/health")
+@app.get("/health", tags=["Health"])
 async def health():
-    """Health check endpoint."""
-    return {
-        "status": "healthy"
-    }
+    return {"status": "healthy"}
 
 # ------------------------------ MAIN ------------------------------
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
 
 # ------------------------------ END OF FILE ------------------------------
