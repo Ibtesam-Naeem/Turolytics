@@ -104,13 +104,5 @@ class APIResponse(BaseModel):
     """Generic API response model."""
     success: bool
     data: dict[str, Any]
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "success": True,
-                "data": {}
-            }
-        }
 
 # ------------------------------ END OF FILE ------------------------------

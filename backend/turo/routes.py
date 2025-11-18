@@ -5,8 +5,8 @@ from pydantic import BaseModel
 from datetime import datetime
 import logging
 
-from core.services.scraping_service import ScrapingService
-from core.utils.api_helpers import validate_credentials, get_account_id
+from .scraping_service import ScrapingService
+from core.utils.api_helpers import validate_credentials, get_user_id
 from core.utils.serializers import serialize_models, paginate_response
 from core.database import get_db
 from sqlalchemy.orm import Session
@@ -42,14 +42,6 @@ SCRAPER_MAP = {
 class ScrapeRequest(BaseModel):
     email: str
     password: str
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "email": "user@example.com",
-                "password": "your_password"
-            }
-        }
 
 class ScrapeResponse(BaseModel):
     task_id: str
@@ -78,12 +70,17 @@ async def scrape_data(
 ) -> ScrapeResponse:
     """Scrape data of specified type on demand."""
     validate_credentials(request.email, request.password)
-    account_id = get_account_id(request.email)
+    user_id = get_user_id(request.email)
     
     try:
-        task_id = await SCRAPER_MAP[scraper_type](account_id, request.email, request.password)
+        task_id = await SCRAPER_MAP[scraper_type](user_id, request.email, request.password)
         logger.info(f"Started {scraper_type} scraping for {request.email}: {task_id}")
-        return ScrapeResponse(task_id=task_id, account_id=account_id, scraper_type=scraper_type)
+        return ScrapeResponse(task_id=task_id, account_id=user_id, scraper_type=scraper_type)
+    except KeyError:
+        raise HTTPException(status_code=400, detail=f"Invalid scraper type: {scraper_type}")
+    except RuntimeError as e:
+        logger.error(f"Scraping runtime error: {e}")
+        raise HTTPException(status_code=500, detail=f"Scraping failed: {str(e)}")
     except Exception as e:
         logger.error(f"Failed to start {scraper_type} scraping: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to start scraping: {str(e)}")
@@ -117,7 +114,7 @@ async def get_trips(
         )
     
     trips, total = service.get_trips(
-        account_id=account_id,
+        user_id=account_id,
         trip_id=trip_id,
         status=status,
         trip_type=trip_type,
@@ -139,22 +136,23 @@ async def get_vehicles(
     vehicle_id: Optional[int] = Query(None, description="Filter by vehicle ID"),
     license_plate: Optional[str] = Query(None, description="Filter by license plate"),
     status: Optional[str] = Query(None, description="Filter by status (Listed, Snoozed)"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of results"),
+    offset: int = Query(0, ge=0, description="Number of results to skip"),
     service: TuroDataService = Depends(get_turo_data_service)
 ) -> APIResponse:
-    """Get vehicles with filtering."""
+    """Get vehicles with filtering and pagination."""
     vehicles, total = service.get_vehicles(
-        account_id=account_id,
+        user_id=account_id,
         vehicle_id=vehicle_id,
         license_plate=license_plate,
-        status=status
+        status=status,
+        limit=limit,
+        offset=offset
     )
     
     return APIResponse(
         success=True,
-        data={
-            "vehicles": serialize_models(vehicles, VehicleOut),
-            "total": total
-        }
+        data=paginate_response(vehicles, total, VehicleOut, limit, offset, items_key="vehicles")
     )
 
 @router.get("/data/reviews", response_model=APIResponse, response_model_exclude_none=True, tags=["Reviews"])
@@ -170,7 +168,7 @@ async def get_reviews(
 ) -> APIResponse:
     """Get reviews with filtering and pagination."""
     reviews, total = service.get_reviews(
-        account_id=account_id,
+        user_id=account_id,
         review_id=review_id,
         vehicle_id=vehicle_id,
         min_rating=min_rating,
@@ -191,7 +189,7 @@ async def get_earnings(
     service: TuroDataService = Depends(get_turo_data_service)
 ) -> APIResponse:
     """Get earnings data."""
-    breakdowns, vehicle_earnings = service.get_earnings(account_id=account_id, year=year)
+    breakdowns, vehicle_earnings = service.get_earnings(user_id=account_id, year=year)
     
     return APIResponse(
         success=True,

@@ -5,7 +5,7 @@ from sqlalchemy import desc, case
 from datetime import datetime
 from fastapi import HTTPException
 
-from core.database.models import Account, Trip, Vehicle, Review, EarningsBreakdown, VehicleEarnings
+from core.database.models import Trip, Vehicle, Review, EarningsBreakdown, VehicleEarnings
 from core.database.db_service import DatabaseService
 
 # ------------------------------ SERVICE ------------------------------
@@ -16,25 +16,21 @@ class TuroDataService:
     def __init__(self, db: Session):
         self.db = db
     
-    def _require_account(self, account_id: int):
+    def _require_account(self, user_id: int):
         """Validate account exists and return account object."""
-        account = DatabaseService.get_account_by_id(self.db, account_id)
+        account = DatabaseService.get_account_by_user_id(self.db, user_id)
         if not account:
-            raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
+            raise HTTPException(status_code=404, detail=f"Account {user_id} not found")
         return account
     
-    def _build_base_query(self, model_class, account_id: int):
-        """Build base query filtered by account_id.
-        
-        Returns:
-            Query object filtered by account
-        """
-        account = self._require_account(account_id)
+    def _build_base_query(self, model_class, user_id: int):
+        """Build base query filtered by user_id."""
+        account = self._require_account(user_id)
         return self.db.query(model_class).filter(model_class.account_id == account.id)
     
     def get_trips(
         self,
-        account_id: int,
+        user_id: int,
         trip_id: Optional[str] = None,
         status: Optional[str] = None,
         trip_type: Optional[str] = None,
@@ -45,7 +41,7 @@ class TuroDataService:
         offset: int = 0
     ) -> Tuple[List[Trip], int]:
         """Get trips with filtering and pagination."""
-        query = self._build_base_query(Trip, account_id)
+        query = self._build_base_query(Trip, user_id)
         
         if trip_id:
             query = query.filter(Trip.trip_id == trip_id)
@@ -67,13 +63,15 @@ class TuroDataService:
     
     def get_vehicles(
         self,
-        account_id: int,
+        user_id: int,
         vehicle_id: Optional[int] = None,
         license_plate: Optional[str] = None,
-        status: Optional[str] = None
+        status: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0
     ) -> Tuple[List[Vehicle], int]:
-        """Get vehicles with filtering."""
-        query = self._build_base_query(Vehicle, account_id)
+        """Get vehicles with filtering and pagination."""
+        query = self._build_base_query(Vehicle, user_id)
         
         if vehicle_id:
             query = query.filter(Vehicle.id == vehicle_id)
@@ -83,13 +81,13 @@ class TuroDataService:
             query = query.filter(Vehicle.status == status)
         
         total = query.count()
-        vehicles = query.order_by(desc(Vehicle.created_at)).all()
+        vehicles = query.order_by(desc(Vehicle.created_at)).limit(limit).offset(offset).all()
         
         return vehicles, total
     
     def get_reviews(
         self,
-        account_id: int,
+        user_id: int,
         review_id: Optional[int] = None,
         vehicle_id: Optional[int] = None,
         min_rating: Optional[float] = None,
@@ -98,7 +96,7 @@ class TuroDataService:
         offset: int = 0
     ) -> Tuple[List[Review], int]:
         """Get reviews with filtering and pagination."""
-        query = self._build_base_query(Review, account_id)
+        query = self._build_base_query(Review, user_id)
         
         if review_id:
             query = query.filter(Review.id == review_id)
@@ -121,12 +119,12 @@ class TuroDataService:
     
     def get_earnings(
         self,
-        account_id: int,
+        user_id: int,
         year: Optional[int] = None
     ) -> Tuple[List[EarningsBreakdown], List[VehicleEarnings]]:
         """Get earnings data."""
-        breakdown_query = self._build_base_query(EarningsBreakdown, account_id)
-        vehicle_earnings_query = self._build_base_query(VehicleEarnings, account_id)
+        breakdown_query = self._build_base_query(EarningsBreakdown, user_id)
+        vehicle_earnings_query = self._build_base_query(VehicleEarnings, user_id)
         
         if year:
             breakdown_query = breakdown_query.filter(EarningsBreakdown.year == str(year))
