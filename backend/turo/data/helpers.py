@@ -7,7 +7,6 @@ from typing import Optional, List, Any, Union, Dict, Callable, Awaitable
 from playwright.async_api import Page, ElementHandle, Frame
 import logging
 
-from core.utils.browser_helpers import safe_text
 from core.config.settings import TIMEOUT_IFRAME, TIMEOUT_SELECTOR_WAIT, DELAY_LONG, DELAY_SHORT
 
 logger = logging.getLogger(__name__)
@@ -39,7 +38,7 @@ async def try_selectors(
     for selector in selectors:
         try:
             target = await element.query_selector(selector)
-            text = await safe_text(target)
+            text = (await target.text_content() or '').strip() if target else None
             if text and (not validator or validator(text)):
                 return text.strip()
         except Exception:
@@ -49,7 +48,7 @@ async def try_selectors(
 async def get_text(element: Union[Page, ElementHandle], selector: str) -> Optional[str]:
     """Get text from an element using a selector."""
     target = await element.query_selector(selector)
-    return await safe_text(target)
+    return (await target.text_content() or '').strip() if target else None
 
 async def extract_texts_from_elements(
     element: Union[Page, ElementHandle], 
@@ -61,7 +60,7 @@ async def extract_texts_from_elements(
         elements = await element.query_selector_all(selector)
         texts = []
         for el in elements:
-            text = await safe_text(el)
+            text = (await el.text_content() or '').strip() if el else None
             if text:
                 if not filter_func or filter_func(text):
                     texts.append(text)

@@ -5,7 +5,6 @@ from typing import Optional, Dict, Any, List
 from playwright.async_api import ElementHandle, Page
 import logging
 
-from core.utils.browser_helpers import safe_text
 
 logger = logging.getLogger(__name__)
 from core.config.settings import TIMEOUT_SELECTOR_WAIT, TIMEOUT_PAGE_LOAD
@@ -285,7 +284,7 @@ async def extract_vehicle_details(card: ElementHandle, card_index: int) -> Dict[
         details = {'trim': None, 'license_plate': None}
         
         for element in elements:
-            text = await safe_text(element)
+            text = (await element.text_content() or '').strip() if element else None
             if text:
                 cleaned_text = text.replace('•', '').replace(' ', '').replace('-', '').strip()
                 
@@ -366,16 +365,16 @@ async def extract_trip_schedule(page: Page) -> Dict[str, Optional[str]]:
     try:
         date_elements = await page.query_selector_all(SCHEDULE_DATE_SELECTOR)
         if len(date_elements) >= 2:
-            schedule_data['start_date'] = await safe_text(date_elements[0])
-            schedule_data['end_date'] = await safe_text(date_elements[1])
+            schedule_data['start_date'] = (await date_elements[0].text_content() or '').strip()
+            schedule_data['end_date'] = (await date_elements[1].text_content() or '').strip()
         
         start_time_element = await page.query_selector(SCHEDULE_TIME_START_SELECTOR)
         if start_time_element:
-            schedule_data['start_time'] = await safe_text(start_time_element)
+            schedule_data['start_time'] = (await start_time_element.text_content() or '').strip()
         
         end_time_element = await page.query_selector(SCHEDULE_TIME_END_SELECTOR)
         if end_time_element:
-            schedule_data['end_time'] = await safe_text(end_time_element)
+            schedule_data['end_time'] = (await end_time_element.text_content() or '').strip()
             
     except Exception as e:
         logger.debug(f"Error extracting schedule: {e}")
@@ -398,7 +397,7 @@ async def extract_trip_location(page: Page) -> Dict[str, Optional[str]]:
         
         address_element = await page.query_selector(LOCATION_ADDRESS_SELECTOR)
         if address_element:
-            location_data['address'] = await safe_text(address_element)
+            location_data['address'] = (await address_element.text_content() or '').strip()
             
     except Exception as e:
         logger.debug(f"Error extracting location: {e}")
@@ -421,14 +420,14 @@ async def extract_trip_kilometers(page: Page) -> Dict[str, Optional[Any]]:
             if not label_element:
                 continue
             
-            label_text = await safe_text(label_element)
+            label_text = (await label_element.text_content() or '').strip()
             if not label_text:
                 continue
             
             if 'Total Kilometers Included' in label_text:
                 value_element = await section.query_selector('.css-14bos0l-StyledText')
                 if value_element:
-                    value_text = await safe_text(value_element)
+                    value_text = (await value_element.text_content() or '').strip()
                     if value_text:
                         km_match = extract_with_regex(value_text, r'([\d,]+)')
                         if km_match:
@@ -436,7 +435,7 @@ async def extract_trip_kilometers(page: Page) -> Dict[str, Optional[Any]]:
                 
                 overage_element = await section.query_selector(KILOMETERS_OVERAGE_SELECTOR)
                 if overage_element:
-                    overage_text = await safe_text(overage_element)
+                    overage_text = (await overage_element.text_content() or '').strip()
                     if overage_text:
                         rate_match = extract_with_regex(overage_text, r'\$([\d.]+)')
                         if rate_match:
@@ -445,7 +444,7 @@ async def extract_trip_kilometers(page: Page) -> Dict[str, Optional[Any]]:
             elif 'Kilometers driven' in label_text:
                 value_element = await section.query_selector('.css-14bos0l-StyledText')
                 if value_element:
-                    value_text = await safe_text(value_element)
+                    value_text = (await value_element.text_content() or '').strip()
                     if value_text:
                         km_match = extract_with_regex(value_text, r'([\d,]+)')
                         if km_match:
@@ -470,7 +469,7 @@ async def extract_trip_earnings(page: Page) -> Dict[str, Optional[Any]]:
             if not label_element:
                 continue
             
-            label_text = await safe_text(label_element)
+            label_text = (await label_element.text_content() or '').strip()
             if not label_text:
                 continue
             
@@ -480,7 +479,7 @@ async def extract_trip_earnings(page: Page) -> Dict[str, Optional[Any]]:
                     value_element = await section.query_selector('.css-14bos0l-StyledText')
                 
                 if value_element:
-                    amount_text = await safe_text(value_element)
+                    amount_text = (await value_element.text_content() or '').strip()
                     if amount_text:
                         earnings_data['total_earnings'] = parse_amount(amount_text)
                 
@@ -501,11 +500,11 @@ async def extract_trip_protection(page: Page) -> Dict[str, Optional[str]]:
     try:
         plan_element = await page.query_selector(PROTECTION_PLAN_SELECTOR)
         if plan_element:
-            protection_data['protection_plan'] = await safe_text(plan_element)
+            protection_data['protection_plan'] = (await plan_element.text_content() or '').strip()
         
         deductible_element = await page.query_selector(PROTECTION_DEDUCTIBLE_SELECTOR)
         if deductible_element:
-            deductible_text = await safe_text(deductible_element)
+            deductible_text = (await deductible_element.text_content() or '').strip()
             if deductible_text:
                 deductible_match = extract_with_regex(deductible_text, r'\$([\d,]+)')
                 if deductible_match:
