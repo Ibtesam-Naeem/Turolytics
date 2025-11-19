@@ -3,10 +3,11 @@ import asyncio
 from datetime import datetime
 from typing import List, Dict, Any
 from playwright.async_api import Page
+import logging
 
-from core.utils.logger import logger
-from core.utils.browser_helpers import scroll_to_bottom_and_wait
 from core.config.settings import TIMEOUT_SELECTOR_WAIT
+
+logger = logging.getLogger(__name__)
 from .helpers import navigate_to_page, process_items_in_parallel, get_text, extract_texts_from_elements, count_statuses, scraping_function
 from .selectors import (
     TRIPS_BOOKED_URL, TRIPS_HISTORY_URL,
@@ -181,7 +182,10 @@ async def scrape_trip_history(page: Page, include_details: bool = True, existing
         logger.error("Failed to navigate to trip history page")
         return None
     
-    await scroll_to_bottom_and_wait(page)
+    # Scroll to bottom to load all trips
+    await page.wait_for_timeout(3000)
+    await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+    await page.wait_for_timeout(2000)
     
     trips_list = await extract_trip_cards_data(page, TRIP_CARD, TRIP_HISTORY_LIST, "history", existing_trip_ids)
     

@@ -3,9 +3,11 @@ import asyncio
 import re
 from typing import Optional, Dict, Any, List
 from playwright.async_api import ElementHandle, Page
+import logging
 
-from core.utils.logger import logger
 from core.utils.browser_helpers import safe_text
+
+logger = logging.getLogger(__name__)
 from core.config.settings import TIMEOUT_SELECTOR_WAIT, TIMEOUT_PAGE_LOAD
 from .helpers import extract_with_regex, try_selectors, get_text, extract_texts_from_elements, parse_amount
 from .selectors import (

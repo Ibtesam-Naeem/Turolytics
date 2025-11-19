@@ -3,9 +3,11 @@ import getpass
 from typing import Optional, Tuple
 
 from playwright.async_api import Page, BrowserContext, Browser
+import logging
 
-from core.utils.logger import logger
 from core.config.browser_settings import launch_browser
+
+logger = logging.getLogger(__name__)
 from core.config.settings import settings, TIMEOUT_SELECTOR_WAIT, TIMEOUT_IFRAME, TIMEOUT_QUICK_CHECK, TIMEOUT_SHORT_CHECK, DELAY_SHORT, DELAY_MEDIUM, DELAY_VERY_LONG, DELAY_PAGE_LOAD, DELAY_FORM_SUBMIT
 from core.security.session import verify_session_authenticated, save_storage_state, get_storage_state
 from .helpers import get_iframe_content, search_for_error_messages, clear_form_inputs, check_for_success_element, click_continue_button_with_retry

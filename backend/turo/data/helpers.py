@@ -5,10 +5,12 @@ import re
 from collections import Counter
 from typing import Optional, List, Any, Union, Dict, Callable, Awaitable
 from playwright.async_api import Page, ElementHandle, Frame
+import logging
 
 from core.utils.browser_helpers import safe_text
-from core.utils.logger import logger
 from core.config.settings import TIMEOUT_IFRAME, TIMEOUT_SELECTOR_WAIT, DELAY_LONG, DELAY_SHORT
+
+logger = logging.getLogger(__name__)
 
 # ------------------------------ COMMON EXTRACTION HELPERS ------------------------------
 

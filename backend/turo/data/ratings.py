@@ -3,9 +3,11 @@ import asyncio
 from datetime import datetime
 from typing import Any, Optional
 from playwright.async_api import Page
+import logging
 
-from core.utils.logger import logger
 from core.config.settings import TIMEOUT_SELECTOR_WAIT
+
+logger = logging.getLogger(__name__)
 from .helpers import navigate_to_page, extract_with_regex, try_selectors, get_text, process_items_in_parallel, extract_texts_from_elements, scraping_function
 from .selectors import (
     BUSINESS_RATINGS_URL,

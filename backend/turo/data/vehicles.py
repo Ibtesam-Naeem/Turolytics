@@ -1,10 +1,12 @@
 # ------------------------------ IMPORTS ------------------------------
 from datetime import datetime
+import logging
 
 from playwright.async_api import Page
 
-from core.utils.logger import logger
 from core.config.settings import TIMEOUT_SELECTOR_WAIT
+
+logger = logging.getLogger(__name__)
 from .helpers import navigate_to_page, process_items_in_parallel, count_statuses, scraping_function
 from .selectors import (
     VEHICLES_LISTINGS_URL, VEHICLE_CARD
