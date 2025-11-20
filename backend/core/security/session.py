@@ -1,39 +1,38 @@
 # ------------------------------ SESSION HELPERS ------------------------------
 from typing import Optional
 import json
+import os
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from playwright.async_api import BrowserContext
+import logging
 
-from core.utils.logger import logger
 from core.config.settings import TIMEOUT_SHORT_CHECK, DELAY_VERY_LONG, settings
 from core.database import SessionLocal
-from core.database.models import Account, SessionStorage
+from core.database.models import SessionStorage
 from core.database.db_service import DatabaseService
+
+logger = logging.getLogger(__name__)
 
 async def _element_exists(page, selector: str, timeout: int = TIMEOUT_SHORT_CHECK) -> bool:
     """Check if an element exists on the page within timeout."""
     try:
-        element = await page.wait_for_selector(selector, timeout=timeout)
-        return element is not None
-        
+        await page.wait_for_selector(selector, timeout=timeout)
+        return True
     except Exception:
         return False
 
 async def verify_session_authenticated(page):
     """Check if current storage state is authenticated using multiple verification methods."""
     try:
-        logger.info("Verifying session authentication...")
-        
         await page.goto("https://turo.com/ca/en/trips/booked", wait_until="domcontentloaded")
         await page.wait_for_timeout(DELAY_VERY_LONG) 
         current_url = page.url
+        
         if "login" in current_url or "signin" in current_url:
-            logger.info("Session invalid - redirected to login page")
             return False
         
         if "trips" not in current_url:
-            logger.info(f"Session invalid - not on trips page, current URL: {current_url}")
             return False
         
         auth_selectors = [
@@ -46,7 +45,6 @@ async def verify_session_authenticated(page):
         
         for selector in auth_selectors:
             if await _element_exists(page, selector, 3000):
-                logger.info(f"Session restore successful - Found auth element: {selector}")
                 return True
         
         login_selectors = [
@@ -57,7 +55,6 @@ async def verify_session_authenticated(page):
         
         for selector in login_selectors:
             if await _element_exists(page, selector, 1000):
-                logger.info("Session invalid - login form detected")
                 return False
         
         user_content_selectors = [
@@ -67,10 +64,8 @@ async def verify_session_authenticated(page):
         
         for selector in user_content_selectors:
             if await _element_exists(page, selector, 1000):
-                logger.info(f"Session restore successful - Found user content: {selector}")
                 return True
         
-        logger.info("Session restore successful - URL verification passed")
         return True
 
     except Exception as e:
@@ -78,7 +73,11 @@ async def verify_session_authenticated(page):
         return False
 
 async def save_storage_state(context: BrowserContext, account_id: int = None) -> Optional[str]:
-    """Save browser storage state to database only."""
+    """
+    Save browser storage state to database only.
+    
+    Note: account_id parameter is the actual user_id (hash-based identifier).
+    """
     if not account_id:
         return None
         
@@ -86,76 +85,62 @@ async def save_storage_state(context: BrowserContext, account_id: int = None) ->
         storage_state = await context.storage_state()
         storage_state_json = json.dumps(storage_state)
         
+        db = SessionLocal()
         try:
-            db = SessionLocal()
-            try:
-                account = DatabaseService.get_account_by_id(db, account_id)
-                if not account:
-                    account = Account(account_id=account_id)
-                    db.add(account)
-                    db.commit()
-                    db.refresh(account)
-                
-                session_storage = db.query(SessionStorage).filter(SessionStorage.account_id == account.id).first()
-                if not session_storage:
-                    session_storage = SessionStorage(account_id=account.id)
-                    db.add(session_storage)
-                
-                session_storage.storage_state = storage_state_json
-                expires_at = datetime.utcnow() + timedelta(hours=settings.scraping.session_expiry_hours)
-                session_storage.expires_at = expires_at
-                
-                db.commit()
-                logger.info(f"Session storage saved to database for account {account_id}")
-                return str(account_id)
-            
-            except Exception as e:
-                logger.error(f"Error saving session storage to database: {e}")
-                db.rollback()
+            account = DatabaseService.get_account_by_user_id(db, account_id)
+            if not account:
+                logger.warning(f"Account with user_id {account_id} not found when saving session")
                 return None
             
-            finally:
-                db.close()
+            session_storage = db.query(SessionStorage).filter(SessionStorage.account_id == account.id).first()
+            
+            if not session_storage:
+                session_storage = SessionStorage(account_id=account.id)
+                db.add(session_storage)
+            
+            session_storage.storage_state = storage_state_json
+            session_storage.expires_at = datetime.utcnow() + timedelta(hours=settings.scraping.session_expiry_hours)
+            
+            db.commit()
+            logger.info(f"Session storage saved for user {account_id}")
+            return str(account_id)
         
         except Exception as e:
-            logger.error(f"Could not save session storage to database: {e}")
+            logger.error(f"Error saving session storage: {e}")
+            db.rollback()
             return None
+        
+        finally:
+            db.close()
         
     except Exception as e:
         logger.error(f"Failed to save storage state: {e}")
         return None
 
 def get_storage_state(account_id: int = None) -> Optional[str]:
-    """Get storage state from database and save to temporary file for Playwright."""
+    """
+    Get storage state from database and save to temporary file for use in Playwright.
+    
+    Note: account_id parameter is the actual user_id (hash-based identifier).
+    """
     if not account_id:
         return None
     
     try:
         db = SessionLocal()
         try:
-            account = DatabaseService.get_account_by_id(db, account_id)
+            account = DatabaseService.get_account_by_user_id(db, account_id)
             if not account:
-                logger.info(f"No account found for account_id {account_id}")
                 return None
-            
-            logger.debug(f"Found account {account_id} (DB ID: {account.id})")
             
             session_storage = db.query(SessionStorage).filter(
                 SessionStorage.account_id == account.id
             ).first()
             
-            if not session_storage:
-                logger.info(f"No session storage record found for account {account_id}")
+            if not session_storage or not session_storage.storage_state:
                 return None
-            
-            if not session_storage.storage_state:
-                logger.info(f"Session storage exists but storage_state is empty for account {account_id}")
-                return None
-            
-            logger.debug(f"Found session storage for account {account_id}, expires_at: {session_storage.expires_at}")
             
             if session_storage.expires_at:
-                from datetime import timezone
                 now = datetime.now(timezone.utc)
                 expires_at = session_storage.expires_at
                 
@@ -164,21 +149,20 @@ def get_storage_state(account_id: int = None) -> Optional[str]:
                 else:
                     expires_at = expires_at.astimezone(timezone.utc)
                 
-                if expires_at < now:
-                    logger.info(f"Session expired for account {account_id} (expired at {expires_at}, now is {now})")
-                    return None
-                logger.debug(f"Session not expired (expires at {expires_at}, now is {now})")
+            if expires_at < now:
+                return None
             
             temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8')
             temp_file.write(session_storage.storage_state)
             temp_file.flush()
             temp_file.close()
             
-            logger.info(f"Retrieved session storage from database for account {account_id} - temp file: {temp_file.name}")
+            os.chmod(temp_file.name, 0o600)
+            
             return temp_file.name
             
         except Exception as e:
-            logger.error(f"Error retrieving session storage from database: {e}")
+            logger.error(f"Error retrieving session storage: {e}")
             return None
         
         finally:
@@ -187,5 +171,17 @@ def get_storage_state(account_id: int = None) -> Optional[str]:
     except Exception as e:
         logger.error(f"Error connecting to database: {e}")
         return None
+
+def cleanup_storage_state_file(file_path: Optional[str]) -> None:
+    """Safely delete a storage state temp file."""
+    if not file_path:
+        return
+    
+    try:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            logger.debug(f"Cleaned up temp storage state file: {file_path}")
+    except Exception as e:
+        logger.warning(f"Failed to cleanup temp file {file_path}: {e}")
 
 # ------------------------------ END OF FILE ------------------------------
