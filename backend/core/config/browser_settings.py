@@ -2,6 +2,7 @@
 from playwright.async_api import async_playwright, Page, BrowserContext, Browser
 from typing import Optional
 import logging
+import os
 
 from core.config.settings import settings
 
@@ -51,6 +52,12 @@ async def launch_browser(
             viewport=viewport,
             storage_state=storage_state_path,
         )
+        
+        if storage_state_path and os.path.exists(storage_state_path):
+            try:
+                os.remove(storage_state_path)
+            except Exception:
+                pass
         
         page = await context.new_page()
         page.set_default_timeout(timeout)
