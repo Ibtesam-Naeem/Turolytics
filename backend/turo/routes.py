@@ -6,8 +6,7 @@ from datetime import datetime
 import logging
 
 from .scraping_service import ScrapingService
-from core.utils.api_helpers import validate_credentials, get_user_id
-from core.utils.serializers import serialize_models, paginate_response
+from core.database.models.account import Account
 from core.database import get_db
 from sqlalchemy.orm import Session
 from .service import TuroDataService
@@ -69,8 +68,7 @@ async def scrape_data(
     scraper_type: str = Path(..., pattern="^(all|vehicles|trips|reviews|earnings)$", description="Type of data to scrape")
 ) -> ScrapeResponse:
     """Scrape data of specified type on demand."""
-    validate_credentials(request.email, request.password)
-    user_id = get_user_id(request.email)
+    user_id = Account.get_user_id(request.email)
     
     try:
         task_id = await SCRAPER_MAP[scraper_type](user_id, request.email, request.password)
@@ -127,7 +125,12 @@ async def get_trips(
     
     return APIResponse(
         success=True,
-        data=paginate_response(trips, total, TripOut, limit, offset, items_key="trips")
+        data={
+            "trips": [TripOut.model_validate(t, from_attributes=True) for t in trips],
+            "total": total,
+            "limit": limit,
+            "offset": offset
+        }
     )
 
 @router.get("/data/vehicles", response_model=APIResponse, response_model_exclude_none=True, tags=["Vehicles"])
@@ -152,7 +155,12 @@ async def get_vehicles(
     
     return APIResponse(
         success=True,
-        data=paginate_response(vehicles, total, VehicleOut, limit, offset, items_key="vehicles")
+        data={
+            "vehicles": [VehicleOut.model_validate(v, from_attributes=True) for v in vehicles],
+            "total": total,
+            "limit": limit,
+            "offset": offset
+        }
     )
 
 @router.get("/data/reviews", response_model=APIResponse, response_model_exclude_none=True, tags=["Reviews"])
@@ -179,7 +187,12 @@ async def get_reviews(
     
     return APIResponse(
         success=True,
-        data=paginate_response(reviews, total, ReviewOut, limit, offset, items_key="reviews")
+        data={
+            "reviews": [ReviewOut.model_validate(r, from_attributes=True) for r in reviews],
+            "total": total,
+            "limit": limit,
+            "offset": offset
+        }
     )
 
 @router.get("/data/earnings", response_model=APIResponse, response_model_exclude_none=True, tags=["Earnings"])
@@ -194,8 +207,8 @@ async def get_earnings(
     return APIResponse(
         success=True,
         data={
-            "breakdown": serialize_models(breakdowns, EarningsBreakdownOut),
-            "vehicle_earnings": serialize_models(vehicle_earnings, VehicleEarningsOut),
+            "breakdown": [EarningsBreakdownOut.model_validate(b, from_attributes=True) for b in breakdowns],
+            "vehicle_earnings": [VehicleEarningsOut.model_validate(v, from_attributes=True) for v in vehicle_earnings],
             "total_breakdown_items": len(breakdowns),
             "total_vehicles": len(vehicle_earnings)
         }
