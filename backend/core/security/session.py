@@ -140,18 +140,6 @@ def get_storage_state(account_id: int = None) -> Optional[str]:
             if not session_storage or not session_storage.storage_state:
                 return None
             
-            if session_storage.expires_at:
-                now = datetime.now(timezone.utc)
-                expires_at = session_storage.expires_at
-                
-                if expires_at.tzinfo is None:
-                    expires_at = expires_at.replace(tzinfo=timezone.utc)
-                else:
-                    expires_at = expires_at.astimezone(timezone.utc)
-                
-            if expires_at < now:
-                return None
-            
             temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8')
             temp_file.write(session_storage.storage_state)
             temp_file.flush()
