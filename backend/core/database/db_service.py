@@ -1,6 +1,6 @@
 import logging
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
 from core.database.models import (
@@ -23,20 +23,20 @@ class DatabaseService:
     # ------------------------------ HELPER METHODS ------------------------------
     
     @staticmethod
-    def get_account_by_id(db: Session, account_id: int) -> Optional[Account]:
-        """Get account by account_id."""
-        return db.query(Account).filter(Account.account_id == account_id).first()
+    def get_account_by_user_id(db: Session, user_id: int) -> Optional[Account]:
+        """Get account by user_id (hash-based identifier)."""
+        return db.query(Account).filter(Account.user_id == user_id).first()
     
     @staticmethod
     def _get_existing_ids(
         db: Session, 
-        account_id: int, 
+        user_id: int, 
         model_class, 
         id_column, 
         id_name: str
     ) -> set[str]:
         """Generic method to get existing IDs for an account."""
-        account = DatabaseService.get_account_by_id(db, account_id)
+        account = DatabaseService.get_account_by_user_id(db, user_id)
         if not account:
             return set()
         
@@ -45,7 +45,7 @@ class DatabaseService:
             id_column.isnot(None)
         ).all()
         existing_ids = {id_value[0] for id_value in query if id_value[0]}
-        logger.debug(f"Found {len(existing_ids)} existing {id_name}s for account {account_id}")
+        logger.debug(f"Found {len(existing_ids)} existing {id_name}s for user {user_id}")
         return existing_ids
     
     @staticmethod
@@ -67,29 +67,34 @@ class DatabaseService:
     # ------------------------------ PUBLIC METHODS ------------------------------
     
     @staticmethod
-    def get_or_create_account(db: Session, account_id: int) -> Account:
-        """Get or create an account."""
-        account = DatabaseService.get_account_by_id(db, account_id)
+    def get_or_create_account(db: Session, user_id: int, email: str) -> Account:
+        """Get or create an account by user_id and email."""
+        account = DatabaseService.get_account_by_user_id(db, user_id)
         if not account:
-            account = Account(account_id=account_id)
+            account = Account(user_id=user_id, email=email)
             db.add(account)
             db.commit()
             db.refresh(account)
-            logger.info(f"Created new account: {account_id}")
+            logger.info(f"Created new account: user_id={user_id}, email={email}")
+        elif account.email != email:
+            account.email = email
+            db.commit()
+            db.refresh(account)
+            logger.warning(f"Updated email for user_id={user_id}")
         return account
     
     @staticmethod
-    def get_existing_trip_ids(db: Session, account_id: int) -> set[str]:
+    def get_existing_trip_ids(db: Session, user_id: int) -> set[str]:
         """Get set of existing trip_ids for an account to avoid re-scraping."""
         return DatabaseService._get_existing_ids(
-            db, account_id, Trip, Trip.trip_id, "trip_id"
+            db, user_id, Trip, Trip.trip_id, "trip_id"
         )
     
     @staticmethod
-    def get_existing_customer_ids(db: Session, account_id: int) -> set[str]:
+    def get_existing_customer_ids(db: Session, user_id: int) -> set[str]:
         """Get set of existing customer_ids for an account to avoid re-scraping."""
         return DatabaseService._get_existing_ids(
-            db, account_id, Review, Review.customer_id, "customer_id"
+            db, user_id, Review, Review.customer_id, "customer_id"
         )
     
     @staticmethod
@@ -126,7 +131,7 @@ class DatabaseService:
             if DatabaseService._save_entity(db, vehicle, f"vehicle {vehicle_data.get('license_plate', 'unknown')}"):
                 saved_vehicles.append(vehicle)
         
-        logger.info(f"Saved {len(saved_vehicles)} vehicles for account {account.account_id}")
+        logger.info(f"Saved {len(saved_vehicles)} vehicles for account {account.user_id}")
         return saved_vehicles
     
     @staticmethod
@@ -215,7 +220,7 @@ class DatabaseService:
             if DatabaseService._save_entity(db, trip, f"trip {trip_id_str}"):
                 saved_trips.append(trip)
         
-        logger.info(f"Saved {len(saved_trips)} trips for account {account.account_id}")
+        logger.info(f"Saved {len(saved_trips)} trips for account {account.user_id}")
         return saved_trips
     
     @staticmethod
@@ -254,7 +259,7 @@ class DatabaseService:
             if DatabaseService._save_entity(db, review, f"review for customer {customer_id or 'unknown'}"):
                 saved_reviews.append(review)
         
-        logger.info(f"Saved {len(saved_reviews)} reviews for account {account.account_id}")
+        logger.info(f"Saved {len(saved_reviews)} reviews for account {account.user_id}")
         return saved_reviews
     
     @staticmethod
@@ -262,9 +267,9 @@ class DatabaseService:
         """Save earnings data."""
         saved_breakdowns = []
         saved_vehicle_earnings = []
+        scraped_at = datetime.utcnow()
         
         if earnings_data.get("earnings_breakdown"):
-            scraped_at = datetime.utcnow()
             for breakdown_data in earnings_data["earnings_breakdown"]:
                 breakdown = db.query(EarningsBreakdown).filter(
                     EarningsBreakdown.account_id == account.id,
@@ -291,7 +296,6 @@ class DatabaseService:
                     saved_breakdowns.append(breakdown)
         
         if earnings_data.get("vehicle_earnings"):
-            scraped_at = datetime.utcnow()
             for vehicle_earnings_data in earnings_data["vehicle_earnings"]:
                 vehicle_earnings = None
                 if vehicle_earnings_data.get("license_plate"):
@@ -329,7 +333,7 @@ class DatabaseService:
                 if DatabaseService._save_entity(db, vehicle_earnings, f"vehicle earnings {vehicle_earnings_data.get('vehicle_name', 'unknown')}"):
                     saved_vehicle_earnings.append(vehicle_earnings)
         
-        logger.info(f"Saved {len(saved_breakdowns)} earnings breakdowns and {len(saved_vehicle_earnings)} vehicle earnings for account {account.account_id}")
+        logger.info(f"Saved {len(saved_breakdowns)} earnings breakdowns and {len(saved_vehicle_earnings)} vehicle earnings for account {account.user_id}")
         return saved_breakdowns, saved_vehicle_earnings
     
     @staticmethod
@@ -345,10 +349,10 @@ class DatabaseService:
             return None
     
     @staticmethod
-    def save_scraped_data(db: Session, account_id: int, scraped_data: Dict[str, Any]) -> bool:
+    def save_scraped_data(db: Session, user_id: int, email: str, scraped_data: Dict[str, Any]) -> bool:
         """Save all scraped data to database."""
         try:
-            account = DatabaseService.get_or_create_account(db, account_id)
+            account = DatabaseService.get_or_create_account(db, user_id, email)
             
             if "vehicles" in scraped_data:
                 DatabaseService.save_vehicles(db, account, scraped_data["vehicles"])
@@ -362,7 +366,7 @@ class DatabaseService:
             if "earnings" in scraped_data:
                 DatabaseService.save_earnings(db, account, scraped_data["earnings"])
             
-            logger.info(f"Successfully saved all scraped data for account {account_id}")
+            logger.info(f"Successfully saved all scraped data for user {user_id}")
             return True
             
         except Exception as e:
