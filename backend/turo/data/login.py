@@ -229,7 +229,7 @@ async def complete_turo_login(account_id: int = 1, email: str = None, password: 
         
         if await check_login_success(page):
             logger.info("Login successful, user has been successfully authenticated.")
-            await save_storage_state(context, account_id=account_id)
+            await save_storage_state(context, account_id=account_id, email=email)
             return page, context, browser
         else:
             logger.error("Unable to confirm a successful login - no success indicators located.")

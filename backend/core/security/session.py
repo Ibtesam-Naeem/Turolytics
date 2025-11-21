@@ -72,11 +72,12 @@ async def verify_session_authenticated(page):
         logger.warning(f"Session verification failed: {e}")
         return False
 
-async def save_storage_state(context: BrowserContext, account_id: int = None) -> Optional[str]:
+async def save_storage_state(context: BrowserContext, account_id: int = None, email: str = None) -> Optional[str]:
     """
     Save browser storage state to database only.
     
     Note: account_id parameter is the actual user_id (hash-based identifier).
+    If account doesn't exist and email is provided, it will be created.
     """
     if not account_id:
         return None
@@ -88,9 +89,14 @@ async def save_storage_state(context: BrowserContext, account_id: int = None) ->
         db = SessionLocal()
         try:
             account = DatabaseService.get_account_by_user_id(db, account_id)
+            
             if not account:
-                logger.warning(f"Account with user_id {account_id} not found when saving session")
-                return None
+                if email:
+                    account = DatabaseService.get_or_create_account(db, account_id, email)
+                    logger.info(f"Created account for user_id {account_id} when saving session")
+                else:
+                    logger.warning(f"Account with user_id {account_id} not found when saving session and no email provided")
+                    return None
             
             session_storage = db.query(SessionStorage).filter(SessionStorage.account_id == account.id).first()
             

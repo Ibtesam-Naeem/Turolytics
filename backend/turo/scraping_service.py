@@ -99,13 +99,13 @@ class ScrapingService:
                         results[scraper_type.value] = None
                 
                 if any(results.values()):
-                    if context:
-                        await save_storage_state(context, account_id=user_id)
-                    
                     db = SessionLocal()
                     try:
                         DatabaseService.save_scraped_data(db, user_id, email, results)
                         logger.info(f"Successfully saved scraped data to database for user {user_id}")
+                        
+                        if context:
+                            await save_storage_state(context, account_id=user_id, email=email)
                     except Exception as e:
                         logger.error(f"Error saving scraped data to database: {e}")
                     finally:
