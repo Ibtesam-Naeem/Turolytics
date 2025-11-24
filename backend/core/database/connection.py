@@ -46,6 +46,7 @@ def init_db() -> None:
             EarningsBreakdown,
             VehicleEarnings,
             SessionStorage,
+            Document,
         )
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created successfully")
