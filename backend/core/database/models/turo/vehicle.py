@@ -31,6 +31,7 @@ class Vehicle(Base):
     account = relationship("Account", back_populates="vehicles")
     trips = relationship("Trip", back_populates="vehicle", cascade="all, delete-orphan")
     reviews = relationship("Review", back_populates="vehicle", cascade="all, delete-orphan")
+    documents = relationship("Document", back_populates="vehicle", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Vehicle(id={self.id}, name={self.name}, license_plate={self.license_plate})>"
