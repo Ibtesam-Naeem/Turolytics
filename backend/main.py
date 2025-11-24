@@ -9,9 +9,11 @@ from core.database import init_db
 from core.config.settings import settings
 from turo.routes import router as turo_router
 from bouncie.routes import router as bouncie_router
+from s3.routes import router as s3_router
 
 # ------------------------------ SETUP ------------------------------
 load_dotenv()
+
 logger = logging.getLogger("turolytics")
 
 # ------------------------------ LIFESPAN ------------------------------
@@ -47,6 +49,7 @@ app.add_middleware(
 # ------------------------------ ROUTERS ------------------------------
 app.include_router(turo_router, prefix="/api/turo", tags=["Turo"])
 app.include_router(bouncie_router, prefix="/api/bouncie", tags=["Bouncie"])
+app.include_router(s3_router, prefix="/api/documents", tags=["Documents"])
 
 # ------------------------------ HEALTH ENDPOINTS ------------------------------
 @app.get("/", tags=["Health"])
