@@ -2,7 +2,7 @@
 import os
 import logging
 from typing import List, Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -74,6 +74,16 @@ class DatabaseConfig:
         """Get SQLAlchemy database URL."""
         return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
 
+@dataclass
+class S3Config:
+    """S3 configuration."""
+    bucket_name: str = os.getenv("S3_BUCKET_NAME", "")
+    region: str = os.getenv("S3_REGION", "us-east-1")
+    access_key_id: str = os.getenv("AWS_ACCESS_KEY_ID", "")
+    secret_access_key: str = os.getenv("AWS_SECRET_ACCESS_KEY", "")
+    endpoint_url: Optional[str] = os.getenv("S3_ENDPOINT_URL", None)
+    max_file_size_mb: int = int(os.getenv("S3_MAX_FILE_SIZE_MB", "50"))
+
 # ------------------------------ MAIN SETTINGS CLASS ------------------------------
 
 class Settings:
@@ -85,6 +95,7 @@ class Settings:
         self.security = SecurityConfig()
         self.api = APIConfig()
         self.database = DatabaseConfig()
+        self.s3 = S3Config()
         
         self._setup_logging()
     
