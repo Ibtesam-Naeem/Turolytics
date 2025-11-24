@@ -1,5 +1,6 @@
 # ------------------------------ IMPORTS ------------------------------
 from .account import Account
+from .bouncie_integration import BouncieIntegration
 from .turo import (
     Vehicle,
     Trip,
@@ -11,6 +12,7 @@ from .turo import (
 
 __all__ = [
     "Account",
+    "BouncieIntegration",
     "Vehicle",
     "Trip",
     "Review",
@@ -18,4 +20,3 @@ __all__ = [
     "VehicleEarnings",
     "SessionStorage",
 ]
-
