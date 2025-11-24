@@ -52,7 +52,7 @@ class MatchRequest(BaseModel):
     days_back: int = 30
 
 # ------------------------------ ROUTER SETUP ------------------------------
-router = APIRouter(tags=["bouncie"])
+router = APIRouter()
 
 # ------------------------------ AUTHENTICATION ROUTES ------------------------------
 
@@ -152,7 +152,6 @@ async def quick_setup(
     request: TokenExchangeRequest,
     db: Session = Depends(get_db)
 ):
-    # Pass account_id if available
     result = await get_bouncie_vehicle_data(
         request.authorization_code, 
         db=db, 
@@ -182,10 +181,8 @@ async def _fetch_turo_trips(
 ) -> List[Dict[str, Any]]:
     from core.database.models import Account
     
-    # Try to find account by internal ID first
     account = db.query(Account).filter(Account.id == account_id).first()
     
-    # If not found, try by user_id (hash-based identifier)
     if not account:
         account = DatabaseService.get_account_by_user_id(db, account_id)
         
