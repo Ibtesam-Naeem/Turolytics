@@ -25,6 +25,7 @@ class Account(Base):
     vehicle_earnings = relationship("VehicleEarnings", back_populates="account", cascade="all, delete-orphan")
     session_storage = relationship("SessionStorage", back_populates="account", uselist=False, cascade="all, delete-orphan")
     bouncie_integration = relationship("BouncieIntegration", back_populates="account", uselist=False, cascade="all, delete-orphan")
+    documents = relationship("Document", back_populates="account", cascade="all, delete-orphan")
     
     @staticmethod
     def get_user_id(email: str) -> int:
