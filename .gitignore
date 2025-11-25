@@ -87,3 +87,5 @@ htmlcov/
 .python-version
 
 drop_tables.py
+
+frontend 
