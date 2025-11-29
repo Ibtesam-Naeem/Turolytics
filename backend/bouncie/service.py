@@ -421,24 +421,4 @@ class BouncieService:
         required_fields = ["event", "timestamp", "data"]
         return all(field in payload for field in required_fields)
     
-# ------------------------------ CONVENIENCE FUNCTIONS ------------------------------
-
-async def get_bouncie_vehicle_data(authorization_code: str, db: Session = None, account_id: int = None) -> Dict[str, Any]:
-    service = BouncieService(db=db, account_id=account_id)
-    
-    auth_result = await service.exchange_code_for_token(authorization_code)
-    if not auth_result["success"]:
-        return auth_result
-    
-    vehicles_result = await service.get_vehicles()
-    if not vehicles_result["success"]:
-        return vehicles_result
-    
-    return {
-        "success": True,
-        "vehicles": vehicles_result["data"],
-        "user": await service.get_user_info(),
-        "webhook_events": service.get_webhook_events()
-    }
-
 # ------------------------------ END OF FILE ------------------------------

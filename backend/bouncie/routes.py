@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any, List
 import logging
 from datetime import datetime, timedelta, timezone
 
-from .service import BouncieService, get_bouncie_vehicle_data
+from .service import BouncieService
 from .data_fetcher import fetch_trips_in_date_range
 from .matching import match_trip, match_all_trips
 from .utils import trip_to_dict, get_account_or_raise
