@@ -72,6 +72,13 @@ class VehicleMappingRequest(BaseModel):
     bouncie_nickname: Optional[str] = None
     bouncie_vin: Optional[str] = None
 
+class VehicleMappingUpdateRequest(BaseModel):
+    """Request model for updating vehicle mappings."""
+    vehicle_id: Optional[int] = None
+    imei: Optional[str] = None
+    bouncie_nickname: Optional[str] = None
+    bouncie_vin: Optional[str] = None
+
 # ------------------------------ RESPONSE MODELS ------------------------------
 
 class APIResponse(BaseModel):

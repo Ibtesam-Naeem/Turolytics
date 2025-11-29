@@ -2,7 +2,7 @@
 from fastapi import APIRouter, HTTPException, Query, Depends, Path
 from typing import Optional, Dict, Any, List
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from .service import BouncieService, get_bouncie_vehicle_data
 from .data_fetcher import fetch_trips_in_date_range
@@ -13,12 +13,13 @@ from .schemas import (
     TokenExchangeRequest,
     MatchRequest,
     VehicleMappingRequest,
+    VehicleMappingUpdateRequest,
     BouncieTripMatchOut,
     BouncieTripMatchDetailOut,
     BouncieVehicleMappingOut,
 )
 from core.database import get_db
-from core.database.models import Trip, BouncieTripMatch, BouncieVehicleMapping, Account, Vehicle
+from core.database.models import Trip, BouncieTripMatch, BouncieVehicleMapping, BouncieIntegration, Account, Vehicle
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -138,6 +139,99 @@ async def exchange_code_for_token(
         
     result = await service.exchange_code_for_token(request.authorization_code)
     return check_result(result, "token exchange")
+
+@router.get("/auth/status", response_model=APIResponse, tags=["Authentication"])
+async def get_integration_status(
+    account_id: int = Query(..., description="Account ID"),
+    db: Session = Depends(get_db)
+):
+    """
+    Check if account has an active Bouncie integration.
+    Returns integration status and basic info.
+    """
+    try:
+        account = get_account_or_raise(db, account_id)
+        
+        from core.database.models import BouncieIntegration
+        
+        integration = db.query(BouncieIntegration).filter(
+            BouncieIntegration.account_id == account.id
+        ).first()
+        
+        if not integration:
+            return APIResponse(
+                success=True,
+                data={
+                    "connected": False,
+                    "message": "No Bouncie integration found for this account"
+                }
+            )
+        
+        # Check if token is expired
+        is_expired = integration.expires_at < datetime.now(timezone.utc) if integration.expires_at else True
+        
+        return APIResponse(
+            success=True,
+            data={
+                "connected": True,
+                "expired": is_expired,
+                "bouncie_user_id": integration.bouncie_user_id,
+                "bouncie_user_email": integration.bouncie_user_email,
+                "expires_at": integration.expires_at.isoformat() if integration.expires_at else None,
+                "created_at": integration.created_at.isoformat() if integration.created_at else None,
+                "updated_at": integration.updated_at.isoformat() if integration.updated_at else None
+            }
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error checking integration status: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@router.delete("/auth/disconnect", response_model=APIResponse, tags=["Authentication"])
+async def disconnect_integration(
+    account_id: int = Query(..., description="Account ID"),
+    db: Session = Depends(get_db)
+):
+    """
+    Disconnect Bouncie integration for an account.
+    Removes OAuth tokens and integration data from the database.
+    """
+    try:
+        account = get_account_or_raise(db, account_id)
+        
+        integration = db.query(BouncieIntegration).filter(
+            BouncieIntegration.account_id == account.id
+        ).first()
+        
+        if not integration:
+            raise HTTPException(
+                status_code=404,
+                detail="No Bouncie integration found for this account"
+            )
+        
+        # Optionally revoke tokens with Bouncie API (if they support it)
+        # For now, we'll just delete from database
+        db.delete(integration)
+        db.commit()
+        
+        logger.info(f"Disconnected Bouncie integration for account {account.id}")
+        
+        return APIResponse(
+            success=True,
+            data={
+                "message": "Bouncie integration disconnected successfully",
+                "account_id": account.id
+            }
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error disconnecting integration: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 # ------------------------------ LIVE BOUNCIE API DATA ROUTES ------------------------------
 
@@ -394,6 +488,241 @@ async def get_vehicle_mapping_detail(
         raise
     except Exception as e:
         logger.exception(f"Error retrieving mapping detail: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@router.post("/mappings", response_model=APIResponse, tags=["Stored Data"])
+async def create_vehicle_mapping(
+    request: VehicleMappingRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Create a new vehicle mapping (link Turo vehicle to Bouncie IMEI).
+    """
+    try:
+        account = get_account_or_raise(db, request.account_id)
+        
+        vehicle = db.query(Vehicle).filter(
+            Vehicle.id == request.vehicle_id,
+            Vehicle.account_id == account.id
+        ).first()
+        
+        if not vehicle:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Vehicle {request.vehicle_id} not found for this account"
+            )
+        
+        existing_mapping = db.query(BouncieVehicleMapping).filter(
+            BouncieVehicleMapping.vehicle_id == request.vehicle_id,
+            BouncieVehicleMapping.account_id == account.id
+        ).first()
+        
+        if existing_mapping:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Vehicle {request.vehicle_id} already has a Bouncie mapping (ID: {existing_mapping.id})"
+            )
+        
+        existing_imei = db.query(BouncieVehicleMapping).filter(
+            BouncieVehicleMapping.imei == request.imei,
+            BouncieVehicleMapping.account_id == account.id
+        ).first()
+        
+        if existing_imei:
+            raise HTTPException(
+                status_code=400,
+                detail=f"IMEI {request.imei} is already mapped to vehicle {existing_imei.vehicle_id}"
+            )
+        
+        # Create new mapping
+        mapping = BouncieVehicleMapping(
+            account_id=account.id,
+            vehicle_id=request.vehicle_id,
+            imei=request.imei,
+            bouncie_nickname=request.bouncie_nickname,
+            bouncie_vin=request.bouncie_vin
+        )
+        
+        db.add(mapping)
+        db.commit()
+        db.refresh(mapping)
+        
+        mapping_out = BouncieVehicleMappingOut(
+            id=mapping.id,
+            vehicle_id=mapping.vehicle_id,
+            vehicle_name=vehicle.name,
+            imei=mapping.imei,
+            bouncie_nickname=mapping.bouncie_nickname,
+            bouncie_vin=mapping.bouncie_vin,
+            created_at=mapping.created_at,
+            updated_at=mapping.updated_at,
+        )
+        
+        logger.info(f"Created vehicle mapping: vehicle_id={request.vehicle_id}, imei={request.imei}")
+        
+        return APIResponse(
+            success=True,
+            data={
+                "mapping": mapping_out.model_dump(),
+                "message": "Vehicle mapping created successfully"
+            }
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error creating vehicle mapping: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@router.put("/mappings/{mapping_id}", response_model=APIResponse, tags=["Stored Data"])
+async def update_vehicle_mapping(
+    mapping_id: int = Path(..., description="Mapping ID"),
+    account_id: int = Query(..., description="Account ID"),
+    request: VehicleMappingUpdateRequest = ...,
+    db: Session = Depends(get_db)
+):
+    """
+    Update an existing vehicle mapping.
+    Only provided fields will be updated.
+    """
+    try:
+        account = get_account_or_raise(db, account_id)
+        
+        mapping = db.query(BouncieVehicleMapping).filter(
+            BouncieVehicleMapping.id == mapping_id,
+            BouncieVehicleMapping.account_id == account.id
+        ).first()
+        
+        if not mapping:
+            raise HTTPException(status_code=404, detail=f"Mapping {mapping_id} not found")
+        
+        if request.vehicle_id is not None and request.vehicle_id != mapping.vehicle_id:
+            vehicle = db.query(Vehicle).filter(
+                Vehicle.id == request.vehicle_id,
+                Vehicle.account_id == account.id
+            ).first()
+            
+            if not vehicle:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Vehicle {request.vehicle_id} not found for this account"
+                )
+            
+            existing_mapping = db.query(BouncieVehicleMapping).filter(
+                BouncieVehicleMapping.vehicle_id == request.vehicle_id,
+                BouncieVehicleMapping.account_id == account.id,
+                BouncieVehicleMapping.id != mapping_id
+            ).first()
+            
+            if existing_mapping:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Vehicle {request.vehicle_id} already has a Bouncie mapping (ID: {existing_mapping.id})"
+                )
+            
+            mapping.vehicle_id = request.vehicle_id
+        
+        if request.imei is not None and request.imei != mapping.imei:
+            existing_imei = db.query(BouncieVehicleMapping).filter(
+                BouncieVehicleMapping.imei == request.imei,
+                BouncieVehicleMapping.account_id == account.id,
+                BouncieVehicleMapping.id != mapping_id
+            ).first()
+            
+            if existing_imei:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"IMEI {request.imei} is already mapped to vehicle {existing_imei.vehicle_id}"
+                )
+            
+            mapping.imei = request.imei
+        
+        if request.bouncie_nickname is not None:
+            mapping.bouncie_nickname = request.bouncie_nickname
+        
+        if request.bouncie_vin is not None:
+            mapping.bouncie_vin = request.bouncie_vin
+        
+        db.commit()
+        db.refresh(mapping)
+        
+        vehicle = db.query(Vehicle).filter(Vehicle.id == mapping.vehicle_id).first()
+        
+        mapping_out = BouncieVehicleMappingOut(
+            id=mapping.id,
+            vehicle_id=mapping.vehicle_id,
+            vehicle_name=vehicle.name if vehicle else None,
+            imei=mapping.imei,
+            bouncie_nickname=mapping.bouncie_nickname,
+            bouncie_vin=mapping.bouncie_vin,
+            created_at=mapping.created_at,
+            updated_at=mapping.updated_at,
+        )
+        
+        logger.info(f"Updated vehicle mapping {mapping_id}")
+        
+        return APIResponse(
+            success=True,
+            data={
+                "mapping": mapping_out.model_dump(),
+                "message": "Vehicle mapping updated successfully"
+            }
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error updating vehicle mapping: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@router.delete("/mappings/{mapping_id}", response_model=APIResponse, tags=["Stored Data"])
+async def delete_vehicle_mapping(
+    mapping_id: int = Path(..., description="Mapping ID"),
+    account_id: int = Query(..., description="Account ID"),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a vehicle mapping.
+    This will unlink the Turo vehicle from the Bouncie IMEI.
+    """
+    try:
+        account = get_account_or_raise(db, account_id)
+        
+        mapping = db.query(BouncieVehicleMapping).filter(
+            BouncieVehicleMapping.id == mapping_id,
+            BouncieVehicleMapping.account_id == account.id
+        ).first()
+        
+        if not mapping:
+            raise HTTPException(status_code=404, detail=f"Mapping {mapping_id} not found")
+        
+        vehicle_id = mapping.vehicle_id
+        imei = mapping.imei
+        
+        db.delete(mapping)
+        db.commit()
+        
+        logger.info(f"Deleted vehicle mapping {mapping_id} (vehicle_id={vehicle_id}, imei={imei})")
+        
+        return APIResponse(
+            success=True,
+            data={
+                "message": f"Vehicle mapping {mapping_id} deleted successfully",
+                "deleted_mapping": {
+                    "id": mapping_id,
+                    "vehicle_id": vehicle_id,
+                    "imei": imei
+                }
+            }
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error deleting vehicle mapping: {e}")
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 # ------------------------------ ACTION ROUTES ------------------------------
