@@ -8,12 +8,12 @@ from core.database.connection import Base
 class Trip(Base):
     """Trip model - represents a Turo trip/reservation with all related data."""
     
-    __tablename__ = "trips"
+    __tablename__ = "turo_trips"
     
     id = Column(Integer, primary_key=True, index=True)
     
     account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
-    vehicle_id = Column(Integer, ForeignKey("vehicles.id"), nullable=True, index=True)
+    vehicle_id = Column(Integer, ForeignKey("turo_vehicles.id"), nullable=True, index=True)
     
     trip_id = Column(String, nullable=False, index=True, comment="Turo trip ID")
     trip_url = Column(String, nullable=True, comment="Trip URL on Turo")
@@ -49,6 +49,7 @@ class Trip(Base):
     
     account = relationship("Account", back_populates="trips")
     vehicle = relationship("Vehicle", back_populates="trips")
+    bouncie_match = relationship("BouncieTripMatch", back_populates="trip", uselist=False, cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Trip(id={self.id}, trip_id={self.trip_id}, status={self.status})>"

@@ -29,7 +29,7 @@ class Document(Base):
     id = Column(Integer, primary_key=True, index=True)
     
     account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
-    vehicle_id = Column(Integer, ForeignKey("vehicles.id"), nullable=True, index=True, comment="Vehicle ID if linked to specific car, NULL for general")
+    vehicle_id = Column(Integer, ForeignKey("turo_vehicles.id"), nullable=True, index=True, comment="Vehicle ID if linked to specific car, NULL for general")
     
     file_name = Column(String, nullable=False, comment="Original file name")
     file_type = Column(String, nullable=True, comment="File MIME type (e.g., 'image/jpeg', 'application/pdf')")

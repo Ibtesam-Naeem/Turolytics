@@ -8,7 +8,7 @@ from core.database.connection import Base
 class Vehicle(Base):
     """Vehicle model - represents a Turo vehicle listing."""
     
-    __tablename__ = "vehicles"
+    __tablename__ = "turo_vehicles"
     
     id = Column(Integer, primary_key=True, index=True)
     
@@ -32,6 +32,7 @@ class Vehicle(Base):
     trips = relationship("Trip", back_populates="vehicle", cascade="all, delete-orphan")
     reviews = relationship("Review", back_populates="vehicle", cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="vehicle", cascade="all, delete-orphan")
+    bouncie_mapping = relationship("BouncieVehicleMapping", back_populates="vehicle", uselist=False, cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Vehicle(id={self.id}, name={self.name}, license_plate={self.license_plate})>"

@@ -8,7 +8,7 @@ from core.database.connection import Base
 class EarningsBreakdown(Base):
     """Earnings breakdown model - breakdown of earnings by type."""
     
-    __tablename__ = "earnings_breakdowns"
+    __tablename__ = "earnings_breakdown"
     
     id = Column(Integer, primary_key=True, index=True)
     
@@ -34,7 +34,7 @@ class EarningsBreakdown(Base):
 class VehicleEarnings(Base):
     """Vehicle earnings model - earnings per vehicle."""
     
-    __tablename__ = "vehicle_earnings"
+    __tablename__ = "turo_vehicle_earnings"
     
     id = Column(Integer, primary_key=True, index=True)
     

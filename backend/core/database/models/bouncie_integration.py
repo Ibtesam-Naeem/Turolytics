@@ -11,7 +11,7 @@ class BouncieIntegration(Base):
     One account can have one Bouncie integration.
     """
     
-    __tablename__ = "bouncie_integrations"
+    __tablename__ = "bouncie_token"
     
     id = Column(Integer, primary_key=True, index=True)
     

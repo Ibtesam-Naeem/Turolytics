@@ -47,6 +47,9 @@ def init_db() -> None:
             VehicleEarnings,
             SessionStorage,
             Document,
+            BouncieIntegration,
+            BouncieVehicleMapping,
+            BouncieTripMatch,
         )
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created successfully")

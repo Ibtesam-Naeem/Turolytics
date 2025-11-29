@@ -2,6 +2,7 @@
 import logging
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
+import polyline
 
 from .helpers import (
     filter_trips_by_date_range,
@@ -81,9 +82,14 @@ def _build_match_result(
         if all_coordinates:
             aggregated_trip['coordinates'] = all_coordinates
             aggregated_trip['coordinate_count'] = len(all_coordinates)
+            # Generate aggregated polyline for frontend mapping (single continuous route)
+            # This creates one polyline from all coordinates - perfect for map display
+            # Coordinates are already in (lat, lon) format from get_trip_coordinates
+            aggregated_trip['polyline'] = polyline.encode(all_coordinates, precision=5)
         else:
             aggregated_trip['coordinates'] = None
             aggregated_trip['coordinate_count'] = 0
+            aggregated_trip['polyline'] = None
             
     except Exception as e:
         logger.debug(f"Could not extract coordinates: {e}")

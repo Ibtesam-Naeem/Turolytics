@@ -8,12 +8,12 @@ from core.database.connection import Base
 class Review(Base):
     """Review model - represents a customer review/rating."""
     
-    __tablename__ = "reviews"
+    __tablename__ = "turo_reviews"
     
     id = Column(Integer, primary_key=True, index=True)
     
     account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
-    vehicle_id = Column(Integer, ForeignKey("vehicles.id"), nullable=True, index=True)
+    vehicle_id = Column(Integer, ForeignKey("turo_vehicles.id"), nullable=True, index=True)
     
     customer_name = Column(String, nullable=True, comment="Customer name")
     customer_id = Column(String, nullable=True, index=True, comment="Customer ID on Turo")

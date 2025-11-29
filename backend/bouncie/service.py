@@ -21,7 +21,8 @@ logger = logging.getLogger(__name__)
 
 BOUNCIE_CLIENT_ID = os.getenv("BOUNCIE_CLIENT_ID")
 BOUNCIE_CLIENT_SECRET = os.getenv("BOUNCIE_CLIENT_SECRET")
-BOUNCIE_REDIRECT_URI = os.getenv("BOUNCIE_REDIRECT_URI")
+# Default to correct callback path if not set in env
+BOUNCIE_REDIRECT_URI = os.getenv("BOUNCIE_REDIRECT_URI", "http://localhost:8000/auth/bouncie/callback")
 
 BOUNCIE_API_BASE = "https://api.bouncie.dev/v1"
 BOUNCIE_AUTH_URL = "https://auth.bouncie.com/dialog/authorize"
@@ -131,7 +132,11 @@ class BouncieService:
             return False
 
     async def _refresh_access_token(self) -> bool:
-        """Refresh the access token using the refresh token."""
+        """Refresh the access token using the refresh token (Async wrapper)."""
+        return await asyncio.to_thread(self._refresh_access_token_sync)
+
+    def _refresh_access_token_sync(self) -> bool:
+        """Refresh the access token synchronously."""
         if not self.refresh_token:
             logger.warning("Cannot refresh token: No refresh token available")
             return False
@@ -145,8 +150,7 @@ class BouncieService:
                 "redirect_uri": self.redirect_uri
             }
 
-            response = await asyncio.to_thread(
-                requests.post,
+            response = requests.post(
                 BOUNCIE_TOKEN_URL,
                 json=data,
                 headers={"Content-Type": "application/json"},
@@ -239,13 +243,15 @@ class BouncieService:
         params: Optional[Dict[str, Any]] = None,
         **kwargs
     ) -> Dict[str, Any]:
-        if self.token_expires_at and datetime.now(timezone.utc) >= self.token_expires_at:
-
-             pass
-
         if not self.access_token:
              if self.db and self.account_id:
                  self._load_tokens()
+        
+        if self.token_expires_at and datetime.now(timezone.utc) >= self.token_expires_at:
+             logger.info("Token expired, refreshing before request...")
+             if not self._refresh_access_token_sync():
+                 return {"success": False, "error": "Token expired and refresh failed"}
+
         if not self.access_token:
             return {"success": False, "error": "No access token available"}
         
@@ -264,28 +270,10 @@ class BouncieService:
             response = requests.request(method, url, headers=headers, timeout=30, **request_kwargs)
             
             if response.status_code == 401 and self.refresh_token:
-                logger.info("Access token expired, attempting refresh...")
-                try:
-                    refresh_data = {
-                        "client_id": self.client_id,
-                        "client_secret": self.client_secret,
-                        "grant_type": "refresh_token",
-                        "refresh_token": self.refresh_token,
-                        "redirect_uri": self.redirect_uri
-                    }
-                    refresh_response = requests.post(BOUNCIE_TOKEN_URL, json=refresh_data, timeout=30)
-                    
-                    if refresh_response.status_code == 200:
-                        token_data = refresh_response.json()
-                        self._save_tokens(
-                            token_data.get("access_token"),
-                            token_data.get("refresh_token"),
-                            token_data.get("expires_in", 3600)
-                        )
-                        headers["Authorization"] = self.access_token
-                        response = requests.request(method, url, headers=headers, timeout=30, **request_kwargs)
-                except Exception as e:
-                    logger.error(f"Failed to refresh token during request: {e}")
+                logger.info("Access token expired (401), attempting refresh...")
+                if self._refresh_access_token_sync():
+                    headers["Authorization"] = self.headers["Authorization"]
+                    response = requests.request(method, url, headers=headers, timeout=30, **request_kwargs)
             
             try:
                 response_data = response.json()
