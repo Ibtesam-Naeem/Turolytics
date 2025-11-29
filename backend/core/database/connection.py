@@ -50,6 +50,9 @@ def init_db() -> None:
             BouncieIntegration,
             BouncieVehicleMapping,
             BouncieTripMatch,
+            PlaidIntegration,
+            PlaidAccount,
+            Transaction,
         )
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created successfully")

@@ -27,6 +27,9 @@ class Account(Base):
     bouncie_integration = relationship("BouncieIntegration", back_populates="account", uselist=False, cascade="all, delete-orphan")
     bouncie_vehicle_mappings = relationship("BouncieVehicleMapping", back_populates="account", cascade="all, delete-orphan")
     bouncie_trip_matches = relationship("BouncieTripMatch", back_populates="account", cascade="all, delete-orphan")
+    plaid_integration = relationship("PlaidIntegration", back_populates="account", uselist=False, cascade="all, delete-orphan")
+    plaid_accounts = relationship("PlaidAccount", back_populates="account", cascade="all, delete-orphan")
+    transactions = relationship("Transaction", back_populates="account", cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="account", cascade="all, delete-orphan")
     
     @staticmethod
