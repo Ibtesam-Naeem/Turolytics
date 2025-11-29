@@ -46,7 +46,6 @@ class Document(Base):
     
     account = relationship("Account", back_populates="documents")
     vehicle = relationship("Vehicle", back_populates="documents")
-    transaction = relationship("Transaction", foreign_keys="Transaction.document_id", uselist=False)
     
     def __repr__(self):
         return f"<Document(id={self.id}, file_name={self.file_name}, category={self.category}, vehicle_id={self.vehicle_id})>"

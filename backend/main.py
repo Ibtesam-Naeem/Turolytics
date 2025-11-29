@@ -13,7 +13,6 @@ from turo.routes import router as turo_router
 from bouncie.routes import router as bouncie_router
 from bouncie.service import BouncieService
 from bouncie.auto_match import handle_bouncie_auto_processing
-from plaid.routes import router as plaid_router
 from s3.routes import router as s3_router
 from sqlalchemy.orm import Session
 
@@ -55,7 +54,6 @@ app.add_middleware(
 # ------------------------------ ROUTERS ------------------------------
 app.include_router(turo_router, prefix="/api/turo", tags=["Turo"])
 app.include_router(bouncie_router, prefix="/api/bouncie", tags=["Bouncie"])
-app.include_router(plaid_router, prefix="/api/plaid", tags=["Plaid"])
 app.include_router(s3_router, prefix="/api/documents", tags=["Documents"])
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
