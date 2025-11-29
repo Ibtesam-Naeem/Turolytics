@@ -20,8 +20,8 @@ class BaseOutModel(BaseModel):
 class BouncieTripMatchOut(BaseOutModel):
     """Bouncie trip match output model."""
     id: int
-    trip_id: Optional[str] = None  # Turo trip_id
-    turo_trip_id: int  # Internal trip ID
+    trip_id: Optional[str] = None 
+    turo_trip_id: int
     bouncie_trip_count: int
     aggregated_distance_km: Optional[float] = None
     aggregated_distance_miles: Optional[float] = None

@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 BOUNCIE_CLIENT_ID = os.getenv("BOUNCIE_CLIENT_ID")
 BOUNCIE_CLIENT_SECRET = os.getenv("BOUNCIE_CLIENT_SECRET")
-# Default to correct callback path if not set in env
+
 BOUNCIE_REDIRECT_URI = os.getenv("BOUNCIE_REDIRECT_URI", "http://localhost:8000/auth/bouncie/callback")
 
 BOUNCIE_API_BASE = "https://api.bouncie.dev/v1"

@@ -82,9 +82,6 @@ def _build_match_result(
         if all_coordinates:
             aggregated_trip['coordinates'] = all_coordinates
             aggregated_trip['coordinate_count'] = len(all_coordinates)
-            # Generate aggregated polyline for frontend mapping (single continuous route)
-            # This creates one polyline from all coordinates - perfect for map display
-            # Coordinates are already in (lat, lon) format from get_trip_coordinates
             aggregated_trip['polyline'] = polyline.encode(all_coordinates, precision=5)
         else:
             aggregated_trip['coordinates'] = None

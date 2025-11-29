@@ -43,13 +43,6 @@ def get_trip_polyline(trip: Dict[str, Any]) -> Optional[str]:
         return None
     return polyline.encode(coords, precision=5)
 
-def extract_all_coordinates_from_trips(trips: List[Dict[str, Any]]) -> List[Tuple[float, float]]:
-    """Extract all coordinates from multiple Bouncie trips and merge them."""
-    all_coordinates = []
-    for trip in trips:
-        all_coordinates.extend(get_trip_coordinates(trip))
-    return all_coordinates
-
 # ------------------------------ TRIP AGGREGATION ------------------------------
 
 def aggregate_bouncie_trips(trips: List[Dict[str, Any]]) -> Dict[str, Any]:

@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from .service import BouncieService, get_bouncie_vehicle_data
 from .data_fetcher import fetch_trips_in_date_range
 from .matching import match_trip, match_all_trips
-from .utils import trip_to_dict
+from .utils import trip_to_dict, get_account_or_raise
 from .schemas import (
     APIResponse,
     TokenExchangeRequest,
@@ -19,7 +19,6 @@ from .schemas import (
 )
 from core.database import get_db
 from core.database.models import Trip, BouncieTripMatch, BouncieVehicleMapping, Account, Vehicle
-from core.database.db_service import DatabaseService
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -41,19 +40,31 @@ def check_result(result: Dict[str, Any], operation: str) -> APIResponse:
         raise HTTPException(status_code=400, detail=f"Bouncie {operation} failed: {error_msg}")
     return APIResponse(success=True, data=result.get("data", {}))
 
-def _trip_to_dict(trip: Trip) -> Dict[str, Any]:
-    """Convert Trip model to dict format for matching."""
-    return {
-        "trip_id": trip.trip_id,
-        "vehicle_id": trip.vehicle_id,
-        "start_date": trip.start_date,
-        "start_time": trip.start_time,
-        "end_date": trip.end_date,
-        "end_time": trip.end_time,
-        "kilometers_driven": trip.kilometers_driven,
-        "status": trip.status,
-        "scraped_at": trip.scraped_at.isoformat() if trip.scraped_at else None
+def _build_match_out(match: BouncieTripMatch, trip: Trip = None, include_full_data: bool = False) -> BouncieTripMatchOut | BouncieTripMatchDetailOut:
+    """Build BouncieTripMatchOut or BouncieTripMatchDetailOut from match and trip."""
+    trip_id = trip.trip_id if trip else None
+    base_data = {
+        "id": match.id,
+        "trip_id": trip_id,
+        "turo_trip_id": match.trip_id,
+        "bouncie_trip_count": match.bouncie_trip_count,
+        "aggregated_distance_km": match.aggregated_distance_km,
+        "aggregated_distance_miles": match.aggregated_distance_miles,
+        "total_duration_hours": match.total_duration_hours,
+        "coordinate_count": match.coordinate_count,
+        "has_polyline": bool(match.polyline),
+        "has_coordinates": bool(match.coordinates),
+        "has_match_data": bool(match.match_data),
+        "bouncie_earliest_start": match.bouncie_earliest_start,
+        "bouncie_latest_end": match.bouncie_latest_end,
+        "created_at": match.created_at,
+        "updated_at": match.updated_at,
     }
+    
+    if include_full_data:
+        return BouncieTripMatchDetailOut(**base_data, coordinates=match.coordinates, polyline=match.polyline, match_data=match.match_data)
+    else:
+        return BouncieTripMatchOut(**base_data)
 
 async def _fetch_turo_trips(
     db: Session,
@@ -61,13 +72,7 @@ async def _fetch_turo_trips(
     trip_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """Fetch Turo trips from database."""
-    account = db.query(Account).filter(Account.id == account_id).first()
-    
-    if not account:
-        account = DatabaseService.get_account_by_user_id(db, account_id)
-        
-    if not account:
-        raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
+    account = get_account_or_raise(db, account_id)
     
     if trip_id:
         trip = db.query(Trip).filter(
@@ -221,20 +226,12 @@ async def get_stored_matches(
     Returns all matches for an account, optionally filtered by trip_id.
     """
     try:
-        # Get account
-        account = db.query(Account).filter(Account.id == account_id).first()
-        if not account:
-            account = DatabaseService.get_account_by_user_id(db, account_id)
+        account = get_account_or_raise(db, account_id)
         
-        if not account:
-            raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
-        
-        # Build query
         query = db.query(BouncieTripMatch).filter(
             BouncieTripMatch.account_id == account.id
         )
         
-        # Filter by trip_id if provided
         if trip_id:
             trip = db.query(Trip).filter(
                 Trip.account_id == account.id,
@@ -244,31 +241,15 @@ async def get_stored_matches(
                 return APIResponse(success=True, data={"matches": [], "total": 0, "limit": limit, "offset": offset})
             query = query.filter(BouncieTripMatch.trip_id == trip.id)
         
-        # Get total count
         total = query.count()
         
-        # Apply pagination
         matches = query.offset(offset).limit(limit).all()
         
-        # Format response
+        trip_ids = [match.trip_id for match in matches]
+        trips_dict = {trip.id: trip for trip in db.query(Trip).filter(Trip.id.in_(trip_ids)).all()}
+        
         matches_data = [
-            BouncieTripMatchOut(
-                id=match.id,
-                trip_id=db.query(Trip).filter(Trip.id == match.trip_id).first().trip_id if db.query(Trip).filter(Trip.id == match.trip_id).first() else None,
-                turo_trip_id=match.trip_id,
-                bouncie_trip_count=match.bouncie_trip_count,
-                aggregated_distance_km=match.aggregated_distance_km,
-                aggregated_distance_miles=match.aggregated_distance_miles,
-                total_duration_hours=match.total_duration_hours,
-                coordinate_count=match.coordinate_count,
-                has_polyline=bool(match.polyline),
-                has_coordinates=bool(match.coordinates),
-                has_match_data=bool(match.match_data),
-                bouncie_earliest_start=match.bouncie_earliest_start,
-                bouncie_latest_end=match.bouncie_latest_end,
-                created_at=match.created_at,
-                updated_at=match.updated_at,
-            ).model_dump()
+            _build_match_out(match, trips_dict.get(match.trip_id)).model_dump()
             for match in matches
         ]
         
@@ -300,15 +281,8 @@ async def get_stored_match_detail(
     Optionally include full GPS coordinates and match_data (can be large).
     """
     try:
-        # Get account
-        account = db.query(Account).filter(Account.id == account_id).first()
-        if not account:
-            account = DatabaseService.get_account_by_user_id(db, account_id)
+        account = get_account_or_raise(db, account_id)
         
-        if not account:
-            raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
-        
-        # Get match
         match = db.query(BouncieTripMatch).filter(
             BouncieTripMatch.id == match_id,
             BouncieTripMatch.account_id == account.id
@@ -318,46 +292,7 @@ async def get_stored_match_detail(
             raise HTTPException(status_code=404, detail=f"Match {match_id} not found")
         
         trip = db.query(Trip).filter(Trip.id == match.trip_id).first()
-        
-        if include_full_data:
-            match_out = BouncieTripMatchDetailOut(
-                id=match.id,
-                trip_id=trip.trip_id if trip else None,
-                turo_trip_id=match.trip_id,
-                bouncie_trip_count=match.bouncie_trip_count,
-                aggregated_distance_km=match.aggregated_distance_km,
-                aggregated_distance_miles=match.aggregated_distance_miles,
-                total_duration_hours=match.total_duration_hours,
-                coordinate_count=match.coordinate_count,
-                has_polyline=bool(match.polyline),
-                has_coordinates=bool(match.coordinates),
-                has_match_data=bool(match.match_data),
-                coordinates=match.coordinates,
-                polyline=match.polyline,
-                match_data=match.match_data,
-                bouncie_earliest_start=match.bouncie_earliest_start,
-                bouncie_latest_end=match.bouncie_latest_end,
-                created_at=match.created_at,
-                updated_at=match.updated_at,
-            )
-        else:
-            match_out = BouncieTripMatchOut(
-                id=match.id,
-                trip_id=trip.trip_id if trip else None,
-                turo_trip_id=match.trip_id,
-                bouncie_trip_count=match.bouncie_trip_count,
-                aggregated_distance_km=match.aggregated_distance_km,
-                aggregated_distance_miles=match.aggregated_distance_miles,
-                total_duration_hours=match.total_duration_hours,
-                coordinate_count=match.coordinate_count,
-                has_polyline=bool(match.polyline),
-                has_coordinates=bool(match.coordinates),
-                has_match_data=bool(match.match_data),
-                bouncie_earliest_start=match.bouncie_earliest_start,
-                bouncie_latest_end=match.bouncie_latest_end,
-                created_at=match.created_at,
-                updated_at=match.updated_at,
-            )
+        match_out = _build_match_out(match, trip, include_full_data=include_full_data)
         
         return APIResponse(success=True, data=match_out.model_dump())
     
@@ -378,26 +313,16 @@ async def get_vehicle_mappings(
 ):
     """
     Get stored vehicle mappings (Turo vehicles linked to Bouncie IMEIs).
-    Renamed from /vehicle-mappings to /mappings for consistency.
     """
     try:
-        # Get account
-        account = db.query(Account).filter(Account.id == account_id).first()
-        if not account:
-            account = DatabaseService.get_account_by_user_id(db, account_id)
+        account = get_account_or_raise(db, account_id)
         
-        if not account:
-            raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
-        
-        # Build query
         query = db.query(BouncieVehicleMapping).filter(
             BouncieVehicleMapping.account_id == account.id
         )
         
-        # Get total count
         total = query.count()
         
-        # Apply pagination
         mappings = query.offset(offset).limit(limit).all()
         
         mappings_data = []
@@ -440,12 +365,7 @@ async def get_vehicle_mapping_detail(
 ):
     """Get specific vehicle mapping by ID."""
     try:
-        account = db.query(Account).filter(Account.id == account_id).first()
-        if not account:
-            account = DatabaseService.get_account_by_user_id(db, account_id)
-        
-        if not account:
-            raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
+        account = get_account_or_raise(db, account_id)
         
         mapping = db.query(BouncieVehicleMapping).filter(
             BouncieVehicleMapping.id == mapping_id,
@@ -486,7 +406,6 @@ async def match_trips(
 ):
     """
     Real-time trip matching: Match Turo trips with Bouncie trips.
-    Renamed from /match/trip to /matches/match for consistency.
     """
     try:
         if service.account_id != request.account_id:
@@ -547,11 +466,7 @@ async def sync_matches(
     db: Session = Depends(get_db)
 ):
     """
-    Re-trigger automatic matching process.
-    Fetches recent trips and matches them with Turo trips, storing results in database.
-    
-    By default, skips trips that already have matches for faster processing.
-    Set force_rematch=True to re-match all trips.
+    Re-trigger automatic matching process. Fetches recent trips and matches them with Turo trips, storing results in database. By default, skips trips that already have matches for faster processing. Set force_rematch=True to re-match all trips.
     """
     try:
         from .auto_match import process_bouncie_link
