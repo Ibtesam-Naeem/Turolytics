@@ -54,10 +54,6 @@ class BouncieVehicleMappingOut(BaseOutModel):
 
 # ------------------------------ REQUEST MODELS ------------------------------
 
-class TokenExchangeRequest(BaseModel):
-    authorization_code: str
-    account_id: Optional[int] = None
-
 class MatchRequest(BaseModel):
     account_id: int
     authorization_code: Optional[str] = None

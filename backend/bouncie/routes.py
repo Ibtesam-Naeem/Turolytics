@@ -10,7 +10,6 @@ from .matching import match_trip, match_all_trips
 from .utils import trip_to_dict, get_account_or_raise
 from .schemas import (
     APIResponse,
-    TokenExchangeRequest,
     MatchRequest,
     VehicleMappingRequest,
     VehicleMappingUpdateRequest,
@@ -125,21 +124,6 @@ async def get_authorization_url(
     url = service.get_authorization_url(state)
     return APIResponse(success=True, data={"authorization_url": url})
 
-@router.post("/auth/token", response_model=APIResponse, tags=["Authentication"])
-async def exchange_code_for_token(
-    request: TokenExchangeRequest,
-    service: BouncieService = Depends(get_bouncie_service)
-):
-    """
-    Manually exchange authorization code for tokens (alternative to callback flow).
-    Useful for testing or if you want to handle the callback differently.
-    """
-    if request.account_id:
-        service.account_id = request.account_id
-        
-    result = await service.exchange_code_for_token(request.authorization_code)
-    return check_result(result, "token exchange")
-
 @router.get("/auth/status", response_model=APIResponse, tags=["Authentication"])
 async def get_integration_status(
     account_id: int = Query(..., description="Account ID"),
@@ -210,9 +194,7 @@ async def disconnect_integration(
                 status_code=404,
                 detail="No Bouncie integration found for this account"
             )
-        
-        # Optionally revoke tokens with Bouncie API (if they support it)
-        # For now, we'll just delete from database
+    
         db.delete(integration)
         db.commit()
         
@@ -290,21 +272,6 @@ async def get_trips(
     )
     return check_result(result, "get trips")
 
-@router.get("/data/trips/recent", response_model=APIResponse, tags=["Live Data"])
-async def get_recent_trips(
-    account_id: int = Query(..., description="Account ID"),
-    days: int = Query(7, ge=1, le=30, description="Number of days back"),
-    imei: Optional[str] = Query(None, description="Filter by IMEI"),
-    service: BouncieService = Depends(get_bouncie_service)
-):
-    """Get recent trips from Bouncie API."""
-    if service.account_id != account_id:
-        service.account_id = account_id
-        service._load_tokens()
-    
-    result = await service.get_recent_trips(days, imei)
-    return check_result(result, "get recent trips")
-
 # ------------------------------ STORED MATCH DATA ROUTES ------------------------------
 
 @router.get("/matches", response_model=APIResponse, tags=["Stored Data"])
@@ -372,7 +339,6 @@ async def get_stored_match_detail(
 ):
     """
     Get detailed information about a specific stored match.
-    Optionally include full GPS coordinates and match_data (can be large).
     """
     try:
         account = get_account_or_raise(db, account_id)
@@ -534,7 +500,6 @@ async def create_vehicle_mapping(
                 detail=f"IMEI {request.imei} is already mapped to vehicle {existing_imei.vehicle_id}"
             )
         
-        # Create new mapping
         mapping = BouncieVehicleMapping(
             account_id=account.id,
             vehicle_id=request.vehicle_id,
