@@ -61,9 +61,17 @@ class ScrapingService:
                 try:
                     existing_trip_ids = DatabaseService.get_existing_trip_ids(db, user_id)
                     existing_customer_ids = DatabaseService.get_existing_customer_ids(db, user_id)
-                    logger.info(f"Found {len(existing_trip_ids)} existing trips and {len(existing_customer_ids)} existing reviews - will skip these during scraping")
+                    
+                    if existing_trip_ids or existing_customer_ids:
+                        logger.info(
+                            f"Found {len(existing_trip_ids)} existing trips and {len(existing_customer_ids)} existing reviews - "
+                            f"Skipping these during scraping"
+                        )
+                    else:
+                        logger.info("No existing trips or reviews found - Scraping all data")
+                        
                 except Exception as e:
-                    logger.warning(f"Error fetching existing IDs: {e}. Will scrape all data.")
+                    logger.warning(f"Error fetching existing IDs: {e}. Scraping all data.")
                     existing_trip_ids = set()
                     existing_customer_ids = set()
                 finally:

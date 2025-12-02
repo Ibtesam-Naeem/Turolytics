@@ -23,19 +23,35 @@ def _find_matching_trips(
     time_buffer_hours: int = 2
 ) -> Optional[Tuple[List[Dict[str, Any]], datetime, datetime]]:
     """Find Bouncie trips that match a Turo trip's time window."""
+    trip_id = turo_trip.get('trip_id')
+    vehicle_id = turo_trip.get('vehicle_id')
+    
     if not bouncie_trips:
+        logger.warning(f"[Trip {trip_id}] No Bouncie trips available for matching")
         return None
     
     if vehicle_imei:
-        bouncie_trips = [t for t in bouncie_trips if t.get('imei') == vehicle_imei]
-        if not bouncie_trips:
+        filtered_trips = [t for t in bouncie_trips if t.get('imei') == vehicle_imei]
+        if not filtered_trips:
+            logger.warning(
+                f"[Trip {trip_id}, Vehicle {vehicle_id}] No Bouncie trips found for IMEI {vehicle_imei}. "
+                f"Total Bouncie trips available: {len(bouncie_trips)}"
+            )
             return None
+        bouncie_trips = filtered_trips
+        logger.info(f"[Trip {trip_id}] Filtered to {len(bouncie_trips)} Bouncie trips for IMEI {vehicle_imei}")
+    else:
+        logger.warning(f"[Trip {trip_id}, Vehicle {vehicle_id}] No IMEI provided - matching against all Bouncie trips")
     
     turo_start = parse_turo_trip_datetime_from_dict(turo_trip, is_start=True)
     turo_end = parse_turo_trip_datetime_from_dict(turo_trip, is_start=False)
     
     if not turo_start or not turo_end:
-        logger.warning(f"Could not parse Turo trip times for trip {turo_trip.get('trip_id')}")
+        logger.warning(
+            f"[Trip {trip_id}] Could not parse Turo trip times. "
+            f"Start: {turo_trip.get('start_date')} {turo_trip.get('start_time')}, "
+            f"End: {turo_trip.get('end_date')} {turo_trip.get('end_time')}"
+        )
         return None
     
     matching_trips = filter_trips_by_date_range(
@@ -47,6 +63,20 @@ def _find_matching_trips(
     )
     
     if not matching_trips:
+        bouncie_dates = []
+        for bt in bouncie_trips[:5]:
+            start = bt.get('startTime')
+            end = bt.get('endTime')
+            if start and end:
+                bouncie_dates.append(f"{start[:10]} to {end[:10]}")
+        
+        logger.warning(
+            f"[Trip {trip_id}] No Bouncie trips found in time window. "
+            f"Turo window: {turo_start.strftime('%Y-%m-%d %H:%M')} to {turo_end.strftime('%Y-%m-%d %H:%M')} "
+            f"(buffer: {time_buffer_hours}h). "
+            f"Available Bouncie trips: {len(bouncie_trips)}. "
+            f"Sample Bouncie dates: {', '.join(bouncie_dates[:3]) if bouncie_dates else 'N/A'}"
+        )
         return None
     
     return (matching_trips, turo_start, turo_end)
@@ -126,13 +156,23 @@ def match_all_trips(
 ) -> List[Dict[str, Any]]:
     """Match multiple Turo trips to Bouncie trips."""
     results = []
+    matched_count = 0
+    unmatched_count = 0
     
     for turo_trip in turo_trips:
         imei = None
+        trip_id = turo_trip.get('trip_id')
+        vehicle_id = turo_trip.get('vehicle_id')
+        
         if vehicle_imei_map:
-            trip_id = turo_trip.get('trip_id')
-            vehicle_id = turo_trip.get('vehicle_id')
             imei = vehicle_imei_map.get(trip_id) or vehicle_imei_map.get(vehicle_id)
+            if not imei and vehicle_id:
+                logger.warning(
+                    f"[Trip {trip_id}] No IMEI mapping found for vehicle_id {vehicle_id}. "
+                    f"Available mappings: {list(vehicle_imei_map.keys())}"
+                )
+        else:
+            logger.info(f"[Trip {trip_id}] No vehicle_imei_map provided - will match against all Bouncie trips")
         
         match_result = match_trip(turo_trip, bouncie_trips, imei)
         
@@ -141,12 +181,15 @@ def match_all_trips(
                 "turo_trip": turo_trip,
                 "matched_bouncie_trip": match_result
             })
+            matched_count += 1
         else:
             results.append({
                 "turo_trip": turo_trip,
                 "matched_bouncie_trip": None
             })
+            unmatched_count += 1
     
+    logger.info(f"Matching complete: {matched_count} matched, {unmatched_count} unmatched out of {len(turo_trips)} total trips")
     return results
 
 # ------------------------------ END OF FILE ------------------------------

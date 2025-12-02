@@ -151,7 +151,6 @@ async def get_integration_status(
                 }
             )
         
-        # Check if token is expired
         is_expired = integration.expires_at < datetime.now(timezone.utc) if integration.expires_at else True
         
         return APIResponse(
@@ -212,6 +211,76 @@ async def disconnect_integration(
         raise
     except Exception as e:
         logger.exception(f"Error disconnecting integration: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@router.delete("/auth/delete-all-data", response_model=APIResponse, tags=["Authentication"])
+async def delete_all_bouncie_data(
+    account_id: int = Query(..., description="Account ID"),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete ALL Bouncie-related data for an account.
+    
+    This is a comprehensive deletion endpoint for data privacy/GDPR compliance.
+    Deletes:
+    - All trip matches (BouncieTripMatch)
+    - All vehicle mappings (BouncieVehicleMapping)
+    - Integration/OAuth tokens (BouncieIntegration)
+    """
+    try:
+        account = get_account_or_raise(db, account_id)
+        
+        deletion_summary = {
+            "trip_matches_deleted": 0,
+            "vehicle_mappings_deleted": 0,
+            "integration_deleted": False
+        }
+        
+        trip_matches = db.query(BouncieTripMatch).filter(
+            BouncieTripMatch.account_id == account.id
+        ).all()
+        deletion_summary["trip_matches_deleted"] = len(trip_matches)
+        for match in trip_matches:
+            db.delete(match)
+        
+        vehicle_mappings = db.query(BouncieVehicleMapping).filter(
+            BouncieVehicleMapping.account_id == account.id
+        ).all()
+        deletion_summary["vehicle_mappings_deleted"] = len(vehicle_mappings)
+        for mapping in vehicle_mappings:
+            db.delete(mapping)
+        
+        integration = db.query(BouncieIntegration).filter(
+            BouncieIntegration.account_id == account.id
+        ).first()
+        if integration:
+            db.delete(integration)
+            deletion_summary["integration_deleted"] = True
+        
+        db.commit()
+        
+        logger.info(
+            f"Deleted all Bouncie data for account {account.id}: "
+            f"{deletion_summary['trip_matches_deleted']} trip matches, "
+            f"{deletion_summary['vehicle_mappings_deleted']} vehicle mappings, "
+            f"integration: {deletion_summary['integration_deleted']}"
+        )
+        
+        return APIResponse(
+            success=True,
+            data={
+                "message": "All Bouncie data deleted successfully",
+                "account_id": account.id,
+                "deletion_summary": deletion_summary
+            }
+        )
+    
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        logger.exception(f"Error deleting all Bouncie data: {e}")
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
