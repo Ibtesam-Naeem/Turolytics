@@ -284,62 +284,67 @@ async def delete_all_bouncie_data(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-# ------------------------------ LIVE BOUNCIE API DATA ROUTES ------------------------------
-
-@router.get("/data/vehicles", response_model=APIResponse, tags=["Live Data"])
-async def get_vehicles(service: BouncieService = Depends(get_bouncie_service)):
-    """Get vehicles from Bouncie API."""
-    result = await service.get_vehicles()
-    return check_result(result, "get vehicles")
-
-@router.get("/data/vehicles/{imei}", response_model=APIResponse, tags=["Live Data"])
-async def get_vehicle_by_imei(
-    imei: str = Path(..., description="Bouncie device IMEI"),
-    service: BouncieService = Depends(get_bouncie_service)
-):
-    """Get specific vehicle by IMEI from Bouncie API."""
-    result = await service.get_vehicle_by_imei(imei)
-    return check_result(result, "get vehicle")
-
-@router.get("/data/vehicles/{imei}/status", response_model=APIResponse, tags=["Live Data"])
-async def get_vehicle_status(
-    imei: str = Path(..., description="Bouncie device IMEI"),
-    service: BouncieService = Depends(get_bouncie_service)
-):
-    """Get current status of a vehicle from Bouncie API."""
-    result = await service.get_current_vehicle_status(imei)
-    return check_result(result, "get vehicle status")
-
-@router.get("/data/vehicles/{imei}/analytics", response_model=APIResponse, tags=["Live Data"])
-async def get_vehicle_analytics(
-    imei: str = Path(..., description="Bouncie device IMEI"),
-    service: BouncieService = Depends(get_bouncie_service)
-):
-    """Get analytics for a vehicle from Bouncie API."""
-    result = await service.get_vehicle_analytics(imei)
-    return check_result(result, "get vehicle analytics")
-
-@router.get("/data/trips", response_model=APIResponse, tags=["Live Data"])
-async def get_trips(
+@router.get("/auth/token", response_model=APIResponse, tags=["Authentication"])
+async def get_access_token(
     account_id: int = Query(..., description="Account ID"),
-    gps_format: str = Query("geojson", description="GPS format (geojson)"),
-    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
-    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
-    imei: Optional[str] = Query(None, description="Filter by IMEI"),
-    service: BouncieService = Depends(get_bouncie_service)
+    db: Session = Depends(get_db)
 ):
-    """Get trips from Bouncie API. Changed from POST to GET with query parameters."""
-    if service.account_id != account_id:
-        service.account_id = account_id
+    """
+    Get access token for frontend to use directly with Bouncie API.
+    Returns temporary access token that frontend can use to call Bouncie API directly.
+    """
+    try:
+        account = get_account_or_raise(db, account_id)
+        
+        integration = db.query(BouncieIntegration).filter(
+            BouncieIntegration.account_id == account.id
+        ).first()
+        
+        if not integration:
+            raise HTTPException(
+                status_code=404,
+                detail="Bouncie not connected for this account"
+            )
+        
+        service = BouncieService(db=db, account_id=account_id)
+        
+        if integration.expires_at and integration.expires_at < datetime.now(timezone.utc):
+            logger.info(f"Token expired for account {account_id}, refreshing...")
+            refresh_success = await service._refresh_access_token()
+            if not refresh_success:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Token expired and refresh failed. Please reconnect Bouncie."
+                )
+        
         service._load_tokens()
+        
+        if not service.access_token:
+            raise HTTPException(
+                status_code=401,
+                detail="No access token available. Please reconnect Bouncie."
+            )
+        
+        expires_in = 3600
+        if integration.expires_at:
+            expires_in = int((integration.expires_at - datetime.now(timezone.utc)).total_seconds())
+            expires_in = max(0, expires_in)
+        
+        return APIResponse(
+            success=True,
+            data={
+                "access_token": service.access_token,
+                "expires_in": expires_in,
+                "token_type": "Bearer"
+            }
+        )
     
-    result = await service.get_trips(
-        gps_format=gps_format,
-        start_date=start_date,
-        end_date=end_date,
-        imei=imei
-    )
-    return check_result(result, "get trips")
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        logger.exception(f"Error getting access token: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 # ------------------------------ STORED MATCH DATA ROUTES ------------------------------
 
@@ -395,6 +400,7 @@ async def get_stored_matches(
     
     except HTTPException:
         raise
+
     except Exception as e:
         logger.exception(f"Error retrieving stored matches: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
@@ -406,9 +412,7 @@ async def get_stored_match_detail(
     include_full_data: bool = Query(False, description="Include full coordinates and match_data"),
     db: Session = Depends(get_db)
 ):
-    """
-    Get detailed information about a specific stored match.
-    """
+    """Get detailed information about a specific stored match."""
     try:
         account = get_account_or_raise(db, account_id)
         
@@ -427,6 +431,7 @@ async def get_stored_match_detail(
     
     except HTTPException:
         raise
+
     except Exception as e:
         logger.exception(f"Error retrieving match detail: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
@@ -440,9 +445,7 @@ async def get_vehicle_mappings(
     offset: int = Query(0, ge=0, description="Number of results to skip"),
     db: Session = Depends(get_db)
 ):
-    """
-    Get stored vehicle mappings (Turo vehicles linked to Bouncie IMEIs).
-    """
+    """Get stored vehicle mappings (Turo vehicles linked to Bouncie IMEIs)."""
     try:
         account = get_account_or_raise(db, account_id)
         
@@ -521,6 +524,7 @@ async def get_vehicle_mapping_detail(
     
     except HTTPException:
         raise
+    
     except Exception as e:
         logger.exception(f"Error retrieving mapping detail: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
@@ -706,6 +710,7 @@ async def update_vehicle_mapping(
     
     except HTTPException:
         raise
+
     except Exception as e:
         logger.exception(f"Error updating vehicle mapping: {e}")
         db.rollback()
@@ -754,6 +759,7 @@ async def delete_vehicle_mapping(
     
     except HTTPException:
         raise
+
     except Exception as e:
         logger.exception(f"Error deleting vehicle mapping: {e}")
         db.rollback()
@@ -767,9 +773,7 @@ async def match_trips(
     db: Session = Depends(get_db),
     service: BouncieService = Depends(get_bouncie_service)
 ):
-    """
-    Real-time trip matching: Match Turo trips with Bouncie trips.
-    """
+    """Real-time trip matching: Match Turo trips with Bouncie trips."""
     try:
         if service.account_id != request.account_id:
             service.account_id = request.account_id
@@ -816,6 +820,7 @@ async def match_trips(
     
     except HTTPException:
         raise
+
     except Exception as e:
         logger.exception(f"Error matching trips: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
@@ -828,9 +833,7 @@ async def sync_matches(
     force_rematch: bool = Query(False, description="Force re-matching of all trips (overrides skip_existing)"),
     db: Session = Depends(get_db)
 ):
-    """
-    Re-trigger automatic matching process. Fetches recent trips and matches them with Turo trips, storing results in database. By default, skips trips that already have matches for faster processing. Set force_rematch=True to re-match all trips.
-    """
+    """Re-trigger automatic matching process. Fetches recent trips and matches them with Turo trips, storing results in database. By default, skips trips that already have matches for faster processing. Set force_rematch=True to re-match all trips."""
     try:
         from .auto_match import process_bouncie_link
         
@@ -852,6 +855,7 @@ async def sync_matches(
     
     except HTTPException:
         raise
+
     except Exception as e:
         logger.exception(f"Error syncing matches: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
