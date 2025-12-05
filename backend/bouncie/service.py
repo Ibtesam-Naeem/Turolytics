@@ -303,9 +303,6 @@ class BouncieService:
     ) -> Dict[str, Any]:
         return await asyncio.to_thread(self._make_request, method, endpoint, params, **kwargs)
     
-    async def get_user_info(self) -> Dict[str, Any]:
-        return await self._api_call("GET", "/user")
-    
     async def get_vehicles(self) -> Dict[str, Any]:
         return await self._api_call("GET", "/vehicles")
     
@@ -326,86 +323,6 @@ class BouncieService:
         
         return await self._api_call("GET", "/trips", params=params)
     
-    async def get_vehicle_by_imei(self, imei: str) -> Dict[str, Any]:
-        return await self._api_call("GET", "/vehicles", params={"imei": imei})
-    
-    # ------------------------------ DATA PROCESSING ------------------------------
-    
-    def _process_vehicle_data(self, vehicle: Dict[str, Any]) -> Dict[str, Any]:
-        if not vehicle:
-            return {"success": False, "error": "Vehicle not found"}
-        
-        stats = vehicle.get("stats", {})
-        location = stats.get("location", {})
-        mil = stats.get("mil", {})
-        battery = mil.get("battery", {})
-        
-        return {
-            "success": True,
-            "data": {
-                "vehicle_info": {
-                    "imei": vehicle.get("imei"),
-                    "nickname": vehicle.get("nickName"),
-                    "vin": vehicle.get("vin"),
-                    "make": vehicle.get("model", {}).get("make"),
-                    "model": vehicle.get("model", {}).get("name"),
-                    "year": vehicle.get("model", {}).get("year"),
-                    "engine": vehicle.get("standardEngine")
-                },
-                "current_status": {
-                    "odometer": stats.get("odometer"),
-                    "fuel_level": stats.get("fuelLevel"),
-                    "is_running": stats.get("isRunning"),
-                    "speed": stats.get("speed"),
-                    "last_updated": stats.get("lastUpdated"),
-                    "timezone": stats.get("localTimeZone")
-                },
-                "location": {
-                    "latitude": location.get("lat"),
-                    "longitude": location.get("lon"),
-                    "heading": location.get("heading"),
-                    "address": location.get("address")
-                },
-                "health": {
-                    "check_engine_on": mil.get("milOn"),
-                    "battery_status": battery.get("status"),
-                    "dtc_codes": mil.get("qualifiedDtcList", [])
-                }
-            }
-        }
-    
-    # ------------------------------ CONVENIENCE METHODS ------------------------------
-    
-    async def get_current_vehicle_status(self, imei: str = None) -> Dict[str, Any]:
-        result = await self.get_vehicle_by_imei(imei) if imei else await self.get_vehicles()
-        if not result["success"]:
-            return result
-        
-        vehicles = result["data"]
-        if not isinstance(vehicles, list) or not vehicles:
-            return {"success": False, "error": "No vehicles found"}
-        
-        return self._process_vehicle_data(vehicles[0])
-    
-    async def get_recent_trips(self, days: int = 7, imei: str = None) -> Dict[str, Any]:
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days)
-        return await self.get_trips("geojson", format_date_for_api(start_date), format_date_for_api(end_date), imei)
-    
-    async def get_vehicle_analytics(self, imei: str = None) -> Dict[str, Any]:
-        analytics = {"vehicle_info": None, "current_status": None, "recent_trips": None}
-        
-        status_result = await self.get_current_vehicle_status(imei)
-        if status_result["success"]:
-            analytics["vehicle_info"] = status_result["data"]["vehicle_info"]
-            analytics["current_status"] = status_result["data"]["current_status"]
-        
-        trips_result = await self.get_recent_trips(7, imei)
-        if trips_result["success"]:
-            analytics["recent_trips"] = trips_result["data"]
-        
-        return analytics
-    
     # ------------------------------ WEBHOOK SUPPORT ------------------------------
     
     def get_webhook_events(self) -> list:
@@ -413,12 +330,5 @@ class BouncieService:
             "device_connected", "device_disconnected", "new_trip_data", "new_trip_metrics",
             "new_mil_event", "new_battery_status", "trip_ended", "geo_zone_entered", "geo_zone_exited"
         ]
-    
-    def create_webhook_payload(self, event_type: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        return {"event": event_type, "timestamp": datetime.now().isoformat(), "data": data, "source": "bouncie_api"}
-    
-    def validate_webhook_payload(self, payload: Dict[str, Any]) -> bool:
-        required_fields = ["event", "timestamp", "data"]
-        return all(field in payload for field in required_fields)
     
 # ------------------------------ END OF FILE ------------------------------

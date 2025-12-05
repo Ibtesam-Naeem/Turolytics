@@ -1,7 +1,7 @@
 # ------------------------------ IMPORTS ------------------------------
 from fastapi import APIRouter, UploadFile, File, Query, Depends, HTTPException, Path, Form
 from fastapi.responses import StreamingResponse
-from typing import Optional
+from typing import Optional, Union
 from datetime import datetime
 import logging
 from io import BytesIO
@@ -104,76 +104,47 @@ async def list_documents(
         logger.exception(f"Error listing documents: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to list documents: {str(e)}")
 
-@router.get("/{document_id}", response_model=APIResponse)
+@router.get("/{document_id}", response_model=None)
 async def get_document(
     document_id: int = Path(..., description="Document ID"),
     account_id: int = Query(..., description="Account ID"),
+    action: Optional[str] = Query(None, description="Action: 'download' to download file, 'url' to get presigned URL, or omit for metadata"),
+    expiration: int = Query(3600, ge=60, le=604800, description="URL expiration time in seconds (60-604800) - only used with action=url"),
     service: S3Service = Depends(get_s3_service)
-) -> APIResponse:
-    """Get document metadata by ID."""
+) -> Union[APIResponse, StreamingResponse]:
+    """Get document metadata, download file, or get presigned URL."""
     try:
-        document = service.get_document(document_id, account_id)
-        return APIResponse(
-            success=True,
-            data={"document": DocumentOut.model_validate(document, from_attributes=True)}
-        )
+        if action == "download":
+            file_content, file_name, file_type = service.download_file(document_id, account_id)
+            file_stream = BytesIO(file_content)
+            return StreamingResponse(
+                file_stream,
+                media_type=file_type,
+                headers={
+                    "Content-Disposition": f'attachment; filename="{file_name}"'
+                }
+            )
+        elif action == "url":
+            url = service.get_presigned_url(document_id, account_id, expiration)
+            return APIResponse(
+                success=True,
+                data={
+                    "url": url,
+                    "expiration_seconds": expiration
+                }
+            )
+        else:
+            document = service.get_document(document_id, account_id)
+            return APIResponse(
+                success=True,
+                data={"document": DocumentOut.model_validate(document, from_attributes=True)}
+            )
     
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.exception(f"Error getting document: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get document: {str(e)}")
-
-@router.get("/{document_id}/download")
-async def download_document(
-    document_id: int = Path(..., description="Document ID"),
-    account_id: int = Query(..., description="Account ID"),
-    service: S3Service = Depends(get_s3_service)
-) -> StreamingResponse:
-    """Download a document file."""
-    try:
-        file_content, file_name, file_type = service.download_file(document_id, account_id)
-        
-        file_stream = BytesIO(file_content)
-        
-        return StreamingResponse(
-            file_stream,
-            media_type=file_type,
-            headers={
-                "Content-Disposition": f'attachment; filename="{file_name}"'
-            }
-        )
-    
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        logger.exception(f"Error downloading document: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to download document: {str(e)}")
-
-@router.get("/{document_id}/url", response_model=APIResponse)
-async def get_document_url(
-    document_id: int = Path(..., description="Document ID"),
-    account_id: int = Query(..., description="Account ID"),
-    expiration: int = Query(3600, ge=60, le=604800, description="URL expiration time in seconds (60-604800)"),
-    service: S3Service = Depends(get_s3_service)
-) -> APIResponse:
-    """Get presigned URL for document access."""
-    try:
-        url = service.get_presigned_url(document_id, account_id, expiration)
-        
-        return APIResponse(
-            success=True,
-            data={
-                "url": url,
-                "expiration_seconds": expiration
-            }
-        )
-    
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        logger.exception(f"Error generating document URL: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to generate document URL: {str(e)}")
 
 @router.put("/{document_id}", response_model=APIResponse)
 async def update_document(

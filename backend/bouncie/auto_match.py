@@ -50,7 +50,7 @@ def _set_match_fields(match: BouncieTripMatch, matched_bouncie: Dict[str, Any], 
 async def process_bouncie_link(
     db: Session,
     account_id: int,
-    days_back: int = 60,
+    days_back: int = 365,
     skip_existing_matches: bool = True,
     force_rematch: bool = False
 ) -> Dict[str, Any]:
@@ -258,7 +258,7 @@ async def process_bouncie_link(
 async def handle_bouncie_auto_processing(db: Session, account_id: int) -> None:
     """Handle automatic Bouncie processing after OAuth callback (non-blocking)."""
     try:
-        processing_result = await process_bouncie_link(db, account_id, days_back=60)
+        processing_result = await process_bouncie_link(db, account_id, days_back=365)
         if processing_result.get("success"):
             results = processing_result.get("results", {})
             logger.info(

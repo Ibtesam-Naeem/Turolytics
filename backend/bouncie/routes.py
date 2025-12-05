@@ -33,13 +33,6 @@ def get_bouncie_service(
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
 
-def check_result(result: Dict[str, Any], operation: str) -> APIResponse:
-    if not result.get("success", False):
-        error_msg = result.get("error", "Unknown error")
-        logger.error(f"Bouncie {operation} failed: {error_msg}")
-        raise HTTPException(status_code=400, detail=f"Bouncie {operation} failed: {error_msg}")
-    return APIResponse(success=True, data=result.get("data", {}))
-
 def _build_match_out(match: BouncieTripMatch, trip: Trip = None, include_full_data: bool = False) -> BouncieTripMatchOut | BouncieTripMatchDetailOut:
     """Build BouncieTripMatchOut or BouncieTripMatchDetailOut from match and trip."""
     trip_id = trip.trip_id if trip else None
@@ -828,7 +821,7 @@ async def match_trips(
 @router.post("/matches/sync", response_model=APIResponse, tags=["Actions"])
 async def sync_matches(
     account_id: int = Query(..., description="Account ID"),
-    days_back: int = Query(60, ge=1, le=365, description="Number of days back to fetch"),
+    days_back: int = Query(365, ge=1, le=365, description="Number of days back to fetch"),
     skip_existing: bool = Query(True, description="Skip trips that already have matches"),
     force_rematch: bool = Query(False, description="Force re-matching of all trips (overrides skip_existing)"),
     db: Session = Depends(get_db)
@@ -867,14 +860,5 @@ async def get_webhook_events(service: BouncieService = Depends(get_bouncie_servi
     """Get available webhook events."""
     events = service.get_webhook_events()
     return APIResponse(success=True, data={"events": events})
-
-@router.post("/webhooks/validate", response_model=APIResponse, tags=["Webhooks"])
-async def validate_webhook(
-    payload: Dict[str, Any],
-    service: BouncieService = Depends(get_bouncie_service)
-):
-    """Validate webhook payload."""
-    is_valid = service.validate_webhook_payload(payload)
-    return APIResponse(success=True, data={"valid": is_valid})
 
 # ------------------------------ END OF FILE ------------------------------

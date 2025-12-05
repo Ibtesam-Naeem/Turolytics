@@ -52,9 +52,9 @@ app.add_middleware(
 )
 
 # ------------------------------ ROUTERS ------------------------------
-app.include_router(turo_router, prefix="/api/turo", tags=["Turo"])
-app.include_router(bouncie_router, prefix="/api/bouncie", tags=["Bouncie"])
-app.include_router(s3_router, prefix="/api/documents", tags=["Documents"])
+app.include_router(turo_router, prefix="/api/turo")
+app.include_router(bouncie_router, prefix="/api/bouncie")
+app.include_router(s3_router, prefix="/api/documents")
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
 
@@ -66,7 +66,7 @@ def _build_redirect_url(error: Optional[str] = None, success: bool = False) -> s
     return f"{frontend_url}/settings?bouncie_error={error or 'unknown_error'}"
 
 # ------------------------------ BOUNCIE OAUTH CALLBACK ------------------------------
-@app.get("/auth/bouncie/callback", tags=["Bouncie"])
+@app.get("/auth/bouncie/callback", tags=["Authentication"])
 async def bouncie_oauth_callback(
     code: Optional[str] = Query(None),
     state: Optional[str] = Query(None),

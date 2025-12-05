@@ -1,7 +1,6 @@
 # ------------------------------ IMPORTS ------------------------------
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
-
 import logging
 
 from .helpers import format_date_for_api
