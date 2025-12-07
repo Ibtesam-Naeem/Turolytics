@@ -345,6 +345,7 @@ async def get_access_token(
 async def get_stored_matches(
     account_id: int = Query(..., description="Account ID"),
     trip_id: Optional[str] = Query(None, description="Filter by Turo trip_id"),
+    include_polylines: bool = Query(False, description="Include polyline and coordinate data for map display"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of results"),
     offset: int = Query(0, ge=0, description="Number of results to skip"),
     db: Session = Depends(get_db)
@@ -377,7 +378,7 @@ async def get_stored_matches(
         trips_dict = {trip.id: trip for trip in db.query(Trip).filter(Trip.id.in_(trip_ids)).all()}
         
         matches_data = [
-            _build_match_out(match, trips_dict.get(match.trip_id)).model_dump()
+            _build_match_out(match, trips_dict.get(match.trip_id), include_full_data=include_polylines).model_dump()
             for match in matches
         ]
         
