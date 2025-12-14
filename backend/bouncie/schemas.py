@@ -55,14 +55,12 @@ class BouncieVehicleMappingOut(BaseOutModel):
 # ------------------------------ REQUEST MODELS ------------------------------
 
 class MatchRequest(BaseModel):
-    account_id: int
     authorization_code: Optional[str] = None
     trip_id: Optional[str] = None
     imei: Optional[str] = None
     days_back: int = 30
 
 class VehicleMappingRequest(BaseModel):
-    account_id: int
     vehicle_id: int
     imei: str
     bouncie_nickname: Optional[str] = None

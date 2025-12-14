@@ -1,6 +1,6 @@
 # ------------------------------ IMPORTS ------------------------------
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
@@ -85,6 +85,19 @@ async def process_bouncie_link(
             return {"success": False, "error": "Bouncie not linked for this account"}
         
         service = BouncieService(db=db, account_id=account_id)
+        
+        # Ensure tokens are loaded and refresh if needed before making requests
+        service._load_tokens()
+        if not service.access_token:
+            return {"success": False, "error": "No Bouncie access token available. Please reconnect Bouncie."}
+        
+        # Check if token is expired and refresh if possible
+        if service.token_expires_at and service.token_expires_at < datetime.now(timezone.utc):
+            if not service.refresh_token:
+                return {"success": False, "error": "Bouncie token expired and no refresh token available. Please reconnect Bouncie."}
+            logger.info(f"Token expired for account {account_id}, refreshing...")
+            if not service._refresh_access_token_sync():
+                return {"success": False, "error": "Bouncie token expired and refresh failed. Please reconnect Bouncie."}
         
         results = {
             "vehicles_mapped": 0,

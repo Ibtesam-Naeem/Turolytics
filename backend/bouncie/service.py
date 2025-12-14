@@ -31,13 +31,23 @@ BOUNCIE_TOKEN_URL = "https://auth.bouncie.com/oauth/token"
 # ------------------------------ BOUNCIE SERVICE ------------------------------
 
 class BouncieService:
-    def __init__(self, db: Session = None, account_id: int = None, client_id: str = None, client_secret: str = None, redirect_uri: str = None):
+    def __init__(self, db: Session = None, account: Account = None, account_id: int = None, client_id: str = None, client_secret: str = None, redirect_uri: str = None):
         self.client_id = client_id or BOUNCIE_CLIENT_ID
         self.client_secret = client_secret or BOUNCIE_CLIENT_SECRET
         self.redirect_uri = redirect_uri or BOUNCIE_REDIRECT_URI
         
         self.db = db
-        self.account_id = account_id
+        
+        # Support both Account object and account_id for backward compatibility
+        if account:
+            self.account = account
+            self.account_id = account.id
+        elif account_id:
+            self.account_id = account_id
+            self.account = None
+        else:
+            self.account = None
+            self.account_id = None
         
         self.access_token = None
         self.refresh_token = None
@@ -110,8 +120,13 @@ class BouncieService:
                 self.db.add(integration)
             
             integration.access_token = access_token
+            # Always update refresh_token if provided, otherwise preserve existing
             if refresh_token:
                 integration.refresh_token = refresh_token
+            # If refresh_token is None and we don't have one, keep existing (don't overwrite with None)
+            elif not integration.refresh_token:
+                # Only set to None if integration is new and we have no refresh_token
+                pass  # Keep it as None for new integrations
             integration.expires_at = expires_at
             
             self.db.commit()
@@ -159,9 +174,14 @@ class BouncieService:
 
             if response.status_code == 200:
                 token_data = response.json()
+                # Preserve existing refresh_token if new one is not provided
+                new_refresh_token = token_data.get("refresh_token")
+                if not new_refresh_token:
+                    # If refresh_token not in response, keep the existing one
+                    new_refresh_token = self.refresh_token
                 self._save_tokens(
                     token_data.get("access_token"),
-                    token_data.get("refresh_token"), 
+                    new_refresh_token, 
                     token_data.get("expires_in", 3600)
                 )
                 return True
@@ -243,12 +263,18 @@ class BouncieService:
         params: Optional[Dict[str, Any]] = None,
         **kwargs
     ) -> Dict[str, Any]:
+        # Always reload tokens from database to ensure we have the latest refresh_token
+        if self.db and self.account_id:
+            self._load_tokens()
+        
         if not self.access_token:
-             if self.db and self.account_id:
-                 self._load_tokens()
+            return {"success": False, "error": "No access token available"}
         
         if self.token_expires_at and datetime.now(timezone.utc) >= self.token_expires_at:
              logger.info("Token expired, refreshing before request...")
+             if not self.refresh_token:
+                 logger.warning("Cannot refresh token: No refresh token available. Please reconnect Bouncie.")
+                 return {"success": False, "error": "Token expired and no refresh token available. Please reconnect Bouncie."}
              if not self._refresh_access_token_sync():
                  return {"success": False, "error": "Token expired and refresh failed"}
 

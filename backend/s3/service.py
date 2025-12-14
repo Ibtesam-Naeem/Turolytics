@@ -60,20 +60,8 @@ class S3Service:
         else:
             return boto3.client('s3', **client_config)
     
-    def _get_account(self, account_id: int) -> Account:
-        """Get account by ID or user_id, raise ValueError if not found."""
-        account = self.db.query(Account).filter(Account.id == account_id).first()
-        
-        if not account:
-            account = DatabaseService.get_account_by_user_id(self.db, account_id)
-        
-        if not account:
-            raise ValueError(f"Account {account_id} not found")
-        return account
-    
-    def get_document(self, document_id: int, account_id: int) -> Document:
-        """Get document by ID and account_id, raise ValueError if not found."""
-        account = self._get_account(account_id)
+    def get_document(self, document_id: int, account: Account) -> Document:
+        """Get document by ID and account, raise ValueError if not found."""
         document = self.db.query(Document).filter(
             Document.id == document_id,
             Document.account_id == account.id
@@ -82,19 +70,19 @@ class S3Service:
             raise ValueError(f"Document {document_id} not found")
         return document
     
-    def _generate_s3_key(self, account_id: int, file_name: str) -> str:
+    def _generate_s3_key(self, account: Account, file_name: str) -> str:
         """Generate unique S3 key for file."""
         file_ext = Path(file_name).suffix
         unique_id = str(uuid.uuid4())
         timestamp = datetime.utcnow().strftime("%Y/%m/%d")
-        return f"documents/{account_id}/{timestamp}/{unique_id}{file_ext}"
+        return f"documents/{account.id}/{timestamp}/{unique_id}{file_ext}"
     
     def upload_file(
         self,
         file_content: bytes,
         file_name: str,
         file_type: str,
-        account_id: int,
+        account: Account,
         category: DocumentCategory,
         vehicle_id: Optional[int] = None,
         description: Optional[str] = None
@@ -111,8 +99,6 @@ class S3Service:
         if file_type and file_type.lower() not in [ft.lower() for ft in ALLOWED_FILE_TYPES]:
             raise ValueError(f"File type '{file_type}' is not allowed. Allowed types: {', '.join(sorted(ALLOWED_FILE_TYPES))}")
         
-        account = self._get_account(account_id)
-        
         if vehicle_id:
             from core.database.models.turo.vehicle import Vehicle
             vehicle = self.db.query(Vehicle).filter(
@@ -120,9 +106,9 @@ class S3Service:
                 Vehicle.account_id == account.id
             ).first()
             if not vehicle:
-                raise ValueError(f"Vehicle {vehicle_id} not found for account {account_id}")
+                raise ValueError(f"Vehicle {vehicle_id} not found for account {account.id}")
         
-        s3_key = self._generate_s3_key(account.id, file_name)
+        s3_key = self._generate_s3_key(account, file_name)
         
         try:
             self.s3_client.put_object(
@@ -163,9 +149,9 @@ class S3Service:
             self.db.rollback()
             raise
     
-    def download_file(self, document_id: int, account_id: int) -> Tuple[bytes, str, str]:
+    def download_file(self, document_id: int, account: Account) -> Tuple[bytes, str, str]:
         """Download file from S3."""
-        document = self.get_document(document_id, account_id)
+        document = self.get_document(document_id, account)
         
         try:
             response = self.s3_client.get_object(
@@ -180,9 +166,9 @@ class S3Service:
             logger.error(f"S3 download error: {e}")
             raise ValueError(f"Failed to download file from S3: {str(e)}")
     
-    def delete_file(self, document_id: int, account_id: int) -> bool:
+    def delete_file(self, document_id: int, account: Account) -> bool:
         """Delete file from S3 and database."""
-        document = self.get_document(document_id, account_id)
+        document = self.get_document(document_id, account)
         
         try:
             self.s3_client.delete_object(
@@ -201,9 +187,9 @@ class S3Service:
             self.db.rollback()
             raise ValueError(f"Failed to delete file from S3: {str(e)}")
     
-    def get_presigned_url(self, document_id: int, account_id: int, expiration: int = 3600) -> str:
+    def get_presigned_url(self, document_id: int, account: Account, expiration: int = 3600) -> str:
         """Generate presigned URL for file access."""
-        document = self.get_document(document_id, account_id)
+        document = self.get_document(document_id, account)
         
         try:
             url = self.s3_client.generate_presigned_url(
@@ -222,7 +208,7 @@ class S3Service:
     
     def list_documents(
         self,
-        account_id: int,
+        account: Account,
         vehicle_id: Optional[int] = None,
         category: Optional[DocumentCategory] = None,
         search: Optional[str] = None,
@@ -232,8 +218,6 @@ class S3Service:
         offset: int = 0
     ) -> Tuple[List[Document], int]:
         """List documents with filtering and pagination."""
-        account = self._get_account(account_id)
-        
         query = self.db.query(Document).filter(Document.account_id == account.id)
         
         if vehicle_id is not None:
@@ -265,13 +249,13 @@ class S3Service:
     def update_document(
         self,
         document_id: int,
-        account_id: int,
+        account: Account,
         category: Optional[DocumentCategory] = None,
         vehicle_id: Optional[int] = None,
         description: Optional[str] = None
     ) -> Document:
         """Update document metadata."""
-        document = self.get_document(document_id, account_id)
+        document = self.get_document(document_id, account)
         
         try:
             if category is not None:

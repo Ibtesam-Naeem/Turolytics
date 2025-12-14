@@ -3,10 +3,8 @@ from typing import Optional, List, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, case
 from datetime import datetime
-from fastapi import HTTPException
 
-from core.database.models import Trip, Vehicle, Review, EarningsBreakdown, VehicleEarnings
-from core.database.db_service import DatabaseService
+from core.database.models import Trip, Vehicle, Review, EarningsBreakdown, VehicleEarnings, Account
 
 # ------------------------------ SERVICE ------------------------------
 
@@ -16,21 +14,13 @@ class TuroDataService:
     def __init__(self, db: Session):
         self.db = db
     
-    def _require_account(self, user_id: int):
-        """Validate account exists and return account object."""
-        account = DatabaseService.get_account_by_user_id(self.db, user_id)
-        if not account:
-            raise HTTPException(status_code=404, detail=f"Account {user_id} not found")
-        return account
-    
-    def _build_base_query(self, model_class, user_id: int):
-        """Build base query filtered by user_id."""
-        account = self._require_account(user_id)
+    def _build_base_query(self, model_class, account: Account):
+        """Build base query filtered by account."""
         return self.db.query(model_class).filter(model_class.account_id == account.id)
     
     def get_trips(
         self,
-        user_id: int,
+        account: Account,
         trip_id: Optional[str] = None,
         status: Optional[str] = None,
         trip_type: Optional[str] = None,
@@ -41,7 +31,7 @@ class TuroDataService:
         offset: int = 0
     ) -> Tuple[List[Trip], int]:
         """Get trips with filtering and pagination."""
-        query = self._build_base_query(Trip, user_id)
+        query = self._build_base_query(Trip, account)
         
         if trip_id:
             query = query.filter(Trip.trip_id == trip_id)
@@ -63,7 +53,7 @@ class TuroDataService:
     
     def get_vehicles(
         self,
-        user_id: int,
+        account: Account,
         vehicle_id: Optional[int] = None,
         license_plate: Optional[str] = None,
         status: Optional[str] = None,
@@ -71,7 +61,7 @@ class TuroDataService:
         offset: int = 0
     ) -> Tuple[List[Vehicle], int]:
         """Get vehicles with filtering and pagination."""
-        query = self._build_base_query(Vehicle, user_id)
+        query = self._build_base_query(Vehicle, account)
         
         if vehicle_id:
             query = query.filter(Vehicle.id == vehicle_id)
@@ -87,7 +77,7 @@ class TuroDataService:
     
     def get_reviews(
         self,
-        user_id: int,
+        account: Account,
         review_id: Optional[int] = None,
         vehicle_id: Optional[int] = None,
         min_rating: Optional[float] = None,
@@ -96,7 +86,7 @@ class TuroDataService:
         offset: int = 0
     ) -> Tuple[List[Review], int]:
         """Get reviews with filtering and pagination."""
-        query = self._build_base_query(Review, user_id)
+        query = self._build_base_query(Review, account)
         
         if review_id:
             query = query.filter(Review.id == review_id)
@@ -119,12 +109,12 @@ class TuroDataService:
     
     def get_earnings(
         self,
-        user_id: int,
+        account: Account,
         year: Optional[int] = None
     ) -> Tuple[List[EarningsBreakdown], List[VehicleEarnings]]:
         """Get earnings data."""
-        breakdown_query = self._build_base_query(EarningsBreakdown, user_id)
-        vehicle_earnings_query = self._build_base_query(VehicleEarnings, user_id)
+        breakdown_query = self._build_base_query(EarningsBreakdown, account)
+        vehicle_earnings_query = self._build_base_query(VehicleEarnings, account)
         
         if year:
             breakdown_query = breakdown_query.filter(EarningsBreakdown.year == str(year))

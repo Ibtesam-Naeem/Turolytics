@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from .service import BouncieService
 from .data_fetcher import fetch_trips_in_date_range
 from .matching import match_trip, match_all_trips
-from .utils import trip_to_dict, get_account_or_raise
+from .utils import trip_to_dict
 from .schemas import (
     APIResponse,
     MatchRequest,
@@ -19,6 +19,7 @@ from .schemas import (
 )
 from core.database import get_db
 from core.database.models import Trip, BouncieTripMatch, BouncieVehicleMapping, BouncieIntegration, Account, Vehicle
+from core.security.auth import get_current_active_user
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -27,9 +28,9 @@ logger = logging.getLogger(__name__)
 
 def get_bouncie_service(
     db: Session = Depends(get_db),
-    account_id: Optional[int] = Query(None, description="Account ID")
+    current_user: Account = Depends(get_current_active_user)
 ) -> BouncieService:
-    return BouncieService(db=db, account_id=account_id)
+    return BouncieService(db=db, account=current_user)
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
 
@@ -61,12 +62,10 @@ def _build_match_out(match: BouncieTripMatch, trip: Trip = None, include_full_da
 
 async def _fetch_turo_trips(
     db: Session,
-    account_id: int,
+    account: Account,
     trip_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """Fetch Turo trips from database."""
-    account = get_account_or_raise(db, account_id)
-    
     if trip_id:
         trip = db.query(Trip).filter(
             Trip.account_id == account.id,
@@ -106,28 +105,27 @@ router = APIRouter()
 
 @router.get("/auth/url", response_model=APIResponse, tags=["Authentication"])
 async def get_authorization_url(
-    account_id: int = Query(..., description="Account ID to associate with this auth"),
     service: BouncieService = Depends(get_bouncie_service)
 ):
     """
     Get Bouncie OAuth authorization URL.
-    The account_id is included in the state parameter so the callback knows which account to save tokens for.
+    The user_id is included in the state parameter so the callback knows which account to save tokens for.
     """
-    state = str(account_id)
+    state = str(service.account.user_id)
     url = service.get_authorization_url(state)
     return APIResponse(success=True, data={"authorization_url": url})
 
 @router.get("/auth/status", response_model=APIResponse, tags=["Authentication"])
 async def get_integration_status(
-    account_id: int = Query(..., description="Account ID"),
+    current_user: Account = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """
     Check if account has an active Bouncie integration.
-    Returns integration status and basic info.
+    Returns integration status and basic info for authenticated user.
     """
     try:
-        account = get_account_or_raise(db, account_id)
+        account = current_user
         
         from core.database.models import BouncieIntegration
         
@@ -167,15 +165,15 @@ async def get_integration_status(
 
 @router.delete("/auth/disconnect", response_model=APIResponse, tags=["Authentication"])
 async def disconnect_integration(
-    account_id: int = Query(..., description="Account ID"),
+    current_user: Account = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """
-    Disconnect Bouncie integration for an account.
+    Disconnect Bouncie integration for authenticated user.
     Removes OAuth tokens and integration data from the database.
     """
     try:
-        account = get_account_or_raise(db, account_id)
+        account = current_user
         
         integration = db.query(BouncieIntegration).filter(
             BouncieIntegration.account_id == account.id
@@ -209,11 +207,11 @@ async def disconnect_integration(
 
 @router.delete("/auth/delete-all-data", response_model=APIResponse, tags=["Authentication"])
 async def delete_all_bouncie_data(
-    account_id: int = Query(..., description="Account ID"),
+    current_user: Account = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """
-    Delete ALL Bouncie-related data for an account.
+    Delete ALL Bouncie-related data for authenticated user.
     
     This is a comprehensive deletion endpoint for data privacy/GDPR compliance.
     Deletes:
@@ -222,7 +220,7 @@ async def delete_all_bouncie_data(
     - Integration/OAuth tokens (BouncieIntegration)
     """
     try:
-        account = get_account_or_raise(db, account_id)
+        account = current_user
         
         deletion_summary = {
             "trip_matches_deleted": 0,
@@ -279,7 +277,7 @@ async def delete_all_bouncie_data(
 
 @router.get("/auth/token", response_model=APIResponse, tags=["Authentication"])
 async def get_access_token(
-    account_id: int = Query(..., description="Account ID"),
+    current_user: Account = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -287,7 +285,7 @@ async def get_access_token(
     Returns temporary access token that frontend can use to call Bouncie API directly.
     """
     try:
-        account = get_account_or_raise(db, account_id)
+        account = current_user
         
         integration = db.query(BouncieIntegration).filter(
             BouncieIntegration.account_id == account.id
@@ -299,10 +297,10 @@ async def get_access_token(
                 detail="Bouncie not connected for this account"
             )
         
-        service = BouncieService(db=db, account_id=account_id)
+        service = BouncieService(db=db, account=account)
         
         if integration.expires_at and integration.expires_at < datetime.now(timezone.utc):
-            logger.info(f"Token expired for account {account_id}, refreshing...")
+            logger.info(f"Token expired for account {account.id}, refreshing...")
             refresh_success = await service._refresh_access_token()
             if not refresh_success:
                 raise HTTPException(
@@ -343,19 +341,19 @@ async def get_access_token(
 
 @router.get("/matches", response_model=APIResponse, tags=["Stored Data"])
 async def get_stored_matches(
-    account_id: int = Query(..., description="Account ID"),
     trip_id: Optional[str] = Query(None, description="Filter by Turo trip_id"),
     include_polylines: bool = Query(False, description="Include polyline and coordinate data for map display"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of results"),
     offset: int = Query(0, ge=0, description="Number of results to skip"),
+    current_user: Account = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """
     Get stored Bouncie trip matches from the database.
-    Returns all matches for an account, optionally filtered by trip_id.
+    Returns all matches for authenticated user, optionally filtered by trip_id.
     """
     try:
-        account = get_account_or_raise(db, account_id)
+        account = current_user
         
         query = db.query(BouncieTripMatch).filter(
             BouncieTripMatch.account_id == account.id
@@ -402,13 +400,13 @@ async def get_stored_matches(
 @router.get("/matches/{match_id}", response_model=APIResponse, tags=["Stored Data"])
 async def get_stored_match_detail(
     match_id: int = Path(..., description="Match ID"),
-    account_id: int = Query(..., description="Account ID"),
     include_full_data: bool = Query(False, description="Include full coordinates and match_data"),
+    current_user: Account = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Get detailed information about a specific stored match."""
     try:
-        account = get_account_or_raise(db, account_id)
+        account = current_user
         
         match = db.query(BouncieTripMatch).filter(
             BouncieTripMatch.id == match_id,
@@ -434,14 +432,14 @@ async def get_stored_match_detail(
 
 @router.get("/mappings", response_model=APIResponse, tags=["Stored Data"])
 async def get_vehicle_mappings(
-    account_id: int = Query(..., description="Account ID"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of results"),
     offset: int = Query(0, ge=0, description="Number of results to skip"),
+    current_user: Account = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Get stored vehicle mappings (Turo vehicles linked to Bouncie IMEIs)."""
     try:
-        account = get_account_or_raise(db, account_id)
+        account = current_user
         
         query = db.query(BouncieVehicleMapping).filter(
             BouncieVehicleMapping.account_id == account.id
@@ -486,12 +484,12 @@ async def get_vehicle_mappings(
 @router.get("/mappings/{mapping_id}", response_model=APIResponse, tags=["Stored Data"])
 async def get_vehicle_mapping_detail(
     mapping_id: int = Path(..., description="Mapping ID"),
-    account_id: int = Query(..., description="Account ID"),
+    current_user: Account = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Get specific vehicle mapping by ID."""
     try:
-        account = get_account_or_raise(db, account_id)
+        account = current_user
         
         mapping = db.query(BouncieVehicleMapping).filter(
             BouncieVehicleMapping.id == mapping_id,
@@ -526,13 +524,14 @@ async def get_vehicle_mapping_detail(
 @router.post("/mappings", response_model=APIResponse, tags=["Stored Data"])
 async def create_vehicle_mapping(
     request: VehicleMappingRequest,
+    current_user: Account = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """
     Create a new vehicle mapping (link Turo vehicle to Bouncie IMEI).
     """
     try:
-        account = get_account_or_raise(db, request.account_id)
+        account = current_user
         
         vehicle = db.query(Vehicle).filter(
             Vehicle.id == request.vehicle_id,
@@ -610,8 +609,8 @@ async def create_vehicle_mapping(
 @router.put("/mappings/{mapping_id}", response_model=APIResponse, tags=["Stored Data"])
 async def update_vehicle_mapping(
     mapping_id: int = Path(..., description="Mapping ID"),
-    account_id: int = Query(..., description="Account ID"),
     request: VehicleMappingUpdateRequest = ...,
+    current_user: Account = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -619,7 +618,7 @@ async def update_vehicle_mapping(
     Only provided fields will be updated.
     """
     try:
-        account = get_account_or_raise(db, account_id)
+        account = current_user
         
         mapping = db.query(BouncieVehicleMapping).filter(
             BouncieVehicleMapping.id == mapping_id,
@@ -713,7 +712,7 @@ async def update_vehicle_mapping(
 @router.delete("/mappings/{mapping_id}", response_model=APIResponse, tags=["Stored Data"])
 async def delete_vehicle_mapping(
     mapping_id: int = Path(..., description="Mapping ID"),
-    account_id: int = Query(..., description="Account ID"),
+    current_user: Account = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -721,7 +720,7 @@ async def delete_vehicle_mapping(
     This will unlink the Turo vehicle from the Bouncie IMEI.
     """
     try:
-        account = get_account_or_raise(db, account_id)
+        account = current_user
         
         mapping = db.query(BouncieVehicleMapping).filter(
             BouncieVehicleMapping.id == mapping_id,
@@ -764,18 +763,16 @@ async def delete_vehicle_mapping(
 @router.post("/matches/match", response_model=APIResponse, tags=["Actions"])
 async def match_trips(
     request: MatchRequest,
+    current_user: Account = Depends(get_current_active_user),
     db: Session = Depends(get_db),
     service: BouncieService = Depends(get_bouncie_service)
 ):
     """Real-time trip matching: Match Turo trips with Bouncie trips."""
     try:
-        if service.account_id != request.account_id:
-            service.account_id = request.account_id
-            service._load_tokens()
-        elif not service.access_token:
+        if not service.access_token:
             service._load_tokens()
             
-        turo_trips = await _fetch_turo_trips(db, request.account_id, request.trip_id)
+        turo_trips = await _fetch_turo_trips(db, current_user, request.trip_id)
         if not turo_trips:
             return APIResponse(success=True, data={"matches": [], "message": "No trips found"})
         
@@ -821,10 +818,10 @@ async def match_trips(
 
 @router.post("/matches/sync", response_model=APIResponse, tags=["Actions"])
 async def sync_matches(
-    account_id: int = Query(..., description="Account ID"),
     days_back: int = Query(365, ge=1, le=365, description="Number of days back to fetch"),
     skip_existing: bool = Query(True, description="Skip trips that already have matches"),
     force_rematch: bool = Query(False, description="Force re-matching of all trips (overrides skip_existing)"),
+    current_user: Account = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Re-trigger automatic matching process. Fetches recent trips and matches them with Turo trips, storing results in database. By default, skips trips that already have matches for faster processing. Set force_rematch=True to re-match all trips."""
@@ -833,7 +830,7 @@ async def sync_matches(
         
         result = await process_bouncie_link(
             db,
-            account_id,
+            current_user.id,
             days_back=days_back,
             skip_existing_matches=skip_existing,
             force_rematch=force_rematch

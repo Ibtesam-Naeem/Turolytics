@@ -11,6 +11,8 @@ from .schemas import DocumentOut, DocumentUpdateRequest
 from turo.schemas import APIResponse
 from core.database import get_db
 from core.database.models.s3 import DocumentCategory
+from core.database.models.account import Account
+from core.security.auth import get_current_active_user
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -28,11 +30,11 @@ def get_s3_service(db: Session = Depends(get_db)) -> S3Service:
 
 @router.post("/upload", response_model=APIResponse)
 async def upload_document(
-    account_id: int = Form(..., description="Account ID"),
     category: DocumentCategory = Form(..., description="Document category"),
     vehicle_id: Optional[int] = Form(None, description="Vehicle ID (optional, use null for general)"),
     description: Optional[str] = Form(None, description="Optional description"),
     file: UploadFile = File(..., description="File to upload"),
+    current_user: Account = Depends(get_current_active_user),
     service: S3Service = Depends(get_s3_service)
 ) -> APIResponse:
     """Upload a document to S3."""
@@ -43,7 +45,7 @@ async def upload_document(
             file_content=file_content,
             file_name=file.filename or "unnamed",
             file_type=file.content_type or "application/octet-stream",
-            account_id=account_id,
+            account=current_user,
             category=category,
             vehicle_id=vehicle_id,
             description=description
@@ -65,7 +67,6 @@ async def upload_document(
 
 @router.get("/list", response_model=APIResponse)
 async def list_documents(
-    account_id: int = Query(..., description="Account ID"),
     vehicle_id: Optional[int] = Query(None, description="Filter by vehicle ID (use null for general/non-vehicle documents)"),
     category: Optional[DocumentCategory] = Query(None, description="Filter by category"),
     search: Optional[str] = Query(None, description="Search in file name or description"),
@@ -73,12 +74,13 @@ async def list_documents(
     end_date: Optional[datetime] = Query(None, description="Filter documents created on or before this date (ISO format)"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of results"),
     offset: int = Query(0, ge=0, description="Number of results to skip"),
+    current_user: Account = Depends(get_current_active_user),
     service: S3Service = Depends(get_s3_service)
 ) -> APIResponse:
     """List documents with filtering and pagination."""
     try:
         documents, total = service.list_documents(
-            account_id=account_id,
+            account=current_user,
             vehicle_id=vehicle_id,
             category=category,
             search=search,
@@ -107,15 +109,15 @@ async def list_documents(
 @router.get("/{document_id}", response_model=None)
 async def get_document(
     document_id: int = Path(..., description="Document ID"),
-    account_id: int = Query(..., description="Account ID"),
     action: Optional[str] = Query(None, description="Action: 'download' to download file, 'url' to get presigned URL, or omit for metadata"),
     expiration: int = Query(3600, ge=60, le=604800, description="URL expiration time in seconds (60-604800) - only used with action=url"),
+    current_user: Account = Depends(get_current_active_user),
     service: S3Service = Depends(get_s3_service)
 ) -> Union[APIResponse, StreamingResponse]:
     """Get document metadata, download file, or get presigned URL."""
     try:
         if action == "download":
-            file_content, file_name, file_type = service.download_file(document_id, account_id)
+            file_content, file_name, file_type = service.download_file(document_id, current_user)
             file_stream = BytesIO(file_content)
             return StreamingResponse(
                 file_stream,
@@ -125,7 +127,7 @@ async def get_document(
                 }
             )
         elif action == "url":
-            url = service.get_presigned_url(document_id, account_id, expiration)
+            url = service.get_presigned_url(document_id, current_user, expiration)
             return APIResponse(
                 success=True,
                 data={
@@ -134,7 +136,7 @@ async def get_document(
                 }
             )
         else:
-            document = service.get_document(document_id, account_id)
+            document = service.get_document(document_id, current_user)
             return APIResponse(
                 success=True,
                 data={"document": DocumentOut.model_validate(document, from_attributes=True)}
@@ -149,15 +151,15 @@ async def get_document(
 @router.put("/{document_id}", response_model=APIResponse)
 async def update_document(
     document_id: int = Path(..., description="Document ID"),
-    account_id: int = Query(..., description="Account ID"),
     request: DocumentUpdateRequest = ...,
+    current_user: Account = Depends(get_current_active_user),
     service: S3Service = Depends(get_s3_service)
 ) -> APIResponse:
     """Update document metadata."""
     try:
         document = service.update_document(
             document_id=document_id,
-            account_id=account_id,
+            account=current_user,
             category=request.category,
             vehicle_id=request.vehicle_id,
             description=request.description
@@ -180,12 +182,12 @@ async def update_document(
 @router.delete("/{document_id}", response_model=APIResponse)
 async def delete_document(
     document_id: int = Path(..., description="Document ID"),
-    account_id: int = Query(..., description="Account ID"),
+    current_user: Account = Depends(get_current_active_user),
     service: S3Service = Depends(get_s3_service)
 ) -> APIResponse:
     """Delete a document from S3 and database."""
     try:
-        service.delete_file(document_id, account_id)
+        service.delete_file(document_id, current_user)
         
         return APIResponse(
             success=True,

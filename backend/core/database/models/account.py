@@ -1,6 +1,6 @@
 # ------------------------------ IMPORTS ------------------------------
 import hashlib
-from sqlalchemy import Column, Integer, String, DateTime, func
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, func
 from sqlalchemy.orm import relationship
 from core.database.connection import Base
 
@@ -14,6 +14,23 @@ class Account(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, unique=True, nullable=False, index=True, comment="Hash-based user ID generated from email")
     email = Column(String, unique=True, nullable=False, index=True, comment="User email address")
+    password_hash = Column(String, nullable=True, comment="Hashed password for authentication")
+    
+    # 2FA fields (with defaults for existing database)
+    two_factor_enabled = Column(Boolean, default=False, nullable=False)
+    two_factor_secret = Column(String, nullable=True)
+    two_factor_method = Column(String, nullable=True)
+    phone_number = Column(String, nullable=True)
+    email_verified = Column(Boolean, default=False, nullable=False)
+    phone_verified = Column(Boolean, default=False, nullable=False)
+    
+    # Password reset
+    password_reset_token = Column(String, nullable=True, comment="Token for password reset")
+    password_reset_expires = Column(DateTime(timezone=True), nullable=True, comment="Password reset token expiration")
+    
+    # Email verification
+    email_verification_token = Column(String, nullable=True, comment="Token for email verification")
+    email_verification_expires = Column(DateTime(timezone=True), nullable=True, comment="Email verification token expiration")
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -25,6 +42,7 @@ class Account(Base):
     vehicle_earnings = relationship("VehicleEarnings", back_populates="account", cascade="all, delete-orphan")
     session_storage = relationship("SessionStorage", back_populates="account", uselist=False, cascade="all, delete-orphan")
     bouncie_integration = relationship("BouncieIntegration", back_populates="account", uselist=False, cascade="all, delete-orphan")
+    turo_integration = relationship("TuroIntegration", back_populates="account", uselist=False, cascade="all, delete-orphan")
     bouncie_vehicle_mappings = relationship("BouncieVehicleMapping", back_populates="account", cascade="all, delete-orphan")
     bouncie_trip_matches = relationship("BouncieTripMatch", back_populates="account", cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="account", cascade="all, delete-orphan")

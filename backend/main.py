@@ -9,6 +9,7 @@ import os
 from typing import Optional
 
 from core.database import init_db, get_db
+from core.security.routes import router as auth_router
 from turo.routes import router as turo_router
 from bouncie.routes import router as bouncie_router
 from bouncie.service import BouncieService
@@ -52,6 +53,7 @@ app.add_middleware(
 )
 
 # ------------------------------ ROUTERS ------------------------------
+app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(turo_router, prefix="/api/turo")
 app.include_router(bouncie_router, prefix="/api/bouncie")
 app.include_router(s3_router, prefix="/api/documents")

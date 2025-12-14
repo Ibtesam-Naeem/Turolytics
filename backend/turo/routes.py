@@ -7,7 +7,11 @@ import logging
 
 from .scraping_service import ScrapingService
 from core.database.models.account import Account
+from core.database.models.turo_integration import TuroIntegration
 from core.database import get_db
+from core.security.auth import get_current_active_user
+from core.security.encryption import encrypt_password, decrypt_password
+from .data.login import start_turo_login, submit_turo_2fa_code
 from sqlalchemy.orm import Session
 from .service import TuroDataService
 from .schemas import (
@@ -39,13 +43,275 @@ SCRAPER_MAP = {
 # ------------------------------ PYDANTIC MODELS ------------------------------
 
 class ScrapeRequest(BaseModel):
+    email: Optional[str] = None  # Optional if credentials are stored
+    password: Optional[str] = None  # Optional if credentials are stored
+
+class TuroConnectRequest(BaseModel):
     email: str
     password: str
+
+class Turo2FARequest(BaseModel):
+    session_id: str
+    code: str
 
 class ScrapeResponse(BaseModel):
     task_id: str
     account_id: int
     scraper_type: str
+
+# ------------------------------ AUTHENTICATION ENDPOINTS ------------------------------
+
+@router.get("/auth/status", response_model=APIResponse, tags=["Authentication"])
+async def get_turo_integration_status(
+    current_user: Account = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Check if account has Turo credentials stored.
+    Returns integration status for authenticated user.
+    """
+    try:
+        integration = db.query(TuroIntegration).filter(
+            TuroIntegration.account_id == current_user.id
+        ).first()
+        
+        if not integration:
+            return APIResponse(
+                success=True,
+                data={
+                    "connected": False,
+                    "message": "No Turo integration found for this account"
+                }
+            )
+        
+        return APIResponse(
+            success=True,
+            data={
+                "connected": True,
+                "email": integration.turo_email,
+                "has_active_session": integration.has_active_session == "True",
+                "created_at": integration.created_at.isoformat() if integration.created_at else None,
+                "updated_at": integration.updated_at.isoformat() if integration.updated_at else None
+            }
+        )
+    
+    except Exception as e:
+        logger.exception(f"Error checking Turo integration status: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@router.post("/auth/connect", response_model=APIResponse, tags=["Authentication"])
+async def connect_turo(
+    request: TuroConnectRequest,
+    current_user: Account = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Start Turo login process and store credentials.
+    If 2FA is required, returns session_id for 2FA submission.
+    """
+    try:
+        # Store credentials first (encrypted)
+        encrypted_password = encrypt_password(request.password)
+        
+        integration = db.query(TuroIntegration).filter(
+            TuroIntegration.account_id == current_user.id
+        ).first()
+        
+        if integration:
+            integration.turo_email = request.email
+            integration.turo_password_encrypted = encrypted_password
+            integration.has_active_session = "False"  # Will be set to True after successful login
+        else:
+            integration = TuroIntegration(
+                account_id=current_user.id,
+                turo_email=request.email,
+                turo_password_encrypted=encrypted_password,
+                has_active_session="False"
+            )
+            db.add(integration)
+        
+        db.commit()
+        logger.info(f"Turo credentials stored for account {current_user.id}")
+        
+        # Start login process
+        login_result = await start_turo_login(
+            account_id=current_user.user_id,
+            email=request.email,
+            password=request.password
+        )
+        
+        if not login_result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=login_result.get("error", "Login failed")
+            )
+        
+        # If 2FA is required, return session_id
+        if login_result.get("requires_2fa"):
+            return APIResponse(
+                success=True,
+                data={
+                    "requires_2fa": True,
+                    "session_id": login_result.get("session_id"),
+                    "message": "2FA code required. Please submit the code using /auth/connect/2fa"
+                }
+            )
+        
+        # Login successful without 2FA - update session status
+        integration.has_active_session = "True"
+        db.commit()
+        
+        # Check if this is first-time connection (no existing trips/vehicles)
+        # If so, automatically trigger full data scrape
+        from .service import TuroDataService
+        data_service = TuroDataService(db)
+        existing_trips, _ = data_service.get_trips(current_user, limit=1)
+        is_first_connection = len(existing_trips) == 0
+        
+        # Auto-scrape on first connection
+        task_id = None
+        if is_first_connection:
+            try:
+                task_id = await SCRAPER_MAP["all"](current_user.user_id, request.email, request.password)
+                logger.info(f"Auto-started full data scrape for new Turo connection: {task_id}")
+            except Exception as e:
+                logger.warning(f"Failed to auto-start scrape after connection: {e}")
+                # Don't fail the connection if scraping fails
+        
+        return APIResponse(
+            success=True,
+            data={
+                "message": "Turo account connected successfully",
+                "email": integration.turo_email,
+                "account_id": current_user.id,
+                "requires_2fa": False,
+                "auto_scrape_task_id": task_id  # Include task_id if scraping started
+            }
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error connecting Turo: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@router.post("/auth/connect/2fa", response_model=APIResponse, tags=["Authentication"])
+async def submit_turo_2fa(
+    request: Turo2FARequest,
+    current_user: Account = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Submit 2FA code to complete Turo login.
+    """
+    try:
+        result = await submit_turo_2fa_code(request.session_id, request.code)
+        
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("error", "2FA submission failed")
+            )
+        
+        # Get email and account_id from result (session is cleaned up in submit_turo_2fa_code)
+        email = result.get("email")
+        account_id = result.get("account_id")
+        
+        if not email:
+            raise HTTPException(
+                status_code=400,
+                detail="Failed to retrieve email from login session"
+            )
+        
+        # Update integration to mark session as active
+        integration = db.query(TuroIntegration).filter(
+            TuroIntegration.account_id == current_user.id
+        ).first()
+        
+        if integration:
+            # Update existing - session is now active
+            integration.has_active_session = "True"
+        else:
+            # This shouldn't happen, but handle gracefully
+            logger.warning(f"Integration not found for account {current_user.id} after 2FA success")
+        
+        # Check if this is first-time connection (no existing trips/vehicles)
+        # If so, automatically trigger full data scrape
+        from .service import TuroDataService
+        data_service = TuroDataService(db)
+        existing_trips, _ = data_service.get_trips(current_user, limit=1)
+        is_first_connection = len(existing_trips) == 0
+        
+        db.commit()
+        
+        # Auto-scrape on first connection
+        task_id = None
+        if is_first_connection and integration:
+            try:
+                # Get password from stored integration
+                password = decrypt_password(integration.turo_password_encrypted)
+                task_id = await SCRAPER_MAP["all"](current_user.user_id, email, password)
+                logger.info(f"Auto-started full data scrape for new Turo connection: {task_id}")
+            except Exception as e:
+                logger.warning(f"Failed to auto-start scrape after 2FA: {e}")
+                # Don't fail the connection if scraping fails
+        
+        return APIResponse(
+            success=True,
+            data={
+                "message": "Turo account connected successfully",
+                "email": email,
+                "account_id": current_user.id,
+                "auto_scrape_task_id": task_id  # Include task_id if scraping started
+            }
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error submitting 2FA: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@router.delete("/auth/disconnect", response_model=APIResponse, tags=["Authentication"])
+async def disconnect_turo(
+    current_user: Account = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Remove Turo credentials for authenticated user.
+    """
+    try:
+        integration = db.query(TuroIntegration).filter(
+            TuroIntegration.account_id == current_user.id
+        ).first()
+        
+        if not integration:
+            raise HTTPException(
+                status_code=404,
+                detail="No Turo integration found for this account"
+            )
+        
+        db.delete(integration)
+        db.commit()
+        
+        logger.info(f"Turo integration removed for account {current_user.id}")
+        
+        return APIResponse(
+            success=True,
+            data={
+                "message": "Turo integration disconnected successfully",
+                "account_id": current_user.id
+            }
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error disconnecting Turo: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 # ------------------------------ SCRAPING ENDPOINTS ------------------------------
 
@@ -65,17 +331,38 @@ async def get_scrape_status(task_id: str = Path(..., description="Task ID from s
 @router.post("/scrape/{scraper_type}", response_model=ScrapeResponse, tags=["Scraping"])
 async def scrape_data(
     request: ScrapeRequest,
-    scraper_type: str = Path(..., pattern="^(all|vehicles|trips|reviews|earnings)$", description="Type of data to scrape")
+    scraper_type: str = Path(..., pattern="^(all|vehicles|trips|reviews|earnings)$", description="Type of data to scrape"),
+    current_user: Account = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
 ) -> ScrapeResponse:
-    """Scrape data of specified type on demand."""
-    user_id = Account.get_user_id(request.email)
-    
+    """Scrape data of specified type on demand. Uses authenticated user's account."""
     try:
-        task_id = await SCRAPER_MAP[scraper_type](user_id, request.email, request.password)
-        logger.info(f"Started {scraper_type} scraping for {request.email}: {task_id}")
-        return ScrapeResponse(task_id=task_id, account_id=user_id, scraper_type=scraper_type)
+        # Get credentials from request or stored integration
+        email = request.email
+        password = request.password
+        
+        if not email or not password:
+            # Try to get from stored integration
+            integration = db.query(TuroIntegration).filter(
+                TuroIntegration.account_id == current_user.id
+            ).first()
+            
+            if integration:
+                email = integration.turo_email
+                password = decrypt_password(integration.turo_password_encrypted)
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Turo credentials required. Either provide email/password in request or connect Turo account first."
+                )
+        
+        task_id = await SCRAPER_MAP[scraper_type](current_user.user_id, email, password)
+        logger.info(f"Started {scraper_type} scraping for {current_user.email}: {task_id}")
+        return ScrapeResponse(task_id=task_id, account_id=current_user.user_id, scraper_type=scraper_type)
     except KeyError:
         raise HTTPException(status_code=400, detail=f"Invalid scraper type: {scraper_type}")
+    except HTTPException:
+        raise
     except RuntimeError as e:
         logger.error(f"Scraping runtime error: {e}")
         raise HTTPException(status_code=500, detail=f"Scraping failed: {str(e)}")
@@ -93,7 +380,6 @@ def get_turo_data_service(db: Session = Depends(get_db)) -> TuroDataService:
 
 @router.get("/data/trips", response_model=APIResponse, response_model_exclude_none=True, tags=["Trips"])
 async def get_trips(
-    account_id: int = Query(..., description="Turo account ID"),
     trip_id: Optional[str] = Query(None, description="Filter by specific trip ID"),
     status: Optional[str] = Query(None, description="Filter by trip status (COMPLETED, CANCELLED, etc.)"),
     trip_type: Optional[str] = Query(None, description="Filter by trip type (booked_trips, trip_history)"),
@@ -102,6 +388,7 @@ async def get_trips(
     end_date: Optional[datetime] = Query(None, description="Filter trips created on or before this date (ISO format)"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of results"),
     offset: int = Query(0, ge=0, description="Number of results to skip"),
+    current_user: Account = Depends(get_current_active_user),
     service: TuroDataService = Depends(get_turo_data_service)
 ) -> APIResponse:
     """Get trips with filtering and pagination."""
@@ -112,7 +399,7 @@ async def get_trips(
         )
     
     trips, total = service.get_trips(
-        user_id=account_id,
+        account=current_user,
         trip_id=trip_id,
         status=status,
         trip_type=trip_type,
@@ -135,17 +422,17 @@ async def get_trips(
 
 @router.get("/data/vehicles", response_model=APIResponse, response_model_exclude_none=True, tags=["Vehicles"])
 async def get_vehicles(
-    account_id: int = Query(..., description="Turo account ID"),
     vehicle_id: Optional[int] = Query(None, description="Filter by vehicle ID"),
     license_plate: Optional[str] = Query(None, description="Filter by license plate"),
     status: Optional[str] = Query(None, description="Filter by status (Listed, Snoozed)"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of results"),
     offset: int = Query(0, ge=0, description="Number of results to skip"),
+    current_user: Account = Depends(get_current_active_user),
     service: TuroDataService = Depends(get_turo_data_service)
 ) -> APIResponse:
     """Get vehicles with filtering and pagination."""
     vehicles, total = service.get_vehicles(
-        user_id=account_id,
+        account=current_user,
         vehicle_id=vehicle_id,
         license_plate=license_plate,
         status=status,
@@ -165,18 +452,18 @@ async def get_vehicles(
 
 @router.get("/data/reviews", response_model=APIResponse, response_model_exclude_none=True, tags=["Reviews"])
 async def get_reviews(
-    account_id: int = Query(..., description="Turo account ID"),
     review_id: Optional[int] = Query(None, description="Filter by review ID"),
     vehicle_id: Optional[int] = Query(None, description="Filter by vehicle ID"),
     min_rating: Optional[float] = Query(None, ge=1.0, le=5.0, description="Minimum rating"),
     has_response: Optional[bool] = Query(None, description="Filter by host response"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of results"),
     offset: int = Query(0, ge=0, description="Number of results to skip"),
+    current_user: Account = Depends(get_current_active_user),
     service: TuroDataService = Depends(get_turo_data_service)
 ) -> APIResponse:
     """Get reviews with filtering and pagination."""
     reviews, total = service.get_reviews(
-        user_id=account_id,
+        account=current_user,
         review_id=review_id,
         vehicle_id=vehicle_id,
         min_rating=min_rating,
@@ -197,12 +484,12 @@ async def get_reviews(
 
 @router.get("/data/earnings", response_model=APIResponse, response_model_exclude_none=True, tags=["Earnings"])
 async def get_earnings(
-    account_id: int = Query(..., description="Turo account ID"),
     year: Optional[int] = Query(None, description="Filter by year"),
+    current_user: Account = Depends(get_current_active_user),
     service: TuroDataService = Depends(get_turo_data_service)
 ) -> APIResponse:
     """Get earnings data."""
-    breakdowns, vehicle_earnings = service.get_earnings(user_id=account_id, year=year)
+    breakdowns, vehicle_earnings = service.get_earnings(account=current_user, year=year)
     
     return APIResponse(
         success=True,
