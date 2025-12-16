@@ -68,7 +68,14 @@ class DatabaseService:
     
     @staticmethod
     def get_or_create_account(db: Session, user_id: int, email: str) -> Account:
-        """Get or create an account by user_id and email."""
+        """
+        Get or create an account by user_id and email.
+        
+        Note: If account already exists, we do NOT update the email.
+        The email parameter is only used when creating a new account.
+        This prevents Turo email from overwriting the Turolytics account email.
+        The Turo email should be stored in TuroIntegration.turo_email, not Account.email.
+        """
         account = DatabaseService.get_account_by_user_id(db, user_id)
         if not account:
             account = Account(user_id=user_id, email=email)
@@ -76,11 +83,8 @@ class DatabaseService:
             db.commit()
             db.refresh(account)
             logger.info(f"Created new account: user_id={user_id}, email={email}")
-        elif account.email != email:
-            account.email = email
-            db.commit()
-            db.refresh(account)
-            logger.warning(f"Updated email for user_id={user_id}")
+        # Do NOT update email if account exists - preserve the original Turolytics account email
+        # The email parameter here might be a Turo email, which should be stored in TuroIntegration, not Account
         return account
     
     @staticmethod
@@ -375,4 +379,3 @@ class DatabaseService:
             return False
 
 # ------------------------------ END OF FILE ------------------------------
-

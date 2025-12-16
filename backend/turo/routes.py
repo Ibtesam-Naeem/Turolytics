@@ -157,7 +157,7 @@ async def connect_turo(
                 }
             )
         
-        # Login successful without 2FA - update session status
+        # Login successful without 2FA (or session restored) - update session status
         integration.has_active_session = "True"
         db.commit()
         
@@ -214,9 +214,10 @@ async def submit_turo_2fa(
                 detail=result.get("error", "2FA submission failed")
             )
         
-        # Get email and account_id from result (session is cleaned up in submit_turo_2fa_code)
+        # Get email, account_id, and password from result (session is cleaned up in submit_turo_2fa_code)
         email = result.get("email")
         account_id = result.get("account_id")
+        password = result.get("password")  # Password from session (temporary, in-memory)
         
         if not email:
             raise HTTPException(
@@ -249,13 +250,26 @@ async def submit_turo_2fa(
         task_id = None
         if is_first_connection and integration:
             try:
-                # Get password from stored integration
-                password = decrypt_password(integration.turo_password_encrypted)
-                task_id = await SCRAPER_MAP["all"](current_user.user_id, email, password)
-                logger.info(f"Auto-started full data scrape for new Turo connection: {task_id}")
+                # Use password from session if available (more reliable than decrypting)
+                # Fall back to decrypting if password not in session
+                if not password:
+                    try:
+                        password = decrypt_password(integration.turo_password_encrypted)
+                    except Exception as decrypt_error:
+                        logger.warning(f"Failed to decrypt password for auto-scrape: {decrypt_error}")
+                        password = None
+                
+                if password:
+                    task_id = await SCRAPER_MAP["all"](current_user.user_id, email, password)
+                    logger.info(f"Auto-started full data scrape for new Turo connection: {task_id}")
+                else:
+                    logger.warning("Cannot auto-scrape: password not available from session or decryption failed")
             except Exception as e:
                 logger.warning(f"Failed to auto-start scrape after 2FA: {e}")
                 # Don't fail the connection if scraping fails
+        
+        # Clear password from memory (security)
+        password = None
         
         return APIResponse(
             success=True,

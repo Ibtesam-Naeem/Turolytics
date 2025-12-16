@@ -252,12 +252,13 @@ async def complete_turo_login(account_id: int = 1, email: str = None, password: 
 _sessions: Dict[str, Dict[str, Any]] = {}
 SESSION_TIMEOUT_MINUTES = 10
 
-def _create_session(account_id: int, email: str, page: Page, context: BrowserContext, browser: Browser, is_main_page_2fa: bool) -> str:
+def _create_session(account_id: int, email: str, page: Page, context: BrowserContext, browser: Browser, is_main_page_2fa: bool, password: str = None) -> str:
     """Create a new login session and return session ID."""
     session_id = str(uuid.uuid4())
     _sessions[session_id] = {
         "account_id": account_id,
         "email": email,
+        "password": password,  # Store password temporarily for auto-scrape
         "page": page,
         "context": context,
         "browser": browser,
@@ -299,7 +300,7 @@ def _error_response(error: str) -> Dict[str, Any]:
     """Create a standardized error response."""
     return {"success": False, "error": error}
 
-def _success_response(requires_2fa: bool = False, message: str = "", session_id: str = None, email: str = None, account_id: int = None) -> Dict[str, Any]:
+def _success_response(requires_2fa: bool = False, message: str = "", session_id: str = None, email: str = None, account_id: int = None, password: str = None) -> Dict[str, Any]:
     """Create a standardized success response."""
     response = {"success": True, "requires_2fa": requires_2fa, "message": message}
     if session_id:
@@ -308,6 +309,8 @@ def _success_response(requires_2fa: bool = False, message: str = "", session_id:
         response["email"] = email
     if account_id:
         response["account_id"] = account_id
+    if password:
+        response["password"] = password  # Include password for auto-scrape (temporary, in-memory only)
     return response
 
 # ------------------------------ API LOGIN FLOW (FOR FRONTEND) ------------------------------
@@ -342,7 +345,7 @@ async def start_turo_login(account_id: int, email: str, password: str) -> Dict[s
                 return _error_response("Failed to prepare 2FA page")
             
             await page.wait_for_timeout(2000)
-            session_id = _create_session(account_id, email, page, context, browser, is_main_page)
+            session_id = _create_session(account_id, email, page, context, browser, is_main_page, password=password)
             logger.info(f"2FA required - created session {session_id} (is_main_page={is_main_page})")
             browser = None
             return _success_response(requires_2fa=True, session_id=session_id, message="2FA code required")
@@ -384,10 +387,11 @@ async def submit_turo_2fa_code(session_id: str, code: str) -> Dict[str, Any]:
         if await check_login_success(page):
             email = session["email"]
             account_id = session["account_id"]
+            password = session.get("password")  # Get password from session for auto-scrape
             
             await save_storage_state(session["context"], account_id=account_id, email=email)
             await _cleanup_and_remove_session(session_id)
-            return _success_response(message="Login successful", email=email, account_id=account_id)
+            return _success_response(message="Login successful", email=email, account_id=account_id, password=password)
         else:
             await _cleanup_and_remove_session(session_id)
             return _error_response("2FA code invalid or login failed")
