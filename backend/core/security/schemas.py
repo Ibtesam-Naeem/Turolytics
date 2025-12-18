@@ -5,6 +5,11 @@ from datetime import datetime
 class UserRegister(BaseModel):
     email: EmailStr
     password: str
+    firstName: Optional[str] = None
+    lastName: Optional[str] = None
+    phone: Optional[str] = None
+    country: Optional[str] = None
+    state: Optional[str] = None
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -19,6 +24,11 @@ class UserOut(BaseModel):
     user_id: int
     email: str
     email_verified: bool
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    country: Optional[str] = None
+    state: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     
@@ -43,5 +53,9 @@ class EmailVerificationConfirm(BaseModel):
     token: str
 
 class ProfileUpdateRequest(BaseModel):
-    email: Optional[EmailStr] = None
+    firstName: Optional[str] = None
+    lastName: Optional[str] = None
+    phone: Optional[str] = None
+    country: Optional[str] = None
+    state: Optional[str] = None
 

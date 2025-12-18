@@ -51,12 +51,20 @@ class VehicleOut(BaseOutModel):
     trim: Optional[str] = None
     license_plate: Optional[str] = None
     status: Optional[str] = None
+    status_mapped: Optional[str] = None  # Mapped status for frontend (active/maintenance/inactive)
     trip_info: Optional[str] = None
     rating: Optional[float] = None
     trip_count: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     scraped_at: Optional[datetime] = None
+    # Aggregated statistics
+    total_revenue: Optional[float] = None
+    total_odometer: Optional[int] = None
+    total_trips: Optional[int] = None
+    avg_rating: Optional[float] = None
+    review_count: Optional[int] = None
+    utilization: Optional[float] = None  # Utilization percentage (0-100)
 
 class ReviewOut(BaseOutModel):
     """Review output model."""

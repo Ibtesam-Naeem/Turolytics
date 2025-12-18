@@ -69,7 +69,16 @@ def authenticate_user(db: Session, email: str, password: str) -> Optional[Accoun
         return None
     return account
 
-def create_user(db: Session, email: str, password: str) -> Account:
+def create_user(
+    db: Session, 
+    email: str, 
+    password: str,
+    first_name: Optional[str] = None,
+    last_name: Optional[str] = None,
+    phone: Optional[str] = None,
+    country: Optional[str] = None,
+    state: Optional[str] = None
+) -> Account:
     existing_account = db.query(Account).filter(Account.email == email).first()
     if existing_account:
         raise HTTPException(
@@ -88,7 +97,12 @@ def create_user(db: Session, email: str, password: str) -> Account:
     account = Account(
         user_id=user_id,
         email=email,
-        password_hash=get_password_hash(password)
+        password_hash=get_password_hash(password),
+        first_name=first_name,
+        last_name=last_name,
+        phone_number=phone,
+        country=country,
+        state=state
     )
     
     db.add(account)

@@ -1,5 +1,5 @@
 # ------------------------------ IMPORTS ------------------------------
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, func
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, func
 from sqlalchemy.orm import relationship
 from core.database.connection import Base
 
@@ -22,7 +22,7 @@ class TuroIntegration(Base):
     turo_password_encrypted = Column(String, nullable=False)  # Encrypted password
     
     # Session info
-    has_active_session = Column(String, default=False, nullable=False)  # Boolean stored as string for compatibility
+    has_active_session = Column(Boolean, default=False, nullable=False)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

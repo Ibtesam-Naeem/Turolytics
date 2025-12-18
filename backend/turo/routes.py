@@ -40,6 +40,41 @@ SCRAPER_MAP = {
     "earnings": scraping_service.scrape_earnings,
 }
 
+# ------------------------------ HELPER FUNCTIONS ------------------------------
+
+async def _try_auto_scrape_on_first_connection(
+    db: Session,
+    current_user: Account,
+    email: str,
+    password: Optional[str],
+    integration: Optional[TuroIntegration] = None
+) -> Optional[str]:
+    """Check if first connection and trigger auto-scrape if needed. Returns task_id or None."""
+    data_service = TuroDataService(db)
+    existing_trips, _ = data_service.get_trips(current_user, limit=1)
+    
+    if existing_trips:
+        return None
+    
+    if not password and integration:
+        try:
+            password = decrypt_password(integration.turo_password_encrypted)
+        except Exception as decrypt_error:
+            logger.warning(f"Failed to decrypt password for auto-scrape: {decrypt_error}")
+            return None
+    
+    if not password:
+        logger.warning("Cannot auto-scrape: password not available")
+        return None
+    
+    try:
+        task_id = await SCRAPER_MAP["all"](current_user.user_id, email, password)
+        logger.info(f"Auto-started full data scrape for new Turo connection: {task_id}")
+        return task_id
+    except Exception as e:
+        logger.warning(f"Failed to auto-start scrape: {e}")
+        return None
+
 # ------------------------------ PYDANTIC MODELS ------------------------------
 
 class ScrapeRequest(BaseModel):
@@ -89,7 +124,7 @@ async def get_turo_integration_status(
             data={
                 "connected": True,
                 "email": integration.turo_email,
-                "has_active_session": integration.has_active_session == "True",
+                "has_active_session": integration.has_active_session,
                 "created_at": integration.created_at.isoformat() if integration.created_at else None,
                 "updated_at": integration.updated_at.isoformat() if integration.updated_at else None
             }
@@ -120,13 +155,13 @@ async def connect_turo(
         if integration:
             integration.turo_email = request.email
             integration.turo_password_encrypted = encrypted_password
-            integration.has_active_session = "False"  # Will be set to True after successful login
+            integration.has_active_session = False
         else:
             integration = TuroIntegration(
                 account_id=current_user.id,
                 turo_email=request.email,
                 turo_password_encrypted=encrypted_password,
-                has_active_session="False"
+                has_active_session=False
             )
             db.add(integration)
         
@@ -158,25 +193,12 @@ async def connect_turo(
             )
         
         # Login successful without 2FA (or session restored) - update session status
-        integration.has_active_session = "True"
+        integration.has_active_session = True
         db.commit()
         
-        # Check if this is first-time connection (no existing trips/vehicles)
-        # If so, automatically trigger full data scrape
-        from .service import TuroDataService
-        data_service = TuroDataService(db)
-        existing_trips, _ = data_service.get_trips(current_user, limit=1)
-        is_first_connection = len(existing_trips) == 0
-        
-        # Auto-scrape on first connection
-        task_id = None
-        if is_first_connection:
-            try:
-                task_id = await SCRAPER_MAP["all"](current_user.user_id, request.email, request.password)
-                logger.info(f"Auto-started full data scrape for new Turo connection: {task_id}")
-            except Exception as e:
-                logger.warning(f"Failed to auto-start scrape after connection: {e}")
-                # Don't fail the connection if scraping fails
+        task_id = await _try_auto_scrape_on_first_connection(
+            db, current_user, request.email, request.password
+        )
         
         return APIResponse(
             success=True,
@@ -189,8 +211,6 @@ async def connect_turo(
             }
         )
     
-    except HTTPException:
-        raise
     except Exception as e:
         logger.exception(f"Error connecting Turo: {e}")
         db.rollback()
@@ -232,44 +252,16 @@ async def submit_turo_2fa(
         
         if integration:
             # Update existing - session is now active
-            integration.has_active_session = "True"
+            integration.has_active_session = True
         else:
             # This shouldn't happen, but handle gracefully
             logger.warning(f"Integration not found for account {current_user.id} after 2FA success")
         
-        # Check if this is first-time connection (no existing trips/vehicles)
-        # If so, automatically trigger full data scrape
-        from .service import TuroDataService
-        data_service = TuroDataService(db)
-        existing_trips, _ = data_service.get_trips(current_user, limit=1)
-        is_first_connection = len(existing_trips) == 0
-        
         db.commit()
         
-        # Auto-scrape on first connection
-        task_id = None
-        if is_first_connection and integration:
-            try:
-                # Use password from session if available (more reliable than decrypting)
-                # Fall back to decrypting if password not in session
-                if not password:
-                    try:
-                        password = decrypt_password(integration.turo_password_encrypted)
-                    except Exception as decrypt_error:
-                        logger.warning(f"Failed to decrypt password for auto-scrape: {decrypt_error}")
-                        password = None
-                
-                if password:
-                    task_id = await SCRAPER_MAP["all"](current_user.user_id, email, password)
-                    logger.info(f"Auto-started full data scrape for new Turo connection: {task_id}")
-                else:
-                    logger.warning("Cannot auto-scrape: password not available from session or decryption failed")
-            except Exception as e:
-                logger.warning(f"Failed to auto-start scrape after 2FA: {e}")
-                # Don't fail the connection if scraping fails
-        
-        # Clear password from memory (security)
-        password = None
+        task_id = await _try_auto_scrape_on_first_connection(
+            db, current_user, email, password, integration
+        )
         
         return APIResponse(
             success=True,
@@ -281,8 +273,6 @@ async def submit_turo_2fa(
             }
         )
     
-    except HTTPException:
-        raise
     except Exception as e:
         logger.exception(f"Error submitting 2FA: {e}")
         db.rollback()
@@ -320,8 +310,6 @@ async def disconnect_turo(
             }
         )
     
-    except HTTPException:
-        raise
     except Exception as e:
         logger.exception(f"Error disconnecting Turo: {e}")
         db.rollback()
@@ -375,8 +363,6 @@ async def scrape_data(
         return ScrapeResponse(task_id=task_id, account_id=current_user.user_id, scraper_type=scraper_type)
     except KeyError:
         raise HTTPException(status_code=400, detail=f"Invalid scraper type: {scraper_type}")
-    except HTTPException:
-        raise
     except RuntimeError as e:
         logger.error(f"Scraping runtime error: {e}")
         raise HTTPException(status_code=500, detail=f"Scraping failed: {str(e)}")
@@ -439,25 +425,39 @@ async def get_vehicles(
     vehicle_id: Optional[int] = Query(None, description="Filter by vehicle ID"),
     license_plate: Optional[str] = Query(None, description="Filter by license plate"),
     status: Optional[str] = Query(None, description="Filter by status (Listed, Snoozed)"),
+    include_stats: bool = Query(True, description="Include aggregated statistics (revenue, trips, ratings)"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of results"),
     offset: int = Query(0, ge=0, description="Number of results to skip"),
     current_user: Account = Depends(get_current_active_user),
     service: TuroDataService = Depends(get_turo_data_service)
 ) -> APIResponse:
-    """Get vehicles with filtering and pagination."""
-    vehicles, total = service.get_vehicles(
-        account=current_user,
-        vehicle_id=vehicle_id,
-        license_plate=license_plate,
-        status=status,
-        limit=limit,
-        offset=offset
-    )
+    """Get vehicles with filtering and pagination. Optionally includes aggregated statistics."""
+    if include_stats:
+        vehicles_data, total = service.get_vehicles_with_stats(
+            account=current_user,
+            vehicle_id=vehicle_id,
+            license_plate=license_plate,
+            status=status,
+            limit=limit,
+            offset=offset
+        )
+        # Convert dict to VehicleOut models
+        vehicles = [VehicleOut(**v) for v in vehicles_data]
+    else:
+        vehicles, total = service.get_vehicles(
+            account=current_user,
+            vehicle_id=vehicle_id,
+            license_plate=license_plate,
+            status=status,
+            limit=limit,
+            offset=offset
+        )
+        vehicles = [VehicleOut.model_validate(v, from_attributes=True) for v in vehicles]
     
     return APIResponse(
         success=True,
         data={
-            "vehicles": [VehicleOut.model_validate(v, from_attributes=True) for v in vehicles],
+            "vehicles": [v.model_dump(exclude_none=True) for v in vehicles],
             "total": total,
             "limit": limit,
             "offset": offset
@@ -512,6 +512,125 @@ async def get_earnings(
             "vehicle_earnings": [VehicleEarningsOut.model_validate(v, from_attributes=True) for v in vehicle_earnings],
             "total_breakdown_items": len(breakdowns),
             "total_vehicles": len(vehicle_earnings)
+        }
+    )
+
+@router.get("/data/vehicles/top-performers", response_model=APIResponse, response_model_exclude_none=True, tags=["Vehicles"])
+async def get_top_performing_vehicles(
+    limit: int = Query(5, ge=1, le=20, description="Number of top performers to return"),
+    current_user: Account = Depends(get_current_active_user),
+    service: TuroDataService = Depends(get_turo_data_service)
+) -> APIResponse:
+    """Get top performing vehicles ranked by revenue."""
+    top_vehicles = service.get_top_performing_vehicles(
+        account=current_user,
+        limit=limit
+    )
+    
+    return APIResponse(
+        success=True,
+        data={
+            "vehicles": top_vehicles,
+            "total": len(top_vehicles)
+        }
+    )
+
+@router.get("/data/trips/today", response_model=APIResponse, response_model_exclude_none=True, tags=["Trips"])
+async def get_trips_today(
+    current_user: Account = Depends(get_current_active_user),
+    service: TuroDataService = Depends(get_turo_data_service)
+) -> APIResponse:
+    """Get trips that are active/happening today."""
+    trips = service.get_trips_today(account=current_user)
+    
+    return APIResponse(
+        success=True,
+        data={
+            "trips": trips,
+            "total": len(trips)
+        }
+    )
+
+@router.get("/data/trips/new-bookings-today", response_model=APIResponse, response_model_exclude_none=True, tags=["Trips"])
+async def get_new_bookings_today(
+    current_user: Account = Depends(get_current_active_user),
+    service: TuroDataService = Depends(get_turo_data_service)
+) -> APIResponse:
+    """Get new bookings created today."""
+    bookings = service.get_new_bookings_today(account=current_user)
+    
+    return APIResponse(
+        success=True,
+        data={
+            "bookings": bookings,
+            "total": len(bookings)
+        }
+    )
+
+@router.get("/data/trips/checkouts-today", response_model=APIResponse, response_model_exclude_none=True, tags=["Trips"])
+async def get_checkouts_today(
+    current_user: Account = Depends(get_current_active_user),
+    service: TuroDataService = Depends(get_turo_data_service)
+) -> APIResponse:
+    """Get checkouts happening today (trips ending today)."""
+    checkouts = service.get_checkouts_today(account=current_user)
+    
+    return APIResponse(
+        success=True,
+        data={
+            "checkouts": checkouts,
+            "total": len(checkouts)
+        }
+    )
+
+@router.get("/data/trips/upcoming", response_model=APIResponse, response_model_exclude_none=True, tags=["Trips"])
+async def get_upcoming_trips(
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of upcoming trips to return"),
+    current_user: Account = Depends(get_current_active_user),
+    service: TuroDataService = Depends(get_turo_data_service)
+) -> APIResponse:
+    """Get upcoming trips (trips with start_date in the future)."""
+    trips = service.get_upcoming_trips(account=current_user, limit=limit)
+    
+    return APIResponse(
+        success=True,
+        data={
+            "trips": trips,
+            "total": len(trips)
+        }
+    )
+
+@router.get("/data/trips/current", response_model=APIResponse, response_model_exclude_none=True, tags=["Trips"])
+async def get_current_trips(
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of current trips to return"),
+    current_user: Account = Depends(get_current_active_user),
+    service: TuroDataService = Depends(get_turo_data_service)
+) -> APIResponse:
+    """Get current/active trips (trips that are happening right now)."""
+    trips = service.get_current_trips(account=current_user, limit=limit)
+    
+    return APIResponse(
+        success=True,
+        data={
+            "trips": trips,
+            "total": len(trips)
+        }
+    )
+
+@router.get("/data/utilization/monthly", response_model=APIResponse, response_model_exclude_none=True, tags=["Analytics"])
+async def get_monthly_utilization(
+    year: Optional[int] = Query(None, description="Year to get utilization data for (defaults to current year)"),
+    current_user: Account = Depends(get_current_active_user),
+    service: TuroDataService = Depends(get_turo_data_service)
+) -> APIResponse:
+    """Get monthly utilization data for all vehicles."""
+    monthly_data = service.get_monthly_utilization(account=current_user, year=year)
+    
+    return APIResponse(
+        success=True,
+        data={
+            "months": monthly_data,
+            "total": len(monthly_data)
         }
     )
 

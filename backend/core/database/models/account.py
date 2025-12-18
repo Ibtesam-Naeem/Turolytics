@@ -16,11 +16,17 @@ class Account(Base):
     email = Column(String, unique=True, nullable=False, index=True, comment="User email address")
     password_hash = Column(String, nullable=True, comment="Hashed password for authentication")
     
+    # Profile fields
+    first_name = Column(String, nullable=True, comment="User's first name")
+    last_name = Column(String, nullable=True, comment="User's last name")
+    phone_number = Column(String, nullable=True, comment="User's phone number")
+    country = Column(String, nullable=True, comment="User's country")
+    state = Column(String, nullable=True, comment="User's state/province")
+    
     # 2FA fields (with defaults for existing database)
     two_factor_enabled = Column(Boolean, default=False, nullable=False)
     two_factor_secret = Column(String, nullable=True)
     two_factor_method = Column(String, nullable=True)
-    phone_number = Column(String, nullable=True)
     email_verified = Column(Boolean, default=False, nullable=False)
     phone_verified = Column(Boolean, default=False, nullable=False)
     

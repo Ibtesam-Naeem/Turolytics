@@ -26,7 +26,16 @@ router = APIRouter()
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def register(user_data: UserRegister, db: Session = Depends(get_db)):
-    account = create_user(db, user_data.email, user_data.password)
+    account = create_user(
+        db, 
+        user_data.email, 
+        user_data.password,
+        first_name=user_data.firstName,
+        last_name=user_data.lastName,
+        phone=user_data.phone,
+        country=user_data.country,
+        state=user_data.state
+    )
     return account
 
 @router.post("/login", response_model=Token)
@@ -220,21 +229,28 @@ async def update_profile(
     db: Session = Depends(get_db)
 ):
     """Update user profile."""
-    if request.email and request.email != current_user.email:
-        # Check if new email is already taken
-        existing = db.query(Account).filter(Account.email == request.email).first()
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already in use"
-            )
-        
-        # Update email and reset verification
-        current_user.email = request.email
-        current_user.user_id = Account.get_user_id(request.email)
-        current_user.email_verified = False
-        current_user.email_verification_token = None
-        current_user.email_verification_expires = None
+    # Update first name
+    if request.firstName is not None:
+        current_user.first_name = request.firstName
+    
+    # Update last name
+    if request.lastName is not None:
+        current_user.last_name = request.lastName
+    
+    # Update phone number
+    if request.phone is not None:
+        current_user.phone_number = request.phone
+    
+    # Update country
+    if request.country is not None:
+        current_user.country = request.country
+        # If country changes, clear state if it's not valid for new country
+        if request.state is None:
+            current_user.state = None
+    
+    # Update state
+    if request.state is not None:
+        current_user.state = request.state
     
     db.commit()
     db.refresh(current_user)
