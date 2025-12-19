@@ -90,3 +90,4 @@ drop_tables.py
 
 frontend 
 documentation/
+*.code-workspace
