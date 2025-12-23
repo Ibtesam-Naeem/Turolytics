@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from starlette.requests import Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta, datetime, timezone
+import logging
 
 from core.database import get_db
 from core.database.models import Account
@@ -18,9 +20,12 @@ from core.security.auth import (
 from core.security.schemas import (
     UserRegister, UserLogin, Token, UserOut,
     PasswordChangeRequest, PasswordResetRequest, PasswordResetConfirm,
-    EmailVerificationRequest, EmailVerificationConfirm, ProfileUpdateRequest
+    EmailVerificationRequest, EmailVerificationConfirm, ProfileUpdateRequest,
+    AccountDeletionRequest
 )
 from core.config.settings import settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -255,4 +260,70 @@ async def update_profile(
     db.commit()
     db.refresh(current_user)
     return current_user
+
+@router.post("/account/delete", status_code=status.HTTP_200_OK)
+async def delete_account(
+    request: Request,
+    deletion_request: AccountDeletionRequest,
+    current_user: Account = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Delete account and all associated data. Logs deletion for audit purposes."""
+    from core.database.models.account_deletion_log import AccountDeletionLog
+    from core.database.models.s3 import Document
+    from s3.service import S3Service
+    
+    try:
+        account_id = current_user.id
+        user_id = current_user.user_id
+        
+        # Log deletion BEFORE deleting account (for audit trail)
+        deletion_log = AccountDeletionLog(
+            account_id=account_id,
+            user_id=user_id,
+            deletion_reason=deletion_request.reason if deletion_request.reason else None,
+            ip_address=request.client.host if request.client else None
+        )
+        db.add(deletion_log)
+        db.flush()  # Flush to ensure log is saved before account deletion
+        
+        # Delete all S3 documents first (if S3 is configured)
+        try:
+            from core.config.settings import settings
+            if settings.s3.bucket_name:
+                s3_service = S3Service(db)
+                documents = db.query(Document).filter(
+                    Document.account_id == account_id
+                ).all()
+                
+                for document in documents:
+                    try:
+                        s3_service.s3_client.delete_object(
+                            Bucket=document.s3_bucket,
+                            Key=document.s3_key
+                        )
+                        logger.debug(f"Deleted S3 object {document.s3_key}")
+                    except Exception as e:
+                        logger.warning(f"Failed to delete S3 object {document.s3_key}: {e}")
+            else:
+                logger.info("S3 not configured, skipping S3 document deletion")
+        except Exception as e:
+            logger.warning(f"S3 deletion failed (may not be configured): {e}")
+            # Continue with account deletion even if S3 deletion fails
+        
+        # Delete account (cascade will handle all related records)
+        db.delete(current_user)
+        db.commit()
+        
+        logger.info(f"Account {account_id} (user_id: {user_id}) deleted. Reason: {deletion_request.reason if deletion_request.reason else 'Not provided'}")
+        
+        return {"message": "Account deleted successfully"}
+    
+    except Exception as e:
+        logger.exception(f"Error deleting account: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete account"
+        )
 

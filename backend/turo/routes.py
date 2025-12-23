@@ -9,6 +9,7 @@ from .scraping_service import ScrapingService
 from core.database.models.account import Account
 from core.database.models.turo_integration import TuroIntegration
 from core.database import get_db
+from core.database.db_service import DatabaseService
 from core.security.auth import get_current_active_user
 from core.security.encryption import encrypt_password, decrypt_password
 from .data.login import start_turo_login, submit_turo_2fa_code
@@ -22,6 +23,7 @@ from .schemas import (
     EarningsBreakdownOut,
     VehicleEarningsOut,
 )
+from typing import Dict, Any, Optional, List
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +95,14 @@ class ScrapeResponse(BaseModel):
     task_id: str
     account_id: int
     scraper_type: str
+
+class SeedDataRequest(BaseModel):
+    """Request model for seed data endpoint."""
+    vehicles: Optional[Dict[str, Any]] = None
+    trips: Optional[Dict[str, Any]] = None
+    reviews: Optional[Dict[str, Any]] = None
+    earnings: Optional[Dict[str, Any]] = None
+    overwrite: bool = True  # Whether to overwrite existing data
 
 # ------------------------------ AUTHENTICATION ENDPOINTS ------------------------------
 
@@ -369,6 +379,126 @@ async def scrape_data(
     except Exception as e:
         logger.error(f"Failed to start {scraper_type} scraping: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to start scraping: {str(e)}")
+
+# ------------------------------ SEED DATA ENDPOINT ------------------------------
+
+@router.post("/seed/integration", response_model=APIResponse, tags=["Development"])
+async def seed_turo_integration(
+    turo_email: str = Query(..., description="Turo email for the integration"),
+    current_user: Account = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+) -> APIResponse:
+    """
+    Create Turo integration record for seed data (without attempting login).
+    This is used by the seed script to create the integration so frontend shows 'connected' status.
+    """
+    try:
+        from core.security.encryption import encrypt_password
+        
+        # Create or update integration
+        integration = db.query(TuroIntegration).filter(
+            TuroIntegration.account_id == current_user.id
+        ).first()
+        
+        if integration:
+            # Update existing
+            integration.turo_email = turo_email
+            integration.turo_password_encrypted = encrypt_password("seed_password")  # Dummy password
+            integration.has_active_session = False
+        else:
+            # Create new
+            integration = TuroIntegration(
+                account_id=current_user.id,
+                turo_email=turo_email,
+                turo_password_encrypted=encrypt_password("seed_password"),  # Dummy password
+                has_active_session=False
+            )
+            db.add(integration)
+        
+        db.commit()
+        logger.info(f"Turo integration created for seed data: account {current_user.id}")
+        
+        return APIResponse(
+            success=True,
+            data={
+                "message": "Turo integration created for seed data",
+                "email": turo_email,
+                "account_id": current_user.id
+            }
+        )
+    
+    except Exception as e:
+        logger.exception(f"Error creating seed Turo integration: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create integration: {str(e)}"
+        )
+
+@router.post("/seed", response_model=APIResponse, tags=["Development"])
+async def seed_data(
+    request: SeedDataRequest,
+    current_user: Account = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+) -> APIResponse:
+    """
+    Seed database with sample data for development/testing.
+    Uses the same data structure as scraped data.
+    Overwrites existing data if overwrite=True.
+    """
+    try:
+        account = current_user
+        scraped_data: Dict[str, Any] = {}
+        
+        if request.vehicles:
+            scraped_data["vehicles"] = request.vehicles
+        if request.trips:
+            scraped_data["trips"] = request.trips
+        if request.reviews:
+            scraped_data["reviews"] = request.reviews
+        if request.earnings:
+            scraped_data["earnings"] = request.earnings
+        
+        if not scraped_data:
+            raise HTTPException(
+                status_code=400,
+                detail="No seed data provided. Include at least one of: vehicles, trips, reviews, earnings"
+            )
+        
+        # Save data using DatabaseService (handles overwriting automatically)
+        counts = {}
+        if request.vehicles:
+            vehicles = DatabaseService.save_vehicles(db, account, request.vehicles)
+            counts["vehicles"] = len(vehicles)
+        if request.trips:
+            trips = DatabaseService.save_trips(db, account, request.trips)
+            counts["trips"] = len(trips)
+        if request.reviews:
+            reviews = DatabaseService.save_reviews(db, account, request.reviews)
+            counts["reviews"] = len(reviews)
+        if request.earnings:
+            breakdowns, vehicle_earnings = DatabaseService.save_earnings(db, account, request.earnings)
+            counts["earnings_breakdowns"] = len(breakdowns)
+            counts["vehicle_earnings"] = len(vehicle_earnings)
+        
+        logger.info(f"Successfully seeded data for account {account.user_id}: {counts}")
+        
+        return APIResponse(
+            success=True,
+            data={
+                "message": "Seed data saved successfully",
+                "counts": counts
+            }
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error seeding data: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to seed data: {str(e)}"
+        )
 
 # ------------------------------ DEPENDENCY INJECTION ------------------------------
 

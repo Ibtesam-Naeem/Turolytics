@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
@@ -258,6 +259,43 @@ class DatabaseService:
             review.areas_of_improvement = review_data.get("areas_of_improvement", [])
             review.host_response = review_data.get("host_response")
             review.has_host_response = review_data.get("has_host_response", False)
+            
+            # Link review to vehicle by extracting license plate from vehicle_info
+            vehicle_info = review_data.get("vehicle_info")
+            if vehicle_info:
+                license_plate = None
+                # Extract license plate from vehicle_info (format: "Vehicle Name Year • LICENSE-PLATE")
+                # Try to match pattern like "• ABC-1234" or "• ABC1234"
+                plate_match = re.search(r'•\s*([A-Z0-9-]+)', vehicle_info)
+                if plate_match:
+                    license_plate = plate_match.group(1)
+                else:
+                    # Try to extract from end of string (license plate might be last part)
+                    parts = vehicle_info.split()
+                    if len(parts) > 0:
+                        potential_plate = parts[-1]
+                        # Check if it looks like a license plate (alphanumeric, 4+ chars)
+                        if re.match(r'^[A-Z0-9-]{4,}$', potential_plate):
+                            license_plate = potential_plate
+                
+                if license_plate:
+                    # Find vehicle by license plate
+                    vehicle = db.query(Vehicle).filter(
+                        Vehicle.account_id == account.id,
+                        Vehicle.license_plate == license_plate
+                    ).first()
+                    if vehicle:
+                        review.vehicle_id = vehicle.id
+                        logger.debug(f"Linked review to vehicle {vehicle.id} via license plate {license_plate}")
+            
+            # Parse date if provided
+            date_str = review_data.get("date")
+            if date_str:
+                try:
+                    review.date = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                except (ValueError, AttributeError):
+                    logger.warning(f"Could not parse review date: {date_str}")
+            
             review.scraped_at = scraped_at
             
             if DatabaseService._save_entity(db, review, f"review for customer {customer_id or 'unknown'}"):

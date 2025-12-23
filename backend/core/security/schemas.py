@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from datetime import datetime
 
@@ -58,4 +58,7 @@ class ProfileUpdateRequest(BaseModel):
     phone: Optional[str] = None
     country: Optional[str] = None
     state: Optional[str] = None
+
+class AccountDeletionRequest(BaseModel):
+    reason: Optional[str] = Field(None, max_length=1000, description="Reason for account deletion")
 
