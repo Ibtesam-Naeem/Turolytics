@@ -161,140 +161,208 @@ def generate_vehicles_data() -> Dict[str, Any]:
     }
 
 def generate_trips_data(vehicle_plates: List[str]) -> Dict[str, Any]:
-    """Generate trips data with variety: completed, cancelled, upcoming, current."""
+    """Generate trips data with variety: completed, cancelled, upcoming, current.
+    
+    Creates realistic scenarios:
+    - Vehicles returning today (trips ending today)
+    - Vehicles returning tomorrow (trips ending tomorrow)
+    - Vehicles booked for today (trips starting today)
+    - Vehicles booked for tomorrow (trips starting tomorrow)
+    - Active trips in progress
+    - Upcoming trips in the future
+    - Completed trips in history
+    """
     now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + timedelta(days=1) - timedelta(seconds=1)
+    tomorrow_start = today_start + timedelta(days=1)
+    tomorrow_end = tomorrow_start + timedelta(days=1) - timedelta(seconds=1)
+    
     booked_trips = []
     history_trips = []
     
-    # Generate completed trips (trip_history)
-    for i in range(20):
+    # Helper function to create a trip
+    def create_trip(
+        start_date: datetime,
+        end_date: datetime,
+        status: str,
+        license_plate: str,
+        is_history: bool = False,
+        kms_driven: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Create a trip dictionary with all required fields."""
+        trip_data = {
+            "trip_id": generate_trip_id(),
+            "trip_url": f"https://turo.com/trip/{generate_trip_id()}",
+            "customer_name": random.choice(CUSTOMER_NAMES),
+            "status": status,
+            "license_plate": license_plate,
+            "schedule": {
+                "start_date": format_date(start_date),
+                "start_time": format_time(start_date),
+                "end_date": format_date(end_date),
+                "end_time": format_time(end_date),
+            },
+            "location": {
+                "location_type": random.choice(["Delivery", "Location"]),
+                "address": f"{random.randint(100, 9999)} Main St, City, State {random.randint(10000, 99999)}",
+            },
+            "kilometers": {
+                "kilometers_included": random.randint(200, 1000),
+                "kilometers_driven": kms_driven,
+                "overage_rate": round(random.uniform(0.30, 0.50), 2),
+            },
+            "earnings": {
+                "total_earnings": round(random.uniform(50, 500), 2) if not is_history or status == "COMPLETED" else None,
+            },
+            "protection": {
+                "protection_plan": random.choice(["60 plan", "75 plan", "90 plan"]),
+                "deductible": random.choice(["$0", "$500", "$1,000", "$2,000"]),
+            },
+        }
+        
+        if is_history and status == "CANCELLED":
+            cancelled_by = random.choice(["Guest", "Host"])
+            trip_data["cancellation_info"] = f"Cancelled by {cancelled_by}"
+            trip_data["cancelled_by"] = cancelled_by
+            trip_data["cancelled_date"] = format_date(start_date - timedelta(days=1))
+        
+        return trip_data
+    
+    # ========== COMPLETED TRIPS (trip_history) ==========
+    # Generate completed trips from the past
+    for i in range(30):
         days_ago = random.randint(1, 90)
         start_date = now - timedelta(days=days_ago)
         duration_days = random.randint(1, 7)
         end_date = start_date + timedelta(days=duration_days)
         
-        status = random.choice(["COMPLETED", "COMPLETED", "COMPLETED", "CANCELLED"])
-        cancelled_by = None
-        cancelled_date = None
-        cancellation_info = None
-        
-        if status == "CANCELLED":
-            cancelled_by = random.choice(["Guest", "Host"])
-            cancelled_date = format_date(start_date - timedelta(days=1))
-            cancellation_info = f"Cancelled by {cancelled_by}"
-        
+        status = random.choice(["COMPLETED", "COMPLETED", "COMPLETED", "COMPLETED", "CANCELLED"])
         kms_driven = random.randint(50, 500) if status == "COMPLETED" else None
-        kms_included = random.randint(200, 1000)
         
-        history_trips.append({
-            "trip_id": generate_trip_id(),
-            "trip_url": f"https://turo.com/trip/{generate_trip_id()}",
-            "customer_name": random.choice(CUSTOMER_NAMES),
-            "status": status,
-            "license_plate": random.choice(vehicle_plates),
-            "cancellation_info": cancellation_info,
-            "cancelled_by": cancelled_by,
-            "cancelled_date": cancelled_date,
-            "schedule": {
-                "start_date": format_date(start_date),
-                "start_time": format_time(start_date),
-                "end_date": format_date(end_date),
-                "end_time": format_time(end_date),
-            },
-            "location": {
-                "location_type": random.choice(["Delivery", "Location"]),
-                "address": f"{random.randint(100, 9999)} Main St, City, State {random.randint(10000, 99999)}",
-            },
-            "kilometers": {
-                "kilometers_included": kms_included,
-                "kilometers_driven": kms_driven,
-                "overage_rate": round(random.uniform(0.30, 0.50), 2),
-            },
-            "earnings": {
-                "total_earnings": round(random.uniform(50, 500), 2) if status == "COMPLETED" else None,
-            },
-            "protection": {
-                "protection_plan": random.choice(["60 plan", "75 plan", "90 plan"]),
-                "deductible": random.choice(["$0", "$500", "$1,000", "$2,000"]),
-            },
-        })
+        history_trips.append(create_trip(
+            start_date, end_date, status, random.choice(vehicle_plates),
+            is_history=True, kms_driven=kms_driven
+        ))
     
-    # Generate upcoming trips (booked_trips)
-    for i in range(15):
-        days_ahead = random.randint(1, 30)
-        start_date = now + timedelta(days=days_ahead)
-        duration_days = random.randint(1, 7)
-        end_date = start_date + timedelta(days=duration_days)
-        
-        booked_trips.append({
-            "trip_id": generate_trip_id(),
-            "trip_url": f"https://turo.com/trip/{generate_trip_id()}",
-            "customer_name": random.choice(CUSTOMER_NAMES),
-            "status": "UPCOMING",
-            "license_plate": random.choice(vehicle_plates),
-            "schedule": {
-                "start_date": format_date(start_date),
-                "start_time": format_time(start_date),
-                "end_date": format_date(end_date),
-                "end_time": format_time(end_date),
-            },
-            "location": {
-                "location_type": random.choice(["Delivery", "Location"]),
-                "address": f"{random.randint(100, 9999)} Main St, City, State {random.randint(10000, 99999)}",
-            },
-            "kilometers": {
-                "kilometers_included": random.randint(200, 1000),
-                "kilometers_driven": None,
-                "overage_rate": round(random.uniform(0.30, 0.50), 2),
-            },
-            "earnings": {
-                "total_earnings": round(random.uniform(50, 500), 2),
-            },
-            "protection": {
-                "protection_plan": random.choice(["60 plan", "75 plan", "90 plan"]),
-                "deductible": random.choice(["$0", "$500", "$1,000", "$2,000"]),
-            },
-        })
+    # ========== ACTIVE TRIPS (booked_trips) ==========
     
-    # Generate current/active trips (booked_trips with status IN_PROGRESS or ACTIVE)
+    # 1. Trips ending TODAY (vehicles returning today) - 5 trips
     for i in range(5):
+        days_ago = random.randint(1, 5)
+        start_date = now - timedelta(days=days_ago)
+        # End date is today, at various times (some already passed, some later today)
+        if random.choice([True, False]):  # 50% chance end time is later today
+            end_hour = random.randint(now.hour + 1, 22) if now.hour < 22 else random.randint(10, 20)
+            end_minute = random.choice([0, 15, 30, 45])
+            end_date = today_start.replace(hour=min(end_hour, 22), minute=end_minute)
+        else:  # End time already passed today
+            end_hour = random.randint(8, max(8, now.hour - 1))
+            end_minute = random.choice([0, 15, 30, 45])
+            end_date = today_start.replace(hour=end_hour, minute=end_minute)
+        
+        booked_trips.append(create_trip(
+            start_date, end_date, "IN_PROGRESS", random.choice(vehicle_plates),
+            kms_driven=random.randint(100, 400)
+        ))
+    
+    # 2. Trips ending TOMORROW (vehicles returning tomorrow) - 4 trips
+    for i in range(4):
         days_ago = random.randint(0, 3)
         start_date = now - timedelta(days=days_ago)
+        # End date is tomorrow
+        end_hour = random.randint(10, 20)
+        end_minute = random.choice([0, 15, 30, 45])
+        end_date = tomorrow_start.replace(hour=end_hour, minute=end_minute)
+        
+        booked_trips.append(create_trip(
+            start_date, end_date, "IN_PROGRESS", random.choice(vehicle_plates),
+            kms_driven=random.randint(50, 300)
+        ))
+    
+    # 3. Trips starting TODAY (vehicles booked for today) - 4 trips
+    for i in range(4):
+        # Mix of trips that already started today and trips starting later today
+        if random.choice([True, False]):  # 50% already started
+            # Trip already started today
+            start_hour = random.randint(6, max(6, now.hour - 1))
+            start_minute = random.choice([0, 15, 30, 45])
+            start_date = today_start.replace(hour=start_hour, minute=start_minute)
+            status = "IN_PROGRESS"
+            kms_driven = random.randint(10, 150)
+        else:  # Trip starting later today
+            start_hour = random.randint(now.hour + 1, 22) if now.hour < 22 else random.randint(14, 18)
+            start_minute = random.choice([0, 15, 30, 45])
+            start_date = today_start.replace(hour=min(start_hour, 22), minute=start_minute)
+            status = "UPCOMING"
+            kms_driven = None
+        
+        duration_days = random.randint(1, 5)
+        end_date = start_date + timedelta(days=duration_days)
+        
+        booked_trips.append(create_trip(
+            start_date, end_date, status, random.choice(vehicle_plates),
+            kms_driven=kms_driven
+        ))
+    
+    # 4. Trips starting TOMORROW - 5 trips
+    for i in range(5):
+        # Start date is tomorrow
+        start_hour = random.randint(8, 18)
+        start_minute = random.choice([0, 15, 30, 45])
+        start_date = tomorrow_start.replace(hour=start_hour, minute=start_minute)
+        
         duration_days = random.randint(1, 7)
         end_date = start_date + timedelta(days=duration_days)
         
-        # Some trips are currently active (started but not ended)
-        status = random.choice(["IN_PROGRESS", "ACTIVE", "ONGOING"])
+        booked_trips.append(create_trip(
+            start_date, end_date, "UPCOMING", random.choice(vehicle_plates)
+        ))
+    
+    # 5. Trips starting in 2-3 days - 4 trips
+    for i in range(4):
+        days_ahead = random.randint(2, 3)
+        start_date = today_start + timedelta(days=days_ahead)
+        start_hour = random.randint(8, 18)
+        start_minute = random.choice([0, 15, 30, 45])
+        start_date = start_date.replace(hour=start_hour, minute=start_minute)
         
-        booked_trips.append({
-            "trip_id": generate_trip_id(),
-            "trip_url": f"https://turo.com/trip/{generate_trip_id()}",
-            "customer_name": random.choice(CUSTOMER_NAMES),
-            "status": status,
-            "license_plate": random.choice(vehicle_plates),
-            "schedule": {
-                "start_date": format_date(start_date),
-                "start_time": format_time(start_date),
-                "end_date": format_date(end_date),
-                "end_time": format_time(end_date),
-            },
-            "location": {
-                "location_type": random.choice(["Delivery", "Location"]),
-                "address": f"{random.randint(100, 9999)} Main St, City, State {random.randint(10000, 99999)}",
-            },
-            "kilometers": {
-                "kilometers_included": random.randint(200, 1000),
-                "kilometers_driven": random.randint(50, 300),  # Some kms already driven
-                "overage_rate": round(random.uniform(0.30, 0.50), 2),
-            },
-            "earnings": {
-                "total_earnings": round(random.uniform(50, 500), 2),
-            },
-            "protection": {
-                "protection_plan": random.choice(["60 plan", "75 plan", "90 plan"]),
-                "deductible": random.choice(["$0", "$500", "$1,000", "$2,000"]),
-            },
-        })
+        duration_days = random.randint(1, 7)
+        end_date = start_date + timedelta(days=duration_days)
+        
+        booked_trips.append(create_trip(
+            start_date, end_date, "UPCOMING", random.choice(vehicle_plates)
+        ))
+    
+    # 6. Trips ending in 2-3 days (currently active) - 3 trips
+    for i in range(3):
+        days_ago = random.randint(1, 2)
+        start_date = now - timedelta(days=days_ago)
+        days_ahead = random.randint(2, 3)
+        end_date = today_start + timedelta(days=days_ahead)
+        end_hour = random.randint(10, 20)
+        end_minute = random.choice([0, 15, 30, 45])
+        end_date = end_date.replace(hour=end_hour, minute=end_minute)
+        
+        booked_trips.append(create_trip(
+            start_date, end_date, "IN_PROGRESS", random.choice(vehicle_plates),
+            kms_driven=random.randint(100, 350)
+        ))
+    
+    # 7. More upcoming trips (4-30 days ahead) - 10 trips
+    for i in range(10):
+        days_ahead = random.randint(4, 30)
+        start_date = now + timedelta(days=days_ahead)
+        start_hour = random.randint(8, 18)
+        start_minute = random.choice([0, 15, 30, 45])
+        start_date = start_date.replace(hour=start_hour, minute=start_minute)
+        
+        duration_days = random.randint(1, 7)
+        end_date = start_date + timedelta(days=duration_days)
+        
+        booked_trips.append(create_trip(
+            start_date, end_date, "UPCOMING", random.choice(vehicle_plates)
+        ))
     
     return {
         "booked_trips": {
