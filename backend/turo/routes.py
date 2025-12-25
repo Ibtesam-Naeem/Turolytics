@@ -753,8 +753,25 @@ async def get_monthly_utilization(
     current_user: Account = Depends(get_current_active_user),
     service: TuroDataService = Depends(get_turo_data_service)
 ) -> APIResponse:
-    """Get monthly utilization data for all vehicles."""
-    monthly_data = service.get_monthly_utilization(account=current_user, year=year)
+    """Get monthly utilization data for all vehicles using corrected calculation."""
+    monthly_data = service.get_monthly_utilization_v2(account=current_user, year=year)
+    
+    return APIResponse(
+        success=True,
+        data={
+            "months": monthly_data,
+            "total": len(monthly_data)
+        }
+    )
+
+@router.get("/data/revenue/monthly", response_model=APIResponse, response_model_exclude_none=True, tags=["Analytics"])
+async def get_monthly_revenue(
+    year: Optional[int] = Query(None, description="Year to get revenue data for (defaults to current year)"),
+    current_user: Account = Depends(get_current_active_user),
+    service: TuroDataService = Depends(get_turo_data_service)
+) -> APIResponse:
+    """Get monthly revenue data from completed trips."""
+    monthly_data = service.get_monthly_revenue(account=current_user, year=year)
     
     return APIResponse(
         success=True,

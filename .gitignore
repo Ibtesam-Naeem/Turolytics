@@ -88,6 +88,8 @@ htmlcov/
 
 drop_tables.py
 
-frontend 
+
 documentation/
 *.code-workspace
+
+node_modules/

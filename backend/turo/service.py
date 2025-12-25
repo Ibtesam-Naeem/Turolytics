@@ -1,8 +1,9 @@
 # ------------------------------ IMPORTS ------------------------------
 from typing import Optional, List, Tuple, Dict, Any
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, case, func
-from datetime import datetime, timezone, timedelta
+from sqlalchemy import desc, case, func, text
+from datetime import datetime, timezone, timedelta, date
+from calendar import monthrange
 import re
 
 from core.database.models import Trip, Vehicle, Review, EarningsBreakdown, VehicleEarnings, Account
@@ -384,30 +385,177 @@ class TuroDataService:
                 fleet_utilization = 0.0
             fleet_utilization = min(100.0, max(0.0, fleet_utilization))
             
-            # Only include months that have actual data (vehicles with trips or utilization > 0)
-            # This handles edge cases like having data in Jan, then gaps, then data in May
-            has_data = False
-            if vehicle_utilizations:
-                # Check if any vehicle has actual trips or utilization
-                for v in vehicle_utilizations:
-                    if v['trips'] > 0 or v['daysRented'] > 0 or v['utilization'] > 0:
-                        has_data = True
-                        break
-            
-            # Only add month if it has data
-            if has_data:
-                monthly_data[month_key] = {
-                    'month': month_key,
-                    'utilization': round(fleet_utilization, 1),
-                    'vehicles': vehicle_utilizations,
-                }
+            # Always include all months, even if utilization is 0
+            monthly_data[month_key] = {
+                'month': month_key,
+                'utilization': round(fleet_utilization, 1),
+                'vehicles': vehicle_utilizations,
+            }
         
-        # Return as list ordered by month, but only include months with data
-        # This will naturally handle gaps (e.g., Jan, then May, then June)
+        # Return as list ordered by month, including all 12 months
         result = []
         for month in month_names:
-            if month in monthly_data:
-                result.append(monthly_data[month])
+            result.append(monthly_data[month])
+        
+        return result
+    
+    def get_monthly_utilization_v2(
+        self,
+        account: Account,
+        year: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Calculate monthly vehicle utilization using corrected business logic.
+        
+        Business logic:
+        - Only COMPLETED trips
+        - Multi-day trips: start_date to end_date - 1 day (inclusive start, exclusive end)
+        - Same-day trips (start_date = end_date) count as 1 day
+        - Trips spanning months are split correctly across months
+        - Group by vehicle_id and month
+        
+        Args:
+            account: Account object
+            year: Year to get data for (defaults to current year)
+        
+        Returns:
+            List of month data with utilization per vehicle and fleet average
+        """
+        if year is None:
+            year = datetime.now(timezone.utc).year
+        
+        # Get all COMPLETED trips for this account
+        trips = self.db.query(Trip).filter(
+            Trip.account_id == account.id,
+            Trip.status == 'COMPLETED',
+            Trip.start_date.isnot(None),
+            Trip.end_date.isnot(None)
+        ).all()
+        
+        # Get all vehicles for this account
+        vehicles = self.db.query(Vehicle).filter(
+            Vehicle.account_id == account.id
+        ).all()
+        
+        if not vehicles:
+            return []
+        
+        vehicle_map = {v.id: v.name for v in vehicles}
+        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        
+        # Structure: {month_key: {vehicle_id: booked_days}}
+        monthly_vehicle_days = {month: {} for month in month_names}
+        
+        # Process each trip
+        for trip in trips:
+            if not trip.vehicle_id:
+                continue
+                
+            # Parse dates
+            start_date_obj = None
+            end_date_obj = None
+            
+            if trip.start_date:
+                start_date_obj = parsing._parse_turo_date(trip.start_date, year)
+                if start_date_obj and start_date_obj.tzinfo is None:
+                    start_date_obj = start_date_obj.replace(tzinfo=timezone.utc)
+            
+            if trip.end_date:
+                end_date_obj = parsing._parse_turo_date(trip.end_date, year)
+                if end_date_obj and end_date_obj.tzinfo is None:
+                    end_date_obj = end_date_obj.replace(tzinfo=timezone.utc)
+            
+            if not start_date_obj or not end_date_obj:
+                continue
+            
+            start_date = start_date_obj.date()
+            end_date = end_date_obj.date()
+            
+            # Business logic: Multi-day trips count from start_date to end_date - 1 day
+            # Same-day trips count as 1 day
+            if start_date == end_date:
+                # Same-day trip: count as 1 day
+                booked_dates = [start_date]
+            else:
+                # Multi-day trip: start_date to end_date - 1 day (inclusive)
+                booked_dates = []
+                current = start_date
+                while current < end_date:  # Exclusive end_date
+                    booked_dates.append(current)
+                    current += timedelta(days=1)
+            
+            # Group booked dates by month
+            for booked_date in booked_dates:
+                if booked_date.year != year:
+                    continue
+                    
+                month_num = booked_date.month
+                month_key = month_names[month_num - 1]
+                
+                if trip.vehicle_id not in monthly_vehicle_days[month_key]:
+                    monthly_vehicle_days[month_key][trip.vehicle_id] = 0
+                
+                monthly_vehicle_days[month_key][trip.vehicle_id] += 1
+        
+        # Build result with utilization calculations
+        result = []
+        for month_num in range(1, 13):
+            month_key = month_names[month_num - 1]
+            _, days_in_month = monthrange(year, month_num)
+            
+            vehicle_utilizations = []
+            total_fleet_booked_days = 0
+            
+            # Calculate utilization for each vehicle
+            for vehicle in vehicles:
+                booked_days = monthly_vehicle_days[month_key].get(vehicle.id, 0)
+                total_fleet_booked_days += booked_days
+                
+                utilization_percent = (booked_days / days_in_month * 100) if days_in_month > 0 else 0.0
+                utilization_percent = round(utilization_percent, 2)
+                
+                # Get trip count for this vehicle in this month
+                vehicle_trip_count = len([
+                    t for t in trips
+                    if t.vehicle_id == vehicle.id and
+                    t.start_date and
+                    parsing._parse_turo_date(t.start_date, year) and
+                    parsing._parse_turo_date(t.start_date, year).date().month == month_num
+                ])
+                
+                if booked_days > 0 or vehicle_trip_count > 0:
+                    vehicle_utilizations.append({
+                        'vehicle': vehicle.name,
+                        'utilization': utilization_percent,
+                        'trips': vehicle_trip_count,
+                        'daysRented': booked_days,
+                        'totalDays': days_in_month,
+                    })
+            
+            # Calculate fleet average utilization
+            # If only one vehicle has trips, use that vehicle's utilization directly
+            # Otherwise, calculate as: (total booked days) / (days in month * number of vehicles) * 100
+            total_vehicles = len(vehicles)
+            vehicles_with_data = len(vehicle_utilizations)
+            
+            if vehicles_with_data == 1 and total_vehicles == 1:
+                # Single vehicle: fleet utilization = vehicle utilization (exact match)
+                fleet_utilization = vehicle_utilizations[0]['utilization']
+            elif total_vehicles > 0 and days_in_month > 0:
+                # Multiple vehicles: calculate fleet average
+                fleet_utilization = (total_fleet_booked_days / (days_in_month * total_vehicles)) * 100
+            else:
+                fleet_utilization = 0.0
+            
+            fleet_utilization = round(fleet_utilization, 2)
+            fleet_utilization = min(100.0, max(0.0, fleet_utilization))
+            
+            result.append({
+                'month': month_key,
+                'utilization': fleet_utilization,
+                'vehicles': vehicle_utilizations,
+            })
         
         return result
     
@@ -416,8 +564,9 @@ class TuroDataService:
         account: Account
     ) -> List[Dict[str, Any]]:
         """
-        Get trips that are active/happening today.
-        These are trips that started today or are currently in progress.
+        Get trips that are scheduled/booked for today.
+        These are trips where the start_date is today, regardless of whether they've started or not.
+        Excludes completed and cancelled trips.
         """
         today = datetime.now(timezone.utc).date()
         
@@ -428,26 +577,17 @@ class TuroDataService:
         
         trips_today = []
         for trip in trips:
-            # Check if trip is active today
-            is_active_today = False
+            # Skip completed or cancelled trips
+            status_upper = (trip.status or '').upper()
+            if any(s in status_upper for s in ['COMPLETED', 'CANCELLED', 'CANCELED']):
+                continue
             
-            # Check if start_date is today
+            # Check if trip is scheduled for today (start_date is today)
+            is_scheduled_today = False
             if trip.start_date and self._is_date_today(trip.start_date):
-                status_upper = (trip.status or '').upper()
-                # Include if not completed/cancelled
-                if not any(s in status_upper for s in ['COMPLETED', 'CANCELLED', 'CANCELED']):
-                    is_active_today = True
+                is_scheduled_today = True
             
-            # Also check if trip was created today and is active
-            if not is_active_today and trip.created_at:
-                trip_date = trip.created_at.date()
-                if trip_date == today:
-                    status_upper = (trip.status or '').upper()
-                    # Include active/ongoing trips created today
-                    if any(s in status_upper for s in ['ACTIVE', 'IN_PROGRESS', 'ONGOING', 'CONFIRMED', 'BOOKED']):
-                        is_active_today = True
-            
-            if is_active_today:
+            if is_scheduled_today:
                 # Get vehicle name
                 vehicle_name = "Unknown Vehicle"
                 if trip.vehicle_id:
@@ -474,19 +614,26 @@ class TuroDataService:
     ) -> List[Dict[str, Any]]:
         """
         Get new bookings created today.
-        These are trips that were created/booked today.
+        These are upcoming trips that were scraped today (new bookings discovered today).
+        Since we only scrape new trips, trips scraped today = new bookings today.
         """
         from datetime import datetime, timezone
         today = datetime.now(timezone.utc).date()
         
-        # Get trips created today
+        # Get upcoming trips that were scraped today
+        # Since we only scrape new trips, trips scraped today = new bookings today
         trips = self.db.query(Trip).filter(
             Trip.account_id == account.id,
-            func.date(Trip.created_at) == today
+            func.date(Trip.scraped_at) == today,
+            Trip.trip_type == 'booked_trips'  # Only upcoming/booked trips
         ).all()
         
         new_bookings = []
         for trip in trips:
+            # Filter out completed/cancelled trips to be safe
+            status_upper = (trip.status or '').upper()
+            if any(s in status_upper for s in ['COMPLETED', 'CANCELLED', 'CANCELED']):
+                continue
             # Get vehicle name
             vehicle_name = "Unknown Vehicle"
             if trip.vehicle_id:
@@ -513,7 +660,7 @@ class TuroDataService:
                 'vehicle_name': vehicle_name,
                 'dates': dates_str,
                 'amount': earnings_str,
-                'created_at': trip.created_at.isoformat() if trip.created_at else None,
+                'created_at': trip.scraped_at.isoformat() if trip.scraped_at else None,
             })
         
         return new_bookings
@@ -822,6 +969,7 @@ class TuroDataService:
         vehicles_with_stats = []
         for vehicle in vehicles:
             # Get trip statistics - count all trips, sum earnings and odometer from trips with data
+            # For revenue, only count completed trips
             trips_query = self.db.query(
                 func.count(Trip.id).label('total_trips'),
                 func.sum(Trip.total_earnings).label('total_revenue'),
@@ -831,9 +979,19 @@ class TuroDataService:
                 Trip.vehicle_id == vehicle.id
             )
             
+            # Revenue should only come from completed trips
+            revenue_query = self.db.query(
+                func.sum(Trip.total_earnings).label('total_revenue')
+            ).filter(
+                Trip.account_id == account.id,
+                Trip.vehicle_id == vehicle.id,
+                Trip.status == 'COMPLETED'
+            )
+            
             trip_stats = trips_query.first()
+            revenue_stats = revenue_query.first()
             total_trips = trip_stats.total_trips or 0
-            total_revenue = float(trip_stats.total_revenue or 0)
+            total_revenue = float(revenue_stats.total_revenue or 0) if revenue_stats else 0.0
             total_odometer = int(trip_stats.total_odometer or 0)
             
             # Get review statistics (average rating)
@@ -901,6 +1059,76 @@ class TuroDataService:
             return "maintenance"
         else:
             return "inactive"
+    
+    def get_monthly_revenue(
+        self,
+        account: Account,
+        year: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get monthly revenue data from completed trips.
+        Returns revenue per month for the specified year.
+        
+        Args:
+            account: Account object
+            year: Year to get data for (defaults to current year)
+        
+        Returns:
+            List of month data with revenue
+        """
+        if year is None:
+            year = datetime.now(timezone.utc).year
+        
+        # Get all completed trips for the account
+        trips = self.db.query(Trip).filter(
+            Trip.account_id == account.id,
+            Trip.status.in_(['COMPLETED'])
+        ).all()
+        
+        # Group revenue by month
+        monthly_data = {}
+        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        
+        for month in range(1, 13):
+            month_key = month_names[month - 1]
+            month_start = datetime(year, month, 1, tzinfo=timezone.utc)
+            from calendar import monthrange
+            _, last_day = monthrange(year, month)
+            month_end = datetime(year, month, last_day, 23, 59, 59, tzinfo=timezone.utc)
+            
+            # Calculate revenue for this month from trips
+            month_revenue = 0.0
+            for trip in trips:
+                # Check if trip end_date falls in this month
+                if trip.end_date:
+                    parsed_end = parsing._parse_turo_date(trip.end_date, year)
+                    if parsed_end:
+                        if parsed_end.tzinfo is None:
+                            parsed_end = parsed_end.replace(tzinfo=timezone.utc)
+                        if month_start <= parsed_end <= month_end:
+                            month_revenue += float(trip.total_earnings or 0)
+                # Also check start_date if end_date is not available
+                elif trip.start_date:
+                    parsed_start = parsing._parse_turo_date(trip.start_date, year)
+                    if parsed_start:
+                        if parsed_start.tzinfo is None:
+                            parsed_start = parsed_start.replace(tzinfo=timezone.utc)
+                        if month_start <= parsed_start <= month_end:
+                            month_revenue += float(trip.total_earnings or 0)
+            
+            # Always include all months, even if revenue is 0
+            monthly_data[month_key] = {
+                'month': month_key,
+                'revenue': round(month_revenue, 2),
+            }
+        
+        # Return as list ordered by month, including all 12 months
+        result = []
+        for month in month_names:
+            result.append(monthly_data[month])
+        
+        return result
     
     def get_top_performing_vehicles(
         self,

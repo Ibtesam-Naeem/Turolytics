@@ -1,0 +1,110 @@
+import { Toaster } from "@/components/ui/toaster";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
+import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { AppSidebar } from "@/components/AppSidebar";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { Eye } from "lucide-react";
+import Landing from "./pages/Landing";
+import Auth from "./pages/Auth";
+import ForgotPassword from "./pages/ForgotPassword";
+import Index from "./pages/Index";
+import Banking from "./pages/Banking";
+import MapPage from "./pages/MapPage";
+import Documents from "./pages/Documents";
+import Settings from "./pages/Settings";
+import Reviews from "./pages/Reviews";
+import Analytics from "./pages/Analytics";
+import Maintenance from "./pages/Maintenance";
+import ExpenseTracking from "./pages/ExpenseTracking";
+import ROICalculator from "./pages/ROICalculator";
+import Vehicles from "./pages/Vehicles";
+import VehicleDocuments from "./pages/VehicleDocuments";
+import VehicleDetails from "./pages/VehicleDetails";
+import TripHistory from "./pages/TripHistory";
+import NotFound from "./pages/NotFound";
+
+const queryClient = new QueryClient();
+
+// Demo banner component - only shows in demo mode
+const DemoBanner = () => {
+  const navigate = useNavigate();
+  const { isDemo } = useAuth();
+  
+  if (!isDemo) {
+    return null;
+  }
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-xs">
+      <Eye className="h-3 w-3 text-primary" />
+      <span className="text-muted-foreground">Demo</span>
+      <button
+        onClick={() => navigate("/auth?mode=signup")}
+        className="text-primary hover:underline font-medium"
+      >
+        Sign up
+      </button>
+    </div>
+  );
+};
+
+// Layout wrapper for authenticated pages with sidebar
+const AuthenticatedLayout = ({ children }: { children: React.ReactNode }) => (
+  <SidebarProvider>
+    <div className="flex min-h-screen w-full">
+      <AppSidebar />
+      <div className="flex-1 flex flex-col">
+        <header className="h-12 flex items-center gap-4 border-b border-border bg-background sticky top-0 z-20 px-4">
+          <SidebarTrigger />
+          <DemoBanner />
+        </header>
+        <main className="flex-1">
+          {children}
+        </main>
+      </div>
+    </div>
+  </SidebarProvider>
+);
+
+const App = () => (
+  <QueryClientProvider client={queryClient}>
+    <AuthProvider>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <Routes>
+            {/* Public routes */}
+            <Route path="/" element={<Landing />} />
+            <Route path="/auth" element={<Auth />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            
+            {/* Authenticated routes with sidebar */}
+            <Route path="/dashboard" element={<AuthenticatedLayout><Index /></AuthenticatedLayout>} />
+            <Route path="/trip-history" element={<AuthenticatedLayout><TripHistory /></AuthenticatedLayout>} />
+            <Route path="/banking" element={<AuthenticatedLayout><Banking /></AuthenticatedLayout>} />
+            <Route path="/map" element={<AuthenticatedLayout><MapPage /></AuthenticatedLayout>} />
+            <Route path="/documents" element={<AuthenticatedLayout><Documents /></AuthenticatedLayout>} />
+            <Route path="/settings" element={<AuthenticatedLayout><Settings /></AuthenticatedLayout>} />
+            <Route path="/reviews" element={<AuthenticatedLayout><Reviews /></AuthenticatedLayout>} />
+            <Route path="/analytics" element={<AuthenticatedLayout><Analytics /></AuthenticatedLayout>} />
+            <Route path="/roi-calculator" element={<AuthenticatedLayout><ROICalculator /></AuthenticatedLayout>} />
+            <Route path="/maintenance" element={<AuthenticatedLayout><Maintenance /></AuthenticatedLayout>} />
+            <Route path="/expense-tracking" element={<AuthenticatedLayout><ExpenseTracking /></AuthenticatedLayout>} />
+            <Route path="/vehicles" element={<AuthenticatedLayout><Vehicles /></AuthenticatedLayout>} />
+            <Route path="/vehicles/documents" element={<AuthenticatedLayout><VehicleDocuments /></AuthenticatedLayout>} />
+            <Route path="/vehicles/details" element={<AuthenticatedLayout><VehicleDetails /></AuthenticatedLayout>} />
+            
+            {/* Catch-all */}
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </BrowserRouter>
+      </TooltipProvider>
+    </AuthProvider>
+  </QueryClientProvider>
+);
+
+export default App;
