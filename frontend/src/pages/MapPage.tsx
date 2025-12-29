@@ -17,6 +17,10 @@ import {
   X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useRegionalSettings } from "@/contexts/RegionalSettingsContext";
+import { formatDistance } from "@/lib/regional-utils";
+import { useBouncieLiveData, LiveVehicleData } from "@/hooks/useBouncieLiveData";
+import { tripsService } from "@/services/trips-service";
 
 interface Vehicle {
   id: string;
@@ -144,12 +148,28 @@ const initialVehicles: Vehicle[] = [
 ];
 
 const MapPage = () => {
+  const { distanceUnit } = useRegionalSettings();
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<Map<string, mapboxgl.Marker>>(new Map());
-  const [vehicles, setVehicles] = useState<Vehicle[]>(initialVehicles);
+  
+  // Get real Bouncie live data
+  const { liveVehicles, bouncieConnected, loading: bouncieLoading, error: bouncieError } = useBouncieLiveData(30000);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
   const [streetAddress, setStreetAddress] = useState<string>("");
+  
+  // Debug logging
+  useEffect(() => {
+    console.log('[MapPage] State update:', {
+      bouncieConnected,
+      bouncieLoading,
+      bouncieError,
+      liveVehiclesCount: liveVehicles.length,
+      liveVehicles: liveVehicles,
+      vehiclesCount: vehicles.length
+    });
+  }, [bouncieConnected, bouncieLoading, bouncieError, liveVehicles, vehicles]);
 
   // Reverse geocode to get street name
   const fetchStreetName = async (coordinates: [number, number]) => {
@@ -167,6 +187,90 @@ const MapPage = () => {
       setStreetAddress(`${coordinates[1].toFixed(4)}°N, ${Math.abs(coordinates[0]).toFixed(4)}°W`);
     }
   };
+
+  // Transform Bouncie live data + Turo trips into map vehicle format
+  useEffect(() => {
+    const loadVehicles = async () => {
+      console.log('[MapPage] loadVehicles called');
+      console.log('[MapPage] bouncieConnected:', bouncieConnected);
+      console.log('[MapPage] liveVehicles:', liveVehicles);
+      console.log('[MapPage] liveVehicles.length:', liveVehicles.length);
+      
+      if (!bouncieConnected || liveVehicles.length === 0) {
+        console.log('[MapPage] No vehicles to load - bouncieConnected:', bouncieConnected, 'liveVehicles.length:', liveVehicles.length);
+        setVehicles([]);
+        return;
+      }
+
+      try {
+        // Get current Turo trips to get guest names and trip info
+        let tripsMap = new Map();
+        try {
+          const tripsResponse = await tripsService.getCurrentTrips(50);
+          tripsMap = new Map(
+            tripsResponse.trips.map((trip: any) => [trip.vehicle_id, trip])
+          );
+          console.log('[MapPage] Loaded Turo trips:', tripsMap.size);
+        } catch (err) {
+          console.error("Failed to load trips:", err);
+        }
+
+        console.log('[MapPage] Filtering vehicles with location...');
+        console.log('[MapPage] All liveVehicles:', JSON.stringify(liveVehicles, null, 2));
+        const vehiclesWithLocation = liveVehicles.filter(v => {
+          const hasLocation = v.location && typeof v.location === 'object' && 
+                            typeof v.location.lat === 'number' && 
+                            typeof v.location.lon === 'number';
+          if (!hasLocation) {
+            console.log(`[MapPage] Vehicle ${v.vehicleId} missing location:`, v.location);
+          }
+          return hasLocation;
+        });
+        console.log('[MapPage] Vehicles with location:', vehiclesWithLocation.length);
+        console.log('[MapPage] Vehicles with location data:', vehiclesWithLocation);
+        console.log('[MapPage] Vehicles without location:', liveVehicles.filter(v => !v.location || !v.location.lat || !v.location.lon));
+
+        // Transform Bouncie live vehicles to map format
+        const mapVehicles: Vehicle[] = vehiclesWithLocation
+          .map((liveVehicle: LiveVehicleData) => {
+            const trip = tripsMap.get(liveVehicle.vehicleId);
+            const milesDriven = liveVehicle.milesDrivenToday || 0;
+            const kmDriven = distanceUnit === "km" ? milesDriven * 1.60934 : milesDriven;
+            
+            return {
+              id: liveVehicle.vehicleId.toString(),
+              name: liveVehicle.vehicleName || `Vehicle ${liveVehicle.vehicleId}`,
+              coordinates: [liveVehicle.location!.lon, liveVehicle.location!.lat] as [number, number], // Mapbox uses [lng, lat]
+              status: liveVehicle.status === "moving" ? "moving" : "parked",
+              speed: Math.round(liveVehicle.speed || 0),
+              guest: trip?.customer_name || "No active trip",
+              location: `${liveVehicle.location!.lat.toFixed(4)}, ${liveVehicle.location!.lon.toFixed(4)}`, // Will be replaced by geocoding
+              fuel: Math.round(liveVehicle.fuelLevel || 0),
+              totalKm: Math.round(kmDriven * 10) / 10,
+              allowedKm: trip?.kilometers_included || 0,
+              flags: {
+                speedAlerts: 0, // Bouncie doesn't provide this directly
+                hardBraking: liveVehicle.flags?.hardBraking || 0,
+                rapidAcceleration: liveVehicle.flags?.rapidAcceleration || 0,
+              },
+            };
+          });
+
+        console.log('[MapPage] Final mapVehicles:', mapVehicles);
+        console.log('[MapPage] Setting vehicles count:', mapVehicles.length);
+        setVehicles(mapVehicles);
+      } catch (error) {
+        console.error("Failed to load vehicles for map:", error);
+        setVehicles([]);
+      }
+    };
+
+    if (bouncieConnected && !bouncieLoading) {
+      loadVehicles();
+    } else if (!bouncieConnected && !bouncieLoading) {
+      setVehicles([]);
+    }
+  }, [liveVehicles, bouncieConnected, bouncieLoading, distanceUnit]);
 
   // Fetch street name when vehicle is selected
   useEffect(() => {
@@ -235,34 +339,20 @@ const MapPage = () => {
         markersRef.current.set(vehicle.id, marker);
       }
     });
+
+    // Fit map to show all vehicles when they're loaded
+    if (vehicles.length > 0 && map.current) {
+      const bounds = new mapboxgl.LngLatBounds();
+      vehicles.forEach(v => bounds.extend(v.coordinates));
+      map.current.fitBounds(bounds, { 
+        padding: { top: 100, bottom: 100, left: 100, right: 100 },
+        duration: 1000,
+        maxZoom: 10
+      });
+    }
   }, [vehicles]);
 
-  // Simulate real-time updates
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setVehicles(prev => prev.map(vehicle => {
-        if (vehicle.status === "moving") {
-          const latChange = (Math.random() - 0.5) * 0.005;
-          const lngChange = (Math.random() - 0.5) * 0.005;
-          const speedChange = Math.floor((Math.random() - 0.5) * 8);
-          const newSpeed = Math.max(25, Math.min(75, vehicle.speed + speedChange));
-          const fuelConsumption = Math.random() * 0.3;
-          const kmIncrease = Math.random() * 1.5;
-          
-          return {
-            ...vehicle,
-            coordinates: [vehicle.coordinates[0] + lngChange, vehicle.coordinates[1] + latChange] as [number, number],
-            speed: newSpeed,
-            fuel: Math.max(0, Math.round((vehicle.fuel - fuelConsumption) * 10) / 10),
-            totalKm: Math.round((vehicle.totalKm + kmIncrease) * 10) / 10
-          };
-        }
-        return vehicle;
-      }));
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, []);
+  // Real-time updates are handled by useBouncieLiveData hook (polls every 30 seconds)
 
   const handleVehicleClick = (vehicle: Vehicle) => {
     setSelectedVehicle(vehicle);
@@ -304,6 +394,50 @@ const MapPage = () => {
     <div className="relative h-screen w-full overflow-hidden bg-background">
       {/* Map Container */}
       <div ref={mapContainer} className="absolute inset-0" />
+
+      {/* Empty States */}
+      {!bouncieConnected && !bouncieLoading && (
+        <div className="absolute inset-0 flex items-center justify-center z-20 bg-background/80 backdrop-blur-sm">
+          <div className="text-center p-6 bg-card rounded-lg shadow-lg border border-border max-w-md">
+            <p className="text-lg font-semibold mb-2">No Bouncie Connection</p>
+            <p className="text-sm text-muted-foreground mb-4">
+              Connect Bouncie in Settings to see live vehicle locations on the map.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {bouncieConnected && vehicles.length === 0 && !bouncieLoading && (
+        <div className="absolute inset-0 flex items-center justify-center z-20 bg-background/80 backdrop-blur-sm">
+          <div className="text-center p-6 bg-card rounded-lg shadow-lg border border-border max-w-md">
+            <p className="text-lg font-semibold mb-2">No Vehicles with Location Data</p>
+            <p className="text-sm text-muted-foreground mb-4">
+              No vehicles are currently reporting location data from Bouncie. Make sure your vehicles have active Bouncie devices.
+            </p>
+            {bouncieError && (
+              <p className="text-sm text-destructive mb-2">Error: {bouncieError}</p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Live vehicles: {liveVehicles.length} | 
+              Vehicles with location: {liveVehicles.filter(v => v.location).length}
+            </p>
+            <details className="mt-4 text-left">
+              <summary className="text-xs text-muted-foreground cursor-pointer">Debug Info</summary>
+              <pre className="text-xs mt-2 p-2 bg-muted rounded overflow-auto max-h-40">
+                {JSON.stringify(liveVehicles, null, 2)}
+              </pre>
+            </details>
+          </div>
+        </div>
+      )}
+
+      {bouncieLoading && (
+        <div className="absolute inset-0 flex items-center justify-center z-20 bg-background/80 backdrop-blur-sm">
+          <div className="text-center p-6 bg-card rounded-lg shadow-lg border border-border">
+            <p className="text-sm text-muted-foreground">Loading vehicle locations...</p>
+          </div>
+        </div>
+      )}
 
       {/* Top Stats Bar */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10">
@@ -455,7 +589,7 @@ const MapPage = () => {
                     <Navigation className="w-5 h-5 text-primary" />
                     <span className="text-base font-medium">Trip Distance</span>
                   </div>
-                  <span className="text-base font-semibold">{selectedVehicle.totalKm} / {selectedVehicle.allowedKm} km</span>
+                  <span className="text-base font-semibold">{formatDistance(selectedVehicle.totalKm, distanceUnit)} / {formatDistance(selectedVehicle.allowedKm, distanceUnit)}</span>
                 </div>
                 <div className="h-2.5 bg-muted rounded-full overflow-hidden">
                   <div 

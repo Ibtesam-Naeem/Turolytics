@@ -8,6 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { tripsService, TripToday, NewBookingToday, CheckoutToday } from "@/services/trips-service";
 import { turoService } from "@/services/turo-service";
 import { dashboardService } from "@/services/dashboard-service";
+import { useBouncieLiveData } from "@/hooks/useBouncieLiveData";
+import { useRegionalSettings } from "@/contexts/RegionalSettingsContext";
+import { formatDistance } from "@/lib/regional-utils";
 
 interface OperationMetric {
   label: string;
@@ -22,6 +25,8 @@ interface LiveOperationsStripProps {
 
 export const LiveOperationsStrip = ({ turoConnected: propTuroConnected }: LiveOperationsStripProps) => {
   const navigate = useNavigate();
+  const { distanceUnit } = useRegionalSettings();
+  const { totalMilesToday, bouncieConnected: bouncieConnectedLive, liveVehicles } = useBouncieLiveData(60000); // Refresh every minute
   const [selectedMetric, setSelectedMetric] = useState<OperationMetric | null>(null);
   const [tripsToday, setTripsToday] = useState<TripToday[]>([]);
   const [newBookings, setNewBookings] = useState<NewBookingToday[]>([]);
@@ -73,9 +78,8 @@ export const LiveOperationsStrip = ({ turoConnected: propTuroConnected }: LiveOp
         setNewBookings(bookingsRes.bookings);
         setCheckoutsToday(checkoutsRes.checkouts);
         
-        // Miles driven today requires real-time data from Bouncie integration
-        // For now, set to 0 as we don't have this data source
-        setMilesDrivenToday(0);
+        // Miles driven today comes from Bouncie live data hook
+        // Will be updated automatically by useBouncieLiveData
         
         // Get upcoming payments from earnings breakdown
         setEarningsBreakdown(earningsRes.breakdown);
@@ -84,12 +88,7 @@ export const LiveOperationsStrip = ({ turoConnected: propTuroConnected }: LiveOp
         );
         if (upcomingEarnings) {
           // Use amount_numeric if available, otherwise parse the amount string
-          let amount = upcomingEarnings.amount_numeric || 0;
-          if (amount === 0 && upcomingEarnings.amount) {
-            // Parse the amount string (e.g., "$1,739" -> 1739)
-            const cleaned = upcomingEarnings.amount.replace('$', '').replace(/,/g, '').trim();
-            amount = parseFloat(cleaned) || 0;
-          }
+          const amount = upcomingEarnings.amount_numeric || 0;
           setUpcomingPaymentsTotal(amount);
         } else {
           setUpcomingPaymentsTotal(0);
@@ -99,7 +98,7 @@ export const LiveOperationsStrip = ({ turoConnected: propTuroConnected }: LiveOp
         setTripsToday([]);
         setNewBookings([]);
         setCheckoutsToday([]);
-        setMilesDrivenToday(0);
+        // Don't reset milesDrivenToday here - let Bouncie hook handle it
         setUpcomingPaymentsTotal(0);
       } finally {
         setLoading(false);
@@ -111,6 +110,15 @@ export const LiveOperationsStrip = ({ turoConnected: propTuroConnected }: LiveOp
     });
   }, [propTuroConnected, turoConnected]);
 
+  // Update miles driven from Bouncie live data
+  useEffect(() => {
+    if (bouncieConnectedLive && totalMilesToday !== undefined) {
+      setMilesDrivenToday(totalMilesToday);
+    } else if (bouncieConnectedLive === false) {
+      setMilesDrivenToday(0);
+    }
+  }, [bouncieConnectedLive, totalMilesToday]);
+
   const todayMetrics: OperationMetric[] = [
     {
       label: "Trips booked for today",
@@ -119,8 +127,8 @@ export const LiveOperationsStrip = ({ turoConnected: propTuroConnected }: LiveOp
       detailType: "trips",
     },
     {
-      label: "Miles driven today",
-      value: loading ? "..." : milesDrivenToday,
+      label: distanceUnit === "miles" ? "Miles driven today" : "Kilometers driven today",
+      value: loading ? "..." : formatDistance(milesDrivenToday, distanceUnit),
       icon: Route,
       detailType: "miles",
     },
@@ -144,12 +152,17 @@ export const LiveOperationsStrip = ({ turoConnected: propTuroConnected }: LiveOp
     },
   ];
 
-  // Mock data for miles (can be calculated later from Bouncie)
-  const milesBreakdown = [
-    { vehicle: "Tesla Model 3", miles: 45, driver: "Sarah Johnson" },
-    { vehicle: "BMW X5", miles: 38, driver: "Mike Chen" },
-    { vehicle: "Mercedes C300", miles: 29, driver: "Emily Davis" },
-  ];
+  // Get real miles breakdown from Bouncie live data
+  // Note: milesDrivenToday is stored in km, formatDistance will convert for display
+  const milesBreakdown = liveVehicles
+    .filter(v => v.milesDrivenToday && v.milesDrivenToday > 0)
+    .map(v => ({
+      vehicle: v.vehicleName,
+      km: v.milesDrivenToday!, // Already in km
+      driver: v.activeTrip ? "Active Trip" : "No active trip",
+    }))
+    .sort((a, b) => b.km - a.km)
+    .slice(0, 10); // Top 10 vehicles
 
   const renderDetailContent = () => {
     if (!selectedMetric) return null;
@@ -186,15 +199,26 @@ export const LiveOperationsStrip = ({ turoConnected: propTuroConnected }: LiveOp
       case "miles":
         return (
           <div className="space-y-3">
-            {milesBreakdown.map((item, idx) => (
-              <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border border-border">
-                <div>
-                  <p className="font-medium text-foreground">{item.vehicle}</p>
-                  <p className="text-sm text-muted-foreground">{item.driver}</p>
-                </div>
-                <p className="text-lg font-bold text-primary">{item.miles} mi</p>
+            {bouncieConnectedLive === false ? (
+              <div className="flex flex-col items-center justify-center py-8 text-center">
+                <p className="text-sm text-muted-foreground mb-4">Connect your Bouncie account to view miles driven today.</p>
+                <Button onClick={() => navigate('/settings?tab=integrations')} variant="default" size="sm">
+                  Connect Bouncie
+                </Button>
               </div>
-            ))}
+            ) : milesBreakdown.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No miles driven today</p>
+            ) : (
+              milesBreakdown.map((item, idx) => (
+                <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border border-border">
+                  <div>
+                    <p className="font-medium text-foreground">{item.vehicle}</p>
+                    <p className="text-sm text-muted-foreground">{item.driver}</p>
+                  </div>
+                  <p className="text-lg font-bold text-primary">{formatDistance(item.km, distanceUnit)}</p>
+                </div>
+              ))
+            )}
           </div>
         );
 
@@ -287,9 +311,9 @@ export const LiveOperationsStrip = ({ turoConnected: propTuroConnected }: LiveOp
 
   return (
     <>
-      <Card className="rounded-2xl shadow-md overflow-hidden border-border/50 glass-card">
-        <CardContent className="p-5">
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
+      <Card className="rounded-2xl shadow-md overflow-hidden border-border/50 glass-card w-full max-w-full">
+        <CardContent className="p-5 w-full">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6 w-full">
             {todayMetrics.map((metric, index) => {
               const Icon = metric.icon;
               return (

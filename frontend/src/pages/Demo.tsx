@@ -119,7 +119,7 @@ const Demo = () => {
           <main className="flex-1">
             <div className="flex">
               {/* Main Content Area */}
-              <div className="flex-1 p-3 lg:p-4 space-y-3 overflow-auto">
+              <div className="flex-1 p-3 lg:p-4 xl:pr-[300px] 2xl:pr-[340px] space-y-3 overflow-auto">
                 {/* Header */}
                 <div className="animate-fade-in flex items-center justify-between">
                   <div>
@@ -184,13 +184,10 @@ const Demo = () => {
               </div>
 
               {/* Right Sidebar - Calendar & Leaderboard (Fixed) */}
-              <aside className="hidden xl:flex flex-col w-[280px] 2xl:w-[320px] border-l border-border bg-card/30 p-3 gap-3 shrink-0 fixed right-0 top-0 h-screen overflow-y-auto z-10">
+              <aside className="hidden xl:flex flex-col w-[280px] 2xl:w-[320px] border-l border-border bg-card/30 p-3 gap-3 shrink-0 fixed right-0 top-12 h-[calc(100vh-3rem)] overflow-y-auto z-10">
                 <CalendarWidget />
                 <PerformanceLeaderboard />
               </aside>
-              
-              {/* Spacer for fixed sidebar */}
-              <div className="hidden xl:block w-[280px] 2xl:w-[320px] shrink-0" />
             </div>
           </main>
         </div>
@@ -200,6 +197,7 @@ const Demo = () => {
 };
 
 export default Demo;
+
 
 
 

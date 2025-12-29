@@ -13,6 +13,7 @@ from core.database import get_db
 from core.database.models.s3 import DocumentCategory
 from core.database.models.account import Account
 from core.security.auth import get_current_active_user
+from core.utils.route_helpers import handle_route_errors
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ def get_s3_service(db: Session = Depends(get_db)) -> S3Service:
 # ------------------------------ DOCUMENT ENDPOINTS ------------------------------
 
 @router.post("/upload", response_model=APIResponse)
+@handle_route_errors("uploading document")
 async def upload_document(
     category: DocumentCategory = Form(..., description="Document category"),
     vehicle_id: Optional[int] = Form(None, description="Vehicle ID (optional, use null for general)"),
@@ -38,34 +40,28 @@ async def upload_document(
     service: S3Service = Depends(get_s3_service)
 ) -> APIResponse:
     """Upload a document to S3."""
-    try:
-        file_content = await file.read()
-        
-        document = service.upload_file(
-            file_content=file_content,
-            file_name=file.filename or "unnamed",
-            file_type=file.content_type or "application/octet-stream",
-            account=current_user,
-            category=category,
-            vehicle_id=vehicle_id,
-            description=description
-        )
-        
-        return APIResponse(
-            success=True,
-            data={
-                "document": DocumentOut.model_validate(document, from_attributes=True),
-                "message": "File uploaded successfully"
-            }
-        )
+    file_content = await file.read()
     
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.exception(f"Error uploading document: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to upload document: {str(e)}")
+    document = service.upload_file(
+        file_content=file_content,
+        file_name=file.filename or "unnamed",
+        file_type=file.content_type or "application/octet-stream",
+        account=current_user,
+        category=category,
+        vehicle_id=vehicle_id,
+        description=description
+    )
+    
+    return APIResponse(
+        success=True,
+        data={
+            "document": DocumentOut.model_validate(document, from_attributes=True),
+            "message": "File uploaded successfully"
+        }
+    )
 
 @router.get("/list", response_model=APIResponse)
+@handle_route_errors("listing documents")
 async def list_documents(
     vehicle_id: Optional[int] = Query(None, description="Filter by vehicle ID (use null for general/non-vehicle documents)"),
     category: Optional[DocumentCategory] = Query(None, description="Filter by category"),
@@ -78,35 +74,29 @@ async def list_documents(
     service: S3Service = Depends(get_s3_service)
 ) -> APIResponse:
     """List documents with filtering and pagination."""
-    try:
-        documents, total = service.list_documents(
-            account=current_user,
-            vehicle_id=vehicle_id,
-            category=category,
-            search=search,
-            start_date=start_date,
-            end_date=end_date,
-            limit=limit,
-            offset=offset
-        )
-        
-        return APIResponse(
-            success=True,
-            data={
-                "documents": [DocumentOut.model_validate(d, from_attributes=True) for d in documents],
-                "total": total,
-                "limit": limit,
-                "offset": offset
-            }
-        )
+    documents, total = service.list_documents(
+        account=current_user,
+        vehicle_id=vehicle_id,
+        category=category,
+        search=search,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+        offset=offset
+    )
     
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        logger.exception(f"Error listing documents: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to list documents: {str(e)}")
+    return APIResponse(
+        success=True,
+        data={
+            "documents": [DocumentOut.model_validate(d, from_attributes=True) for d in documents],
+            "total": total,
+            "limit": limit,
+            "offset": offset
+        }
+    )
 
 @router.get("/{document_id}", response_model=None)
+@handle_route_errors("getting document")
 async def get_document(
     document_id: int = Path(..., description="Document ID"),
     action: Optional[str] = Query(None, description="Action: 'download' to download file, 'url' to get presigned URL, or omit for metadata"),
@@ -115,40 +105,34 @@ async def get_document(
     service: S3Service = Depends(get_s3_service)
 ) -> Union[APIResponse, StreamingResponse]:
     """Get document metadata, download file, or get presigned URL."""
-    try:
-        if action == "download":
-            file_content, file_name, file_type = service.download_file(document_id, current_user)
-            file_stream = BytesIO(file_content)
-            return StreamingResponse(
-                file_stream,
-                media_type=file_type,
-                headers={
-                    "Content-Disposition": f'attachment; filename="{file_name}"'
-                }
-            )
-        elif action == "url":
-            url = service.get_presigned_url(document_id, current_user, expiration)
-            return APIResponse(
-                success=True,
-                data={
-                    "url": url,
-                    "expiration_seconds": expiration
-                }
-            )
-        else:
-            document = service.get_document(document_id, current_user)
-            return APIResponse(
-                success=True,
-                data={"document": DocumentOut.model_validate(document, from_attributes=True)}
-            )
-    
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        logger.exception(f"Error getting document: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get document: {str(e)}")
+    if action == "download":
+        file_content, file_name, file_type = service.download_file(document_id, current_user)
+        file_stream = BytesIO(file_content)
+        return StreamingResponse(
+            file_stream,
+            media_type=file_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{file_name}"'
+            }
+        )
+    elif action == "url":
+        url = service.get_presigned_url(document_id, current_user, expiration)
+        return APIResponse(
+            success=True,
+            data={
+                "url": url,
+                "expiration_seconds": expiration
+            }
+        )
+    else:
+        document = service.get_document(document_id, current_user)
+        return APIResponse(
+            success=True,
+            data={"document": DocumentOut.model_validate(document, from_attributes=True)}
+        )
 
 @router.put("/{document_id}", response_model=APIResponse)
+@handle_route_errors("updating document")
 async def update_document(
     document_id: int = Path(..., description="Document ID"),
     request: DocumentUpdateRequest = ...,
@@ -156,49 +140,36 @@ async def update_document(
     service: S3Service = Depends(get_s3_service)
 ) -> APIResponse:
     """Update document metadata."""
-    try:
-        document = service.update_document(
-            document_id=document_id,
-            account=current_user,
-            category=request.category,
-            vehicle_id=request.vehicle_id,
-            description=request.description
-        )
-        
-        return APIResponse(
-            success=True,
-            data={
-                "document": DocumentOut.model_validate(document, from_attributes=True),
-                "message": "Document updated successfully"
-            }
-        )
+    document = service.update_document(
+        document_id=document_id,
+        account=current_user,
+        category=request.category,
+        vehicle_id=request.vehicle_id,
+        description=request.description
+    )
     
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        logger.exception(f"Error updating document: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to update document: {str(e)}")
+    return APIResponse(
+        success=True,
+        data={
+            "document": DocumentOut.model_validate(document, from_attributes=True),
+            "message": "Document updated successfully"
+        }
+    )
 
 @router.delete("/{document_id}", response_model=APIResponse)
+@handle_route_errors("deleting document")
 async def delete_document(
     document_id: int = Path(..., description="Document ID"),
     current_user: Account = Depends(get_current_active_user),
     service: S3Service = Depends(get_s3_service)
 ) -> APIResponse:
     """Delete a document from S3 and database."""
-    try:
-        service.delete_file(document_id, current_user)
-        
-        return APIResponse(
-            success=True,
-            data={"message": f"Document {document_id} deleted successfully"}
-        )
+    service.delete_file(document_id, current_user)
     
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        logger.exception(f"Error deleting document: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to delete document: {str(e)}")
+    return APIResponse(
+        success=True,
+        data={"message": f"Document {document_id} deleted successfully"}
+    )
 
 @router.get("/categories/list", response_model=APIResponse)
 async def list_categories() -> APIResponse:

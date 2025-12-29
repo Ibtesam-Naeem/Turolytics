@@ -82,10 +82,26 @@ export interface BouncieTrip {
   [key: string]: any;
 }
 
+export interface BouncieDTCCode {
+  id: number;
+  vehicle_id?: number;
+  vehicle_name?: string;
+  imei: string;
+  code: string;
+  description?: string;
+  is_active: boolean;
+  occurred_at: string;
+  cleared_at?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 class BouncieService {
   // Authentication
-  async getAuthorizationUrl(): Promise<string> {
-    const response = await apiClient.get<{ success: boolean; data: { authorization_url: string } }>('/api/bouncie/auth/url');
+  async getAuthorizationUrl(popup: boolean = false): Promise<string> {
+    const response = await apiClient.get<{ success: boolean; data: { authorization_url: string } }>(
+      `/api/bouncie/auth/url${popup ? '?popup=true' : ''}`
+    );
     return response.data.authorization_url;
   }
 
@@ -180,14 +196,15 @@ class BouncieService {
   // Direct Bouncie API calls (frontend → Bouncie)
   
   /**
-   * Get vehicles directly from Bouncie API
+   * Get vehicles from backend proxy (avoids CORS issues)
    */
   async getVehiclesDirect(): Promise<BouncieVehicle[]> {
-    return bouncieApiClient.getVehicles();
+    const response = await apiClient.get<{ success: boolean; data: BouncieVehicle[] }>('/api/bouncie/vehicles');
+    return response.data || [];
   }
 
   /**
-   * Get trips directly from Bouncie API
+   * Get trips from backend proxy (avoids CORS issues)
    */
   async getTripsDirect(params: {
     gpsFormat?: string;
@@ -195,19 +212,115 @@ class BouncieService {
     endDate?: string; // ISO date string (YYYY-MM-DD)
     imei?: string;
   } = {}): Promise<BouncieTrip[]> {
-    const bouncieParams: {
-      gpsFormat?: string;
-      'starts-after'?: string;
-      'ends-before'?: string;
-      imei?: string;
-    } = {};
+    if (!params.imei) {
+      throw new Error('IMEI is required for fetching trips');
+    }
+    
+    const queryParams = new URLSearchParams();
+    if (params.gpsFormat) queryParams.append('gps_format', params.gpsFormat);
+    if (params.startDate) queryParams.append('start_date', params.startDate);
+    if (params.endDate) queryParams.append('end_date', params.endDate);
+    if (params.imei) queryParams.append('imei', params.imei);
 
-    if (params.gpsFormat) bouncieParams.gpsFormat = params.gpsFormat;
-    if (params.startDate) bouncieParams['starts-after'] = params.startDate;
-    if (params.endDate) bouncieParams['ends-before'] = params.endDate;
-    if (params.imei) bouncieParams.imei = params.imei;
+    const response = await apiClient.get<{ success: boolean; data: BouncieTrip[] }>(
+      `/api/bouncie/trips?${queryParams.toString()}`
+    );
+    return response.data || [];
+  }
 
-    return bouncieApiClient.getTrips(bouncieParams);
+  /**
+   * Get live vehicle status - use backend proxy
+   * Note: Individual vehicle endpoint doesn't exist, use getAllVehiclesWithStatus instead
+   */
+  async getVehicleStatus(imei: string): Promise<any> {
+    // Individual vehicle endpoint doesn't exist, get all and filter
+    const vehicles = await this.getAllVehiclesWithStatus();
+    return vehicles.find(v => v.imei === imei) || null;
+  }
+
+  /**
+   * Get today's trips for calculating miles driven today
+   */
+  async getTripsToday(imei?: string): Promise<BouncieTrip[]> {
+    if (!imei) {
+      return [];
+    }
+    
+    const today = new Date().toISOString().split('T')[0];
+    return this.getTripsDirect({
+      imei: imei,
+      startDate: today,
+      endDate: today,
+      gpsFormat: 'geojson'
+    });
+  }
+
+  /**
+   * Get active trip for a vehicle
+   */
+  async getActiveTrip(imei: string): Promise<BouncieTrip | null> {
+    const today = new Date().toISOString().split('T')[0];
+    const trips = await this.getTripsDirect({
+      imei: imei,
+      startDate: today,
+      gpsFormat: 'geojson'
+    });
+    
+    // Find trip without endTime (active trip)
+    return trips.find(trip => !trip.endTime) || null;
+  }
+
+  /**
+   * Get all vehicles with their current status (uses backend proxy)
+   */
+  async getAllVehiclesWithStatus(): Promise<BouncieVehicle[]> {
+    return this.getVehiclesDirect();
+  }
+
+  /**
+   * Get aggregated live vehicle data with location, speed, fuel, trips
+   * This endpoint processes Bouncie data and returns a clean structure optimized for map display
+   */
+  async getLiveVehicles(): Promise<any[]> {
+    const response = await apiClient.get<{ success: boolean; data: { vehicles: any[] } }>('/api/bouncie/live');
+    return response.data?.vehicles || [];
+  }
+
+  /**
+   * Get DTC codes (Diagnostic Trouble Codes)
+   */
+  async getDTCCodes(
+    vehicleId?: number,
+    imei?: string,
+    activeOnly: boolean = true,
+    limit: number = 100,
+    offset: number = 0
+  ): Promise<{ codes: BouncieDTCCode[]; total: number }> {
+    const params = new URLSearchParams({
+      active_only: activeOnly.toString(),
+      limit: limit.toString(),
+      offset: offset.toString(),
+    });
+    if (vehicleId) {
+      params.append('vehicle_id', vehicleId.toString());
+    }
+    if (imei) {
+      params.append('imei', imei);
+    }
+    const response = await apiClient.get<{ success: boolean; data: { codes: BouncieDTCCode[]; total: number } }>(
+      `/api/bouncie/dtc-codes?${params.toString()}`
+    );
+    return response.data;
+  }
+
+  /**
+   * Clear a DTC code (mark as resolved)
+   */
+  async clearDTCCode(codeId: number): Promise<BouncieDTCCode> {
+    const response = await apiClient.post<{ success: boolean; data: { code: BouncieDTCCode; message: string } }>(
+      `/api/bouncie/dtc-codes/${codeId}/clear`
+    );
+    return response.data.code;
   }
 
   /**

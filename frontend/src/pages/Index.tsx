@@ -19,9 +19,12 @@ import { useNavigate } from "react-router-dom";
 import { dashboardService } from "@/services/dashboard-service";
 import { tripsService, UpcomingTrip, CurrentTrip } from "@/services/trips-service";
 import { turoService } from "@/services/turo-service";
+import { useBouncieLiveData } from "@/hooks/useBouncieLiveData";
+import { bouncieService } from "@/services/bouncie-service";
 
 const Index = () => {
   const navigate = useNavigate();
+  const { liveVehicles, getVehicleLiveData } = useBouncieLiveData(60000); // Refresh every minute
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [turoConnected, setTuroConnected] = useState<boolean | null>(null);
@@ -156,31 +159,68 @@ const Index = () => {
       setCurrentTripsLoading(true);
       const response = await tripsService.getCurrentTrips(50);
       
-      // Map API response to TripCard format
-      const mappedTrips = response.trips.map((trip: CurrentTrip) => ({
-        vehicleName: trip.vehicle_name,
-        year: trip.vehicle_year || new Date().getFullYear(),
-        guestName: trip.guest_name,
-        location: trip.location,
-        coordinates: trip.coordinates || "N/A",
-        fuelPercent: trip.fuel_percent ?? 75, // Default to 75% if not available
-        speed: trip.speed || 0,
-        status: (trip.status === "Moving" ? "Moving" : trip.status === "Parked" ? "Parked" : "Active") as "Active" | "Parked" | "Moving" | "Alert",
-        kmsDriven: trip.kms_driven || 0,
-        kmsAllowed: trip.kms_allowed || 0,
-        earnings: Math.round(trip.earnings || 0),
-        topSpeed: trip.top_speed || 0,
-        startDate: trip.start_date,
-        startTime: trip.start_time,
-        endDate: trip.end_date,
-        endTime: trip.end_time,
-        flags: {
-          // These would come from Bouncie integration if available
-          rapidAcceleration: undefined,
-          hardBraking: undefined,
-          engineLight: false,
-        },
-      }));
+      // Get vehicle mappings to match Turo trips with Bouncie IMEIs
+      let vehicleMappings: Map<number, string> = new Map();
+      try {
+        const mappingsResponse = await bouncieService.getVehicleMappings(100, 0);
+        mappingsResponse.mappings.forEach(m => {
+          if (m.vehicle_id) {
+            vehicleMappings.set(m.vehicle_id, m.imei);
+          }
+        });
+      } catch (err) {
+        console.error('Failed to load vehicle mappings:', err);
+      }
+      
+      // Map API response to TripCard format and merge with Bouncie live data
+      const mappedTrips = response.trips.map((trip: CurrentTrip) => {
+        // Try to find Bouncie live data for this vehicle
+        const imei = vehicleMappings.get(trip.vehicle_id || 0);
+        const liveData = imei ? liveVehicles.find(v => v.imei === imei) : undefined;
+        
+        // Determine status from Bouncie or Turo data
+        let status: "Active" | "Parked" | "Moving" | "Alert" = "Active";
+        if (liveData?.status === "moving") {
+          status = "Moving";
+        } else if (liveData?.status === "parked") {
+          status = "Parked";
+        } else if (trip.status === "Moving") {
+          status = "Moving";
+        } else if (trip.status === "Parked") {
+          status = "Parked";
+        }
+        
+        return {
+          vehicleName: trip.vehicle_name,
+          year: trip.vehicle_year || new Date().getFullYear(),
+          guestName: trip.guest_name,
+          location: liveData?.location 
+            ? `${liveData.location.lat.toFixed(4)}, ${liveData.location.lon.toFixed(4)}`
+            : trip.location,
+          coordinates: liveData?.location 
+            ? `${liveData.location.lat}, ${liveData.location.lon}`
+            : trip.coordinates || "N/A",
+          fuelPercent: liveData?.fuelLevel !== undefined 
+            ? Math.round(liveData.fuelLevel) 
+            : (trip.fuel_percent ?? 75),
+          speed: liveData?.speed || trip.speed || 0,
+          status: status,
+          kmsDriven: trip.kms_driven || 0,
+          kmsAllowed: trip.kms_allowed || 0,
+          earnings: Math.round(trip.earnings || 0),
+          topSpeed: liveData?.activeTrip?.maxSpeed || trip.top_speed || 0,
+          startDate: trip.start_date,
+          startTime: trip.start_time,
+          endDate: trip.end_date,
+          endTime: trip.end_time,
+          flags: {
+            // Use real Bouncie data if available
+            rapidAcceleration: liveData?.flags?.rapidAcceleration,
+            hardBraking: liveData?.flags?.hardBraking,
+            engineLight: liveData?.flags?.engineLight || false,
+          },
+        };
+      });
       
       setCurrentTrips(mappedTrips);
     } catch (error) {
@@ -207,11 +247,19 @@ const Index = () => {
     loadCurrentTrips();
   }, []);
 
+  // Reload current trips when Bouncie live data updates
+  useEffect(() => {
+    if (liveVehicles.length > 0 && !currentTripsLoading) {
+      loadCurrentTrips();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveVehicles]);
+
   return (
     <div className="min-h-screen bg-background">
-      <div className="flex w-full">
+      <div className="flex">
         {/* Main Content Area */}
-        <div className="flex-1 p-3 lg:p-4 space-y-3 overflow-auto w-full max-w-full">
+        <div className="flex-1 p-3 lg:p-4 space-y-3 overflow-auto">
           {/* Header */}
           <div className="animate-fade-in flex items-center justify-between">
             <div>
@@ -342,7 +390,7 @@ const Index = () => {
         </div>
 
         {/* Right Sidebar - Calendar & Leaderboard (Fixed) */}
-        <aside className="hidden xl:flex flex-col w-[280px] 2xl:w-[320px] border-l border-border bg-card/30 p-3 pt-16 gap-3 shrink-0 fixed right-0 top-0 h-screen overflow-y-auto z-10">
+        <aside className="hidden xl:flex flex-col w-[280px] 2xl:w-[320px] border-l border-border bg-card/30 p-3 gap-3 shrink-0 fixed right-0 top-12 h-[calc(100vh-3rem)] overflow-y-auto z-10">
           <CalendarWidget />
           <PerformanceLeaderboard />
         </aside>

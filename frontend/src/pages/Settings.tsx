@@ -18,6 +18,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useTheme } from "@/contexts/ThemeContext";
+import { useRegionalSettings } from "@/contexts/RegionalSettingsContext";
 
 const countries = [
   { code: "US", name: "United States" },
@@ -94,7 +96,7 @@ const Settings = () => {
   const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
   const [deletionReason, setDeletionReason] = useState("");
   const [deleteAccountStep, setDeleteAccountStep] = useState<1 | 2>(1);
-  const [theme, setTheme] = useState("system");
+  const { theme, setTheme } = useTheme();
   const [user, setUser] = useState<User | null>(null);
   const [userLoading, setUserLoading] = useState(true);
   const [editProfileOpen, setEditProfileOpen] = useState(false);
@@ -109,6 +111,7 @@ const Settings = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { distanceUnit, currency, timeFormat, setDistanceUnit, setCurrency, setTimeFormat } = useRegionalSettings();
   
   // Get tab from URL params, default to "profile"
   const [activeTab, setActiveTab] = useState(() => {
@@ -917,7 +920,7 @@ const Settings = () => {
                       <Label>Theme</Label>
                       <p className="text-sm text-muted-foreground">Switch between light and dark mode</p>
                     </div>
-                    <Select value={theme} onValueChange={setTheme}>
+                    <Select value={theme} onValueChange={(value) => setTheme(value as "light" | "dark" | "system")}>
                       <SelectTrigger className="w-32">
                         <SelectValue />
                       </SelectTrigger>
@@ -942,7 +945,7 @@ const Settings = () => {
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
                     <Label>Units</Label>
-                    <Select defaultValue="km">
+                    <Select value={distanceUnit} onValueChange={(value) => setDistanceUnit(value as "km" | "miles")}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
@@ -954,54 +957,25 @@ const Settings = () => {
                   </div>
                   <div className="space-y-2">
                     <Label>Currency</Label>
-                    <Select defaultValue="usd">
+                    <Select value={currency} onValueChange={(value) => setCurrency(value as "usd" | "cad")}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="usd">USD ($)</SelectItem>
                         <SelectItem value="cad">CAD ($)</SelectItem>
-                        <SelectItem value="eur">EUR (€)</SelectItem>
-                        <SelectItem value="gbp">GBP (£)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Date Format</Label>
-                    <Select defaultValue="mdy">
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="mdy">MM/DD/YYYY</SelectItem>
-                        <SelectItem value="dmy">DD/MM/YYYY</SelectItem>
-                        <SelectItem value="ymd">YYYY-MM-DD</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-2">
                     <Label>Time Format</Label>
-                    <Select defaultValue="12h">
+                    <Select value={timeFormat} onValueChange={(value) => setTimeFormat(value as "12h" | "24h")}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="12h">12-hour</SelectItem>
                         <SelectItem value="24h">24-hour</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Timezone</Label>
-                    <Select defaultValue="est">
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="est">Eastern (EST)</SelectItem>
-                        <SelectItem value="cst">Central (CST)</SelectItem>
-                        <SelectItem value="mst">Mountain (MST)</SelectItem>
-                        <SelectItem value="pst">Pacific (PST)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

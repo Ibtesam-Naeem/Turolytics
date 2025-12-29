@@ -2,6 +2,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { Input } from "@/components/ui/input";
 import { 
   Car, 
   Fuel, 
@@ -13,7 +14,8 @@ import {
   CreditCard,
   Route,
   TrendingUp,
-  Loader2
+  Loader2,
+  Search
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
@@ -26,6 +28,7 @@ const Vehicles = () => {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     const loadVehicles = async () => {
@@ -95,6 +98,26 @@ const Vehicles = () => {
     return { color: "text-success", bg: "bg-success" };
   };
 
+  // Filter vehicles based on search query
+  const filteredVehicles = vehicles.filter((vehicle) => {
+    if (!searchQuery.trim()) return true;
+    
+    const query = searchQuery.toLowerCase();
+    const name = vehicle.name?.toLowerCase() || "";
+    const licensePlate = vehicle.license_plate?.toLowerCase() || "";
+    const year = vehicle.year?.toString() || "";
+    const status = vehicle.status?.toLowerCase() || "";
+    const statusMapped = vehicle.status_mapped?.toLowerCase() || "";
+    
+    return (
+      name.includes(query) ||
+      licensePlate.includes(query) ||
+      year.includes(query) ||
+      status.includes(query) ||
+      statusMapped.includes(query)
+    );
+  });
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -117,9 +140,20 @@ const Vehicles = () => {
           </div>
           <div className="flex items-center gap-3">
             <Badge variant="outline" className="text-sm px-3 py-1">
-              {total} Vehicles
+              {searchQuery ? `${filteredVehicles.length} of ${total}` : total} Vehicles
             </Badge>
           </div>
+        </div>
+
+        {/* Search Bar */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search by name, license plate, year, or status..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9 w-full max-w-md"
+          />
         </div>
 
         {/* Vehicle Grid */}
@@ -131,9 +165,17 @@ const Vehicles = () => {
               Connect your Turo account and scrape data to see your vehicles here.
             </p>
           </div>
+        ) : filteredVehicles.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <Search className="w-16 h-16 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold text-foreground mb-2">No vehicles match your search</h3>
+            <p className="text-sm text-muted-foreground">
+              Try adjusting your search query.
+            </p>
+          </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-            {vehicles.map((vehicle) => {
+            {filteredVehicles.map((vehicle) => {
               const statusConfig = getStatusConfig(vehicle.status_mapped || vehicle.status);
               // Note: fuelLevel is not available from Turo data - would need Bouncie integration
               const fuelLevel = undefined; // Placeholder for future Bouncie integration

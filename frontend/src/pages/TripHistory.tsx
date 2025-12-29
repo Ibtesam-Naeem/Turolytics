@@ -27,8 +27,11 @@ import { useState, useEffect } from "react";
 import { tripsService, Trip } from "@/services/trips-service";
 import { vehiclesService, Vehicle } from "@/services/vehicles-service";
 import { format, parseISO } from "date-fns";
+import { useRegionalSettings } from "@/contexts/RegionalSettingsContext";
+import { formatDistance, formatCurrency, formatCurrencyDecimal, formatTimeString } from "@/lib/regional-utils";
 
 const TripHistory = () => {
+  const { distanceUnit, currency, timeFormat } = useRegionalSettings();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState("recent");
@@ -145,7 +148,7 @@ const TripHistory = () => {
 
   const formatTime = (timeString?: string) => {
     if (!timeString) return "";
-    return timeString;
+    return formatTimeString(timeString, timeFormat);
   };
 
 
@@ -221,7 +224,7 @@ const TripHistory = () => {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Total Distance</p>
-                <p className="text-xl font-bold">{totalDistance.toLocaleString()} km</p>
+                <p className="text-xl font-bold">{formatDistance(totalDistance, distanceUnit)}</p>
               </div>
             </CardContent>
           </Card>
@@ -389,9 +392,9 @@ const TripHistory = () => {
                         {trip.kilometers_driven != null && (
                           <div className="text-center">
                             <p className="text-xs text-muted-foreground">Distance</p>
-                            <p className="text-lg font-bold">{trip.kilometers_driven} km</p>
+                            <p className="text-lg font-bold">{formatDistance(trip.kilometers_driven, distanceUnit)}</p>
                             {trip.kilometers_included && (
-                              <p className="text-xs text-muted-foreground">/ {trip.kilometers_included}</p>
+                              <p className="text-xs text-muted-foreground">/ {formatDistance(trip.kilometers_included, distanceUnit)}</p>
                             )}
                           </div>
                         )}
@@ -404,7 +407,7 @@ const TripHistory = () => {
                         {trip.total_earnings != null && (
                           <div className="text-center min-w-[80px]">
                             <p className="text-xs text-muted-foreground">Earnings</p>
-                            <p className="text-lg font-bold text-success">${trip.total_earnings.toFixed(2)}</p>
+                            <p className="text-lg font-bold text-success">{formatCurrencyDecimal(trip.total_earnings || 0, currency)}</p>
                           </div>
                         )}
                       </div>
@@ -524,7 +527,7 @@ const TripHistory = () => {
                         <div className="flex justify-between text-sm">
                           <span className="text-muted-foreground">Driven / Included</span>
                           <span className="font-medium">
-                            {selectedTrip.kilometers_driven ?? 0} / {selectedTrip.kilometers_included ?? 0} km
+                            {formatDistance(selectedTrip.kilometers_driven ?? 0, distanceUnit)} / {formatDistance(selectedTrip.kilometers_included ?? 0, distanceUnit)}
                           </span>
                         </div>
                         {selectedTrip.kilometers_included && selectedTrip.kilometers_included > 0 && (
@@ -537,7 +540,7 @@ const TripHistory = () => {
                               <div className="flex items-center gap-2 text-warning text-sm">
                                 <AlertTriangle className="h-4 w-4" />
                                 <span>
-                                  {(selectedTrip.kilometers_driven || 0) - selectedTrip.kilometers_included} km over @ ${selectedTrip.overage_rate}/km
+                                  {formatDistance((selectedTrip.kilometers_driven || 0) - selectedTrip.kilometers_included, distanceUnit)} over @ {formatCurrencyDecimal(selectedTrip.overage_rate || 0, currency)}/{distanceUnit === "miles" ? "mi" : "km"}
                                 </span>
                               </div>
                             )}

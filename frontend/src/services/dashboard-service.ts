@@ -87,108 +87,55 @@ class DashboardService {
         );
       }).length;
 
-      // FIX 1: Get total revenue from earnings breakdown (authoritative source)
-      // This uses the earnings_breakdown table which has the correct total
+      // Calculate total revenue from earnings breakdown (Total earnings)
       let totalRevenue = 0;
       try {
-        const earningsResponse = await apiClient.get<{
-          success: boolean;
-          data: {
-            breakdown: Array<{ type?: string; amount_numeric?: number }>;
-            vehicle_earnings: Array<any>;
-          };
-        }>('/api/turo/data/earnings');
-        
-        const breakdown = earningsResponse.data?.breakdown || [];
-        // Find "Trip earnings" in the breakdown
-        const tripEarnings = breakdown.find(item => 
-          item.type && item.type.toLowerCase().includes('trip earnings')
+        const earningsResponse = await this.getEarnings();
+        const totalEarnings = earningsResponse.breakdown.find(
+          item => item.type === 'Total earnings'
         );
-        
-        if (tripEarnings && tripEarnings.amount_numeric != null) {
-          totalRevenue = tripEarnings.amount_numeric;
-          console.log('Dashboard: Total revenue from earnings breakdown:', totalRevenue);
-        } else {
-          // Fallback: try to sum all earnings types
-          totalRevenue = breakdown.reduce((sum, item) => {
-            const amount = item.amount_numeric || 0;
-            return sum + (typeof amount === 'number' ? amount : 0);
-          }, 0);
-          console.log('Dashboard: Total revenue (sum of all earnings types):', totalRevenue);
+        if (totalEarnings && totalEarnings.amount_numeric !== undefined) {
+          totalRevenue = totalEarnings.amount_numeric;
+        } else if (totalEarnings && totalEarnings.amount) {
+          // Fallback: parse the amount string if amount_numeric is not available
+          const parsed = parseFloat(totalEarnings.amount.replace(/[^0-9.-]+/g, ''));
+          if (!isNaN(parsed)) {
+            totalRevenue = parsed;
+          }
         }
+        console.log('Dashboard: Total revenue from earnings breakdown:', totalRevenue);
       } catch (error) {
         console.error('Error fetching earnings breakdown:', error);
-        // Fallback: calculate from completed trips
-        try {
-          const tripsResponse = await apiClient.get<{
-            success: boolean;
-            data: {
-              trips: Array<{ total_earnings?: number; status?: string }>;
-              total: number;
-            };
-          }>('/api/turo/data/trips?status=COMPLETED&limit=1000');
-          
-          const completedTrips = tripsResponse.data?.trips || [];
-          totalRevenue = completedTrips.reduce((sum, trip) => {
-            const earnings = trip.total_earnings || 0;
-            return sum + (typeof earnings === 'number' ? earnings : 0);
-          }, 0);
-          console.log('Dashboard: Total revenue (fallback from trips):', totalRevenue);
-        } catch (tripsError) {
-          console.error('Error fetching trips for revenue:', tripsError);
-          // Final fallback: vehicle-level calculation
-          totalRevenue = vehicles.reduce((sum, v) => {
-            const revenue = v.total_revenue || 0;
-            return sum + (typeof revenue === 'number' ? revenue : 0);
-          }, 0);
-          console.log('Dashboard: Total revenue (final fallback from vehicles):', totalRevenue);
-        }
+        // Fallback to vehicle revenue calculation if earnings endpoint fails
+        totalRevenue = vehicles.reduce((sum, v) => {
+          const revenue = v.total_revenue || 0;
+          return sum + (typeof revenue === 'number' ? revenue : 0);
+        }, 0);
+        console.log('Dashboard: Fallback - Total revenue calculated from vehicles:', totalRevenue);
       }
 
-      // FIX 2: Calculate average rating and total reviews from ALL reviews directly
-      // This ensures we get the correct overall average and total count
-      let averageRating = 0;
-      let totalReviews = 0;
-      try {
-        const reviewsResponse = await apiClient.get<{
-          success: boolean;
-          data: {
-            reviews: Array<{ rating?: number }>;
-            total: number;
-          };
-        }>('/api/turo/data/reviews?limit=1000');
-        
-        const allReviews = reviewsResponse.data?.reviews || [];
-        totalReviews = allReviews.length;
-        
-        const reviewsWithRatings = allReviews.filter(r => r.rating != null && r.rating > 0);
-        if (reviewsWithRatings.length > 0) {
-          const sumRatings = reviewsWithRatings.reduce((sum, r) => sum + (r.rating || 0), 0);
-          averageRating = sumRatings / reviewsWithRatings.length;
-        }
-        
-        console.log('Dashboard: Average rating from reviews:', averageRating, 'from', totalReviews, 'total reviews');
-      } catch (error) {
-        console.error('Error fetching reviews:', error);
-        // Fallback to vehicle-level calculation (old logic)
-        const vehiclesWithRatings = vehicles.filter(v => {
-          const rating = v.avg_rating;
-          return rating !== null && rating !== undefined && rating !== 0;
-        });
-        
-        totalReviews = vehicles.reduce((sum, v) => {
-          const count = v.review_count || 0;
-          return sum + (typeof count === 'number' ? count : 0);
-        }, 0);
-        
-        averageRating = vehiclesWithRatings.length > 0
-          ? vehiclesWithRatings.reduce((sum, v) => {
-              const rating = v.avg_rating || 0;
-              return sum + (typeof rating === 'number' ? rating : 0);
-            }, 0) / vehiclesWithRatings.length
-          : 0;
-        console.log('Dashboard: Average rating (fallback from vehicles):', averageRating, 'from', totalReviews, 'reviews');
-      }
+      console.log('Dashboard: Total revenue calculated:', totalRevenue);
+
+      // Calculate average rating and total reviews
+      const vehiclesWithRatings = vehicles.filter(v => {
+        const rating = v.avg_rating;
+        return rating !== null && rating !== undefined && rating !== 0;
+      });
+      
+      const totalReviews = vehicles.reduce((sum, v) => {
+        const count = v.review_count || 0;
+        return sum + (typeof count === 'number' ? count : 0);
+      }, 0);
+      
+      const averageRating = vehiclesWithRatings.length > 0
+        ? vehiclesWithRatings.reduce((sum, v) => {
+            const rating = v.avg_rating || 0;
+            return sum + (typeof rating === 'number' ? rating : 0);
+          }, 0) / vehiclesWithRatings.length
+        : 0;
+
+      console.log('Dashboard: Average rating calculated:', averageRating, 'from', vehiclesWithRatings.length, 'vehicles');
+      console.log('Dashboard: Total reviews:', totalReviews);
 
       // Fetch upcoming trips (max limit is 100)
       let upcomingTrips = 0;
@@ -214,7 +161,7 @@ class DashboardService {
         maintenanceVehicles,
         inactiveVehicles,
         upcomingTrips,
-        averageRating: Math.round(averageRating * 100) / 100, // Round to 2 decimals
+        averageRating: Math.round(averageRating * 10) / 10, // Round to 1 decimal
         totalReviews,
       };
 

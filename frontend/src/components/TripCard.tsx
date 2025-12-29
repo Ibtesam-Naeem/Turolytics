@@ -3,6 +3,8 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { MapPin, Gauge, Fuel, DollarSign, Route, AlertTriangle, Zap, Wrench, Navigation, User, Calendar } from "lucide-react";
 import { useState } from "react";
+import { useRegionalSettings } from "@/contexts/RegionalSettingsContext";
+import { formatDistance, formatCurrency, formatTimeString } from "@/lib/regional-utils";
 import {
   Dialog,
   DialogContent,
@@ -54,6 +56,7 @@ export const TripCard = ({
   endTime,
   flags,
 }: TripCardProps) => {
+  const { distanceUnit, currency, timeFormat } = useRegionalSettings();
   const [isModalOpen, setIsModalOpen] = useState(false);
   
   const getStatusColor = (status: string) => {
@@ -203,7 +206,7 @@ export const TripCard = ({
                       <div>
                         <p className="text-xs text-muted-foreground mb-0.5">Trip Started</p>
                         <p className="font-medium">
-                          {startDate}{startTime ? ` at ${startTime}` : ''}
+                          {startDate}{startTime ? ` at ${formatTimeString(startTime, timeFormat)}` : ''}
                         </p>
                       </div>
                     )}
@@ -211,7 +214,7 @@ export const TripCard = ({
                       <div>
                         <p className="text-xs text-muted-foreground mb-0.5">Returns</p>
                         <p className="font-medium">
-                          {endDate}{endTime ? ` at ${endTime}` : ''}
+                          {endDate}{endTime ? ` at ${formatTimeString(endTime, timeFormat)}` : ''}
                         </p>
                       </div>
                     )}
@@ -264,7 +267,7 @@ export const TripCard = ({
                   <span className="font-medium">Distance Traveled</span>
                 </div>
                 <span className="font-bold">
-                  {kmsDriven} / {kmsAllowed} km
+                  {formatDistance(kmsDriven, distanceUnit)} / {formatDistance(kmsAllowed, distanceUnit)}
                 </span>
               </div>
               <Progress value={distancePercent} className="h-2" />
@@ -283,7 +286,7 @@ export const TripCard = ({
                 <span className="text-sm font-medium text-muted-foreground">Trip Earnings</span>
               </div>
               <span className="text-xl font-bold text-success">
-                ${earnings.toLocaleString()}
+                {formatCurrency(earnings, currency)}
               </span>
             </div>
 

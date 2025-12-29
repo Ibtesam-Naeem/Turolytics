@@ -5,6 +5,8 @@ import {
   Shield, Calendar, DollarSign, Percent, FileText, FileSpreadsheet, Receipt,
   CheckCircle2, Clock, AlertCircle
 } from "lucide-react";
+import { useRegionalSettings } from "@/contexts/RegionalSettingsContext";
+import { formatCurrency } from "@/lib/regional-utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -93,9 +95,7 @@ const vehicleCosts = [
   { name: "Tesla Model Y", fuel: 0, maintenance: 85, insurance: 165, loan: 550, earnings: 2850, netProfit: 2050, image: "⚡" },
 ];
 
-const formatCurrency = (value: number) => {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(Math.abs(value));
-};
+// formatCurrency will be imported from regional-utils
 
 const MiniSparkline = ({ data, positive }: { data: number[], positive?: boolean }) => {
   const chartData = data.map((value, index) => ({ value, index }));
@@ -113,6 +113,7 @@ const MiniSparkline = ({ data, positive }: { data: number[], positive?: boolean 
 };
 
 const Banking = () => {
+  const { currency } = useRegionalSettings();
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [dateRange, setDateRange] = useState("30");
@@ -164,7 +165,7 @@ const Banking = () => {
                 <Badge variant="outline" className="text-xs text-success border-success/30">+8.2%</Badge>
               </div>
               <p className="text-xs text-muted-foreground font-medium">Total Balance</p>
-              <p className="text-2xl font-bold text-foreground">{formatCurrency(kpiData.totalBalance)}</p>
+              <p className="text-2xl font-bold text-foreground">{formatCurrency(kpiData.totalBalance, currency)}</p>
             </CardContent>
           </Card>
 
@@ -175,7 +176,7 @@ const Banking = () => {
                 <Badge variant="outline" className="text-xs text-success border-success/30">+5.4%</Badge>
               </div>
               <p className="text-xs text-muted-foreground font-medium">Available Cash</p>
-              <p className="text-2xl font-bold text-success">{formatCurrency(kpiData.availableCash)}</p>
+              <p className="text-2xl font-bold text-success">{formatCurrency(kpiData.availableCash, currency)}</p>
             </CardContent>
           </Card>
 
@@ -186,7 +187,7 @@ const Banking = () => {
                 <Badge variant="outline" className="text-xs text-success border-success/30">+12.5%</Badge>
               </div>
               <p className="text-xs text-muted-foreground font-medium">MTD Payouts</p>
-              <p className="text-2xl font-bold text-foreground">{formatCurrency(kpiData.mtdPayouts)}</p>
+              <p className="text-2xl font-bold text-foreground">{formatCurrency(kpiData.mtdPayouts, currency)}</p>
             </CardContent>
           </Card>
 
@@ -197,7 +198,7 @@ const Banking = () => {
                 <Badge variant="outline" className="text-xs text-success border-success/30">-5.3%</Badge>
               </div>
               <p className="text-xs text-muted-foreground font-medium">MTD Expenses</p>
-              <p className="text-2xl font-bold text-destructive">{formatCurrency(kpiData.mtdExpenses)}</p>
+              <p className="text-2xl font-bold text-destructive">{formatCurrency(kpiData.mtdExpenses, currency)}</p>
             </CardContent>
           </Card>
 
@@ -208,7 +209,7 @@ const Banking = () => {
                 <Badge variant="outline" className="text-xs text-success border-success/30">+18.2%</Badge>
               </div>
               <p className="text-xs text-muted-foreground font-medium">Net Profit</p>
-              <p className="text-2xl font-bold text-success">{formatCurrency(kpiData.netProfit)}</p>
+              <p className="text-2xl font-bold text-success">{formatCurrency(kpiData.netProfit, currency)}</p>
             </CardContent>
           </Card>
 
@@ -265,10 +266,10 @@ const Banking = () => {
                         <Badge variant="secondary" className="text-xs">{account.type}</Badge>
                       </td>
                       <td className="py-4 px-4 text-right font-medium text-foreground">
-                        {account.available > 0 ? formatCurrency(account.available) : "—"}
+                        {account.available > 0 ? formatCurrency(account.available, currency) : "—"}
                       </td>
                       <td className={`py-4 px-4 text-right font-bold ${account.current >= 0 ? "text-success" : "text-destructive"}`}>
-                        {account.current >= 0 ? formatCurrency(account.current) : `-${formatCurrency(account.current)}`}
+                        {account.current >= 0 ? formatCurrency(account.current, currency) : `-${formatCurrency(Math.abs(account.current), currency)}`}
                       </td>
                       <td className="py-4 px-4 text-right">
                         <MiniSparkline data={account.sparkline} positive={account.sparkline[4] >= account.sparkline[0]} />
@@ -308,14 +309,14 @@ const Banking = () => {
                           {payout.status}
                         </Badge>
                       </div>
-                      <span className="text-xl font-bold text-success">{formatCurrency(payout.amount)}</span>
+                      <span className="text-xl font-bold text-success">{formatCurrency(payout.amount, currency)}</span>
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-4 text-muted-foreground">
                         <span>{payout.trips} trips</span>
                         <span className="text-xs">{payout.vehicles.join(", ")}</span>
                       </div>
-                      <span className="text-success font-medium">Net: {formatCurrency(payout.netProfit)}</span>
+                      <span className="text-success font-medium">Net: {formatCurrency(payout.netProfit, currency)}</span>
                     </div>
                   </div>
                 ))}
@@ -348,7 +349,7 @@ const Banking = () => {
                         ))}
                       </Pie>
                       <Tooltip 
-                        formatter={(value: number) => formatCurrency(value)}
+                        formatter={(value: number) => formatCurrency(value, currency)}
                         contentStyle={{ 
                           backgroundColor: 'hsl(var(--card))', 
                           border: '1px solid hsl(var(--border))',
@@ -366,7 +367,7 @@ const Banking = () => {
                         <span className="text-muted-foreground">{category.name}</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="font-medium text-foreground">{formatCurrency(category.value)}</span>
+                        <span className="font-medium text-foreground">{formatCurrency(category.value, currency)}</span>
                         <span className="text-xs text-muted-foreground">
                           ({((category.value / totalExpenses) * 100).toFixed(0)}%)
                         </span>
@@ -376,7 +377,7 @@ const Banking = () => {
                   <div className="pt-2 border-t border-border mt-2">
                     <div className="flex items-center justify-between font-medium">
                       <span>Total</span>
-                      <span className="text-destructive">{formatCurrency(totalExpenses)}</span>
+                      <span className="text-destructive">{formatCurrency(totalExpenses, currency)}</span>
                     </div>
                   </div>
                 </div>
@@ -490,7 +491,7 @@ const Banking = () => {
                     </div>
                     <div className="text-right">
                       <p className={`font-bold ${t.type === "income" ? "text-success" : "text-destructive"}`}>
-                        {t.amount > 0 ? "+" : ""}{formatCurrency(t.amount)}
+                        {t.amount > 0 ? "+" : ""}{formatCurrency(Math.abs(t.amount), currency)}
                       </p>
                       <p className="text-xs text-muted-foreground">{t.vehicle}</p>
                     </div>
@@ -519,7 +520,7 @@ const Banking = () => {
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div>
                       <span className="text-muted-foreground">Min Payment</span>
-                      <p className="font-medium text-foreground">{formatCurrency(bill.minPayment)}</p>
+                      <p className="font-medium text-foreground">{formatCurrency(bill.minPayment, currency)}</p>
                     </div>
                     <div>
                       <span className="text-muted-foreground">APR</span>
@@ -527,7 +528,7 @@ const Banking = () => {
                     </div>
                     <div>
                       <span className="text-muted-foreground">Balance</span>
-                      <p className="font-medium text-destructive">{formatCurrency(bill.balance)}</p>
+                      <p className="font-medium text-destructive">{formatCurrency(bill.balance, currency)}</p>
                     </div>
                     {bill.vehicle && (
                       <div>
@@ -559,27 +560,27 @@ const Banking = () => {
                   <div className="space-y-2 text-xs">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground flex items-center gap-1"><Fuel className="h-3 w-3" /> Fuel</span>
-                      <span className="text-destructive font-medium">{vehicle.fuel > 0 ? `-${formatCurrency(vehicle.fuel)}` : "$0"}</span>
+                      <span className="text-destructive font-medium">{vehicle.fuel > 0 ? `-${formatCurrency(vehicle.fuel, currency)}` : formatCurrency(0, currency)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground flex items-center gap-1"><Wrench className="h-3 w-3" /> Maint.</span>
-                      <span className="text-destructive font-medium">-{formatCurrency(vehicle.maintenance)}</span>
+                      <span className="text-destructive font-medium">-{formatCurrency(vehicle.maintenance, currency)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground flex items-center gap-1"><Shield className="h-3 w-3" /> Insurance</span>
-                      <span className="text-destructive font-medium">-{formatCurrency(vehicle.insurance)}</span>
+                      <span className="text-destructive font-medium">-{formatCurrency(vehicle.insurance, currency)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground flex items-center gap-1"><CreditCard className="h-3 w-3" /> Loan</span>
-                      <span className="text-destructive font-medium">{vehicle.loan > 0 ? `-${formatCurrency(vehicle.loan)}` : "$0"}</span>
+                      <span className="text-destructive font-medium">{vehicle.loan > 0 ? `-${formatCurrency(vehicle.loan, currency)}` : formatCurrency(0, currency)}</span>
                     </div>
                     <div className="flex justify-between border-t border-border pt-2 mt-2">
                       <span className="text-muted-foreground">Earnings</span>
-                      <span className="text-success font-medium">+{formatCurrency(vehicle.earnings)}</span>
+                      <span className="text-success font-medium">+{formatCurrency(vehicle.earnings, currency)}</span>
                     </div>
                     <div className="flex justify-between bg-success/10 -mx-2 px-2 py-1.5 rounded-lg">
                       <span className="font-semibold text-foreground">Net Profit</span>
-                      <span className="text-success font-bold">{formatCurrency(vehicle.netProfit)}</span>
+                      <span className="text-success font-bold">{formatCurrency(vehicle.netProfit, currency)}</span>
                     </div>
                   </div>
                 </div>

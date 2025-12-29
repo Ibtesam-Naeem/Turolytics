@@ -12,6 +12,7 @@ from core.database.models import (
     EarningsBreakdown,
     VehicleEarnings,
 )
+from core.utils.route_helpers import parse_amount
 
 # ------------------------------ LOGGING ------------------------------
 logger = logging.getLogger(__name__)
@@ -324,14 +325,14 @@ class DatabaseService:
                         account_id=account.id,
                         type=breakdown_data.get("type"),
                         amount=breakdown_data.get("amount"),
-                        amount_numeric=DatabaseService._parse_amount(breakdown_data.get("amount")),
+                        amount_numeric=parse_amount(breakdown_data.get("amount")),
                         year=breakdown_data.get("year"),
                         scraped_at=scraped_at
                     )
                     db.add(breakdown)
                 else:
                     breakdown.amount = breakdown_data.get("amount")
-                    breakdown.amount_numeric = DatabaseService._parse_amount(breakdown_data.get("amount"))
+                    breakdown.amount_numeric = parse_amount(breakdown_data.get("amount"))
                     breakdown.scraped_at = scraped_at
                 
                 if DatabaseService._save_entity(db, breakdown, f"earnings breakdown {breakdown_data.get('type', 'unknown')}"):
@@ -360,7 +361,7 @@ class DatabaseService:
                         license_plate=vehicle_earnings_data.get("license_plate"),
                         trim=vehicle_earnings_data.get("trim"),
                         earnings_amount=vehicle_earnings_data.get("earnings_amount"),
-                        earnings_amount_numeric=DatabaseService._parse_amount(vehicle_earnings_data.get("earnings_amount")),
+                        earnings_amount_numeric=parse_amount(vehicle_earnings_data.get("earnings_amount")),
                         scraped_at=scraped_at
                     )
                     db.add(vehicle_earnings)
@@ -369,7 +370,7 @@ class DatabaseService:
                     vehicle_earnings.license_plate = vehicle_earnings_data.get("license_plate")
                     vehicle_earnings.trim = vehicle_earnings_data.get("trim")
                     vehicle_earnings.earnings_amount = vehicle_earnings_data.get("earnings_amount")
-                    vehicle_earnings.earnings_amount_numeric = DatabaseService._parse_amount(vehicle_earnings_data.get("earnings_amount"))
+                    vehicle_earnings.earnings_amount_numeric = parse_amount(vehicle_earnings_data.get("earnings_amount"))
                     vehicle_earnings.scraped_at = scraped_at
                 
                 if DatabaseService._save_entity(db, vehicle_earnings, f"vehicle earnings {vehicle_earnings_data.get('vehicle_name', 'unknown')}"):
@@ -377,18 +378,6 @@ class DatabaseService:
         
         logger.info(f"Saved {len(saved_breakdowns)} earnings breakdowns and {len(saved_vehicle_earnings)} vehicle earnings for account {account.user_id}")
         return saved_breakdowns, saved_vehicle_earnings
-    
-    @staticmethod
-    def _parse_amount(amount_str: Optional[str]) -> Optional[float]:
-        """Parse amount string to float."""
-        if not amount_str:
-            return None
-        try:
-            cleaned = amount_str.replace("$", "").replace(",", "").strip()
-            return float(cleaned)
-        
-        except (ValueError, AttributeError):
-            return None
     
     @staticmethod
     def save_scraped_data(db: Session, user_id: int, email: str, scraped_data: Dict[str, Any]) -> bool:

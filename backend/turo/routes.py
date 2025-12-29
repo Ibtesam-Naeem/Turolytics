@@ -1,6 +1,6 @@
 # ------------------------------ IMPORTS ------------------------------
 from fastapi import APIRouter, Query, Depends, HTTPException, Path
-from typing import Optional
+from typing import Optional, Dict, Any, List
 from pydantic import BaseModel
 from datetime import datetime
 import logging
@@ -12,6 +12,7 @@ from core.database import get_db
 from core.database.db_service import DatabaseService
 from core.security.auth import get_current_active_user
 from core.security.encryption import encrypt_password, decrypt_password
+from core.utils.route_helpers import get_turo_integration, handle_route_errors
 from .data.login import start_turo_login, submit_turo_2fa_code
 from sqlalchemy.orm import Session
 from .service import TuroDataService
@@ -23,7 +24,6 @@ from .schemas import (
     EarningsBreakdownOut,
     VehicleEarningsOut,
 )
-from typing import Dict, Any, Optional, List
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +107,7 @@ class SeedDataRequest(BaseModel):
 # ------------------------------ AUTHENTICATION ENDPOINTS ------------------------------
 
 @router.get("/auth/status", response_model=APIResponse, tags=["Authentication"])
+@handle_route_errors("checking Turo integration status")
 async def get_turo_integration_status(
     current_user: Account = Depends(get_current_active_user),
     db: Session = Depends(get_db)
@@ -115,36 +116,30 @@ async def get_turo_integration_status(
     Check if account has Turo credentials stored.
     Returns integration status for authenticated user.
     """
-    try:
-        integration = db.query(TuroIntegration).filter(
-            TuroIntegration.account_id == current_user.id
-        ).first()
-        
-        if not integration:
-            return APIResponse(
-                success=True,
-                data={
-                    "connected": False,
-                    "message": "No Turo integration found for this account"
-                }
-            )
-        
+    integration = get_turo_integration(db, current_user.id)
+    
+    if not integration:
         return APIResponse(
             success=True,
             data={
-                "connected": True,
-                "email": integration.turo_email,
-                "has_active_session": integration.has_active_session,
-                "created_at": integration.created_at.isoformat() if integration.created_at else None,
-                "updated_at": integration.updated_at.isoformat() if integration.updated_at else None
+                "connected": False,
+                "message": "No Turo integration found for this account"
             }
         )
     
-    except Exception as e:
-        logger.exception(f"Error checking Turo integration status: {e}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+    return APIResponse(
+        success=True,
+        data={
+            "connected": True,
+            "email": integration.turo_email,
+            "has_active_session": integration.has_active_session,
+            "created_at": integration.created_at.isoformat() if integration.created_at else None,
+            "updated_at": integration.updated_at.isoformat() if integration.updated_at else None
+        }
+    )
 
 @router.post("/auth/connect", response_model=APIResponse, tags=["Authentication"])
+@handle_route_errors("connecting Turo", rollback_db=True)
 async def connect_turo(
     request: TuroConnectRequest,
     current_user: Account = Depends(get_current_active_user),
@@ -154,79 +149,72 @@ async def connect_turo(
     Start Turo login process and store credentials.
     If 2FA is required, returns session_id for 2FA submission.
     """
-    try:
-        # Store credentials first (encrypted)
-        encrypted_password = encrypt_password(request.password)
-        
-        integration = db.query(TuroIntegration).filter(
-            TuroIntegration.account_id == current_user.id
-        ).first()
-        
-        if integration:
-            integration.turo_email = request.email
-            integration.turo_password_encrypted = encrypted_password
-            integration.has_active_session = False
-        else:
-            integration = TuroIntegration(
-                account_id=current_user.id,
-                turo_email=request.email,
-                turo_password_encrypted=encrypted_password,
-                has_active_session=False
-            )
-            db.add(integration)
-        
-        db.commit()
-        logger.info(f"Turo credentials stored for account {current_user.id}")
-        
-        # Start login process
-        login_result = await start_turo_login(
-            account_id=current_user.user_id,
-            email=request.email,
-            password=request.password
+    # Store credentials first (encrypted)
+    encrypted_password = encrypt_password(request.password)
+    
+    integration = get_turo_integration(db, current_user.id)
+    
+    if integration:
+        integration.turo_email = request.email
+        integration.turo_password_encrypted = encrypted_password
+        integration.has_active_session = False
+    else:
+        integration = TuroIntegration(
+            account_id=current_user.id,
+            turo_email=request.email,
+            turo_password_encrypted=encrypted_password,
+            has_active_session=False
         )
-        
-        if not login_result.get("success"):
-            raise HTTPException(
-                status_code=400,
-                detail=login_result.get("error", "Login failed")
-            )
-        
-        # If 2FA is required, return session_id
-        if login_result.get("requires_2fa"):
-            return APIResponse(
-                success=True,
-                data={
-                    "requires_2fa": True,
-                    "session_id": login_result.get("session_id"),
-                    "message": "2FA code required. Please submit the code using /auth/connect/2fa"
-                }
-            )
-        
-        # Login successful without 2FA (or session restored) - update session status
-        integration.has_active_session = True
-        db.commit()
-        
-        task_id = await _try_auto_scrape_on_first_connection(
-            db, current_user, request.email, request.password
+        db.add(integration)
+    
+    db.commit()
+    logger.info(f"Turo credentials stored for account {current_user.id}")
+    
+    # Start login process
+    login_result = await start_turo_login(
+        account_id=current_user.user_id,
+        email=request.email,
+        password=request.password
+    )
+    
+    if not login_result.get("success"):
+        raise HTTPException(
+            status_code=400,
+            detail=login_result.get("error", "Login failed")
         )
-        
+    
+    # If 2FA is required, return session_id
+    if login_result.get("requires_2fa"):
         return APIResponse(
             success=True,
             data={
-                "message": "Turo account connected successfully",
-                "email": integration.turo_email,
-                "account_id": current_user.id,
-                "requires_2fa": False,
-                "auto_scrape_task_id": task_id  # Include task_id if scraping started
+                "requires_2fa": True,
+                "session_id": login_result.get("session_id"),
+                "message": "2FA code required. Please submit the code using /auth/connect/2fa"
             }
         )
     
-    except Exception as e:
-        logger.exception(f"Error connecting Turo: {e}")
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+    # Login successful without 2FA (or session restored) - update session status
+    integration.has_active_session = True
+    db.commit()
+    
+    task_id = await _try_auto_scrape_on_first_connection(
+        db, current_user, request.email, request.password
+    )
+    
+    return APIResponse(
+        success=True,
+        data={
+            "message": "Turo account connected successfully",
+            "email": integration.turo_email,
+            "account_id": current_user.id,
+            "requires_2fa": False,
+            "auto_scrape_task_id": task_id  # Include task_id if scraping started
+        }
+    )
 
 @router.post("/auth/connect/2fa", response_model=APIResponse, tags=["Authentication"])
+@handle_route_errors("submitting 2FA", rollback_db=True)
 async def submit_turo_2fa(
     request: Turo2FARequest,
     current_user: Account = Depends(get_current_active_user),
@@ -235,60 +223,53 @@ async def submit_turo_2fa(
     """
     Submit 2FA code to complete Turo login.
     """
-    try:
-        result = await submit_turo_2fa_code(request.session_id, request.code)
-        
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=400,
-                detail=result.get("error", "2FA submission failed")
-            )
-        
-        # Get email, account_id, and password from result (session is cleaned up in submit_turo_2fa_code)
-        email = result.get("email")
-        account_id = result.get("account_id")
-        password = result.get("password")  # Password from session (temporary, in-memory)
-        
-        if not email:
-            raise HTTPException(
-                status_code=400,
-                detail="Failed to retrieve email from login session"
-            )
-        
-        # Update integration to mark session as active
-        integration = db.query(TuroIntegration).filter(
-            TuroIntegration.account_id == current_user.id
-        ).first()
-        
-        if integration:
-            # Update existing - session is now active
-            integration.has_active_session = True
-        else:
-            # This shouldn't happen, but handle gracefully
-            logger.warning(f"Integration not found for account {current_user.id} after 2FA success")
-        
-        db.commit()
-        
-        task_id = await _try_auto_scrape_on_first_connection(
-            db, current_user, email, password, integration
-        )
-        
-        return APIResponse(
-            success=True,
-            data={
-                "message": "Turo account connected successfully",
-                "email": email,
-                "account_id": current_user.id,
-                "auto_scrape_task_id": task_id  # Include task_id if scraping started
-            }
+    result = await submit_turo_2fa_code(request.session_id, request.code)
+    
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=400,
+            detail=result.get("error", "2FA submission failed")
         )
     
-    except Exception as e:
-        logger.exception(f"Error submitting 2FA: {e}")
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+    # Get email, account_id, and password from result (session is cleaned up in submit_turo_2fa_code)
+    email = result.get("email")
+    account_id = result.get("account_id")
+    password = result.get("password")  # Password from session (temporary, in-memory)
+    
+    if not email:
+        raise HTTPException(
+            status_code=400,
+            detail="Failed to retrieve email from login session"
+        )
+    
+    # Update integration to mark session as active
+    integration = get_turo_integration(db, current_user.id)
+    
+    if integration:
+        # Update existing - session is now active
+        integration.has_active_session = True
+    else:
+        # This shouldn't happen, but handle gracefully
+        logger.warning(f"Integration not found for account {current_user.id} after 2FA success")
+    
+    db.commit()
+    
+    task_id = await _try_auto_scrape_on_first_connection(
+        db, current_user, email, password, integration
+    )
+    
+    return APIResponse(
+        success=True,
+        data={
+            "message": "Turo account connected successfully",
+            "email": email,
+            "account_id": current_user.id,
+            "auto_scrape_task_id": task_id  # Include task_id if scraping started
+        }
+    )
 
 @router.delete("/auth/disconnect", response_model=APIResponse, tags=["Authentication"])
+@handle_route_errors("disconnecting Turo", rollback_db=True)
 async def disconnect_turo(
     current_user: Account = Depends(get_current_active_user),
     db: Session = Depends(get_db)
@@ -296,34 +277,26 @@ async def disconnect_turo(
     """
     Remove Turo credentials for authenticated user.
     """
-    try:
-        integration = db.query(TuroIntegration).filter(
-            TuroIntegration.account_id == current_user.id
-        ).first()
-        
-        if not integration:
-            raise HTTPException(
-                status_code=404,
-                detail="No Turo integration found for this account"
-            )
-        
-        db.delete(integration)
-        db.commit()
-        
-        logger.info(f"Turo integration removed for account {current_user.id}")
-        
-        return APIResponse(
-            success=True,
-            data={
-                "message": "Turo integration disconnected successfully",
-                "account_id": current_user.id
-            }
+    integration = get_turo_integration(db, current_user.id)
+    
+    if not integration:
+        raise HTTPException(
+            status_code=404,
+            detail="No Turo integration found for this account"
         )
     
-    except Exception as e:
-        logger.exception(f"Error disconnecting Turo: {e}")
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+    db.delete(integration)
+    db.commit()
+    
+    logger.info(f"Turo integration removed for account {current_user.id}")
+    
+    return APIResponse(
+        success=True,
+        data={
+            "message": "Turo integration disconnected successfully",
+            "account_id": current_user.id
+        }
+    )
 
 # ------------------------------ SCRAPING ENDPOINTS ------------------------------
 
@@ -341,6 +314,7 @@ async def get_scrape_status(task_id: str = Path(..., description="Task ID from s
     )
 
 @router.post("/scrape/{scraper_type}", response_model=ScrapeResponse, tags=["Scraping"])
+@handle_route_errors("scraping data")
 async def scrape_data(
     request: ScrapeRequest,
     scraper_type: str = Path(..., pattern="^(all|vehicles|trips|reviews|earnings)$", description="Type of data to scrape"),
@@ -348,41 +322,34 @@ async def scrape_data(
     db: Session = Depends(get_db)
 ) -> ScrapeResponse:
     """Scrape data of specified type on demand. Uses authenticated user's account."""
-    try:
-        # Get credentials from request or stored integration
-        email = request.email
-        password = request.password
+    # Get credentials from request or stored integration
+    email = request.email
+    password = request.password
+    
+    if not email or not password:
+        # Try to get from stored integration
+        integration = get_turo_integration(db, current_user.id)
         
-        if not email or not password:
-            # Try to get from stored integration
-            integration = db.query(TuroIntegration).filter(
-                TuroIntegration.account_id == current_user.id
-            ).first()
-            
-            if integration:
-                email = integration.turo_email
-                password = decrypt_password(integration.turo_password_encrypted)
-            else:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Turo credentials required. Either provide email/password in request or connect Turo account first."
-                )
-        
-        task_id = await SCRAPER_MAP[scraper_type](current_user.user_id, email, password)
-        logger.info(f"Started {scraper_type} scraping for {current_user.email}: {task_id}")
-        return ScrapeResponse(task_id=task_id, account_id=current_user.user_id, scraper_type=scraper_type)
-    except KeyError:
+        if integration:
+            email = integration.turo_email
+            password = decrypt_password(integration.turo_password_encrypted)
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Turo credentials required. Either provide email/password in request or connect Turo account first."
+            )
+    
+    if scraper_type not in SCRAPER_MAP:
         raise HTTPException(status_code=400, detail=f"Invalid scraper type: {scraper_type}")
-    except RuntimeError as e:
-        logger.error(f"Scraping runtime error: {e}")
-        raise HTTPException(status_code=500, detail=f"Scraping failed: {str(e)}")
-    except Exception as e:
-        logger.error(f"Failed to start {scraper_type} scraping: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to start scraping: {str(e)}")
+    
+    task_id = await SCRAPER_MAP[scraper_type](current_user.user_id, email, password)
+    logger.info(f"Started {scraper_type} scraping for {current_user.email}: {task_id}")
+    return ScrapeResponse(task_id=task_id, account_id=current_user.user_id, scraper_type=scraper_type)
 
 # ------------------------------ SEED DATA ENDPOINT ------------------------------
 
 @router.post("/seed/integration", response_model=APIResponse, tags=["Development"])
+@handle_route_errors("creating seed Turo integration", rollback_db=True)
 async def seed_turo_integration(
     turo_email: str = Query(..., description="Turo email for the integration"),
     current_user: Account = Depends(get_current_active_user),
@@ -392,50 +359,40 @@ async def seed_turo_integration(
     Create Turo integration record for seed data (without attempting login).
     This is used by the seed script to create the integration so frontend shows 'connected' status.
     """
-    try:
-        from core.security.encryption import encrypt_password
-        
-        # Create or update integration
-        integration = db.query(TuroIntegration).filter(
-            TuroIntegration.account_id == current_user.id
-        ).first()
-        
-        if integration:
-            # Update existing
-            integration.turo_email = turo_email
-            integration.turo_password_encrypted = encrypt_password("seed_password")  # Dummy password
-            integration.has_active_session = False
-        else:
-            # Create new
-            integration = TuroIntegration(
-                account_id=current_user.id,
-                turo_email=turo_email,
-                turo_password_encrypted=encrypt_password("seed_password"),  # Dummy password
-                has_active_session=False
-            )
-            db.add(integration)
-        
-        db.commit()
-        logger.info(f"Turo integration created for seed data: account {current_user.id}")
-        
-        return APIResponse(
-            success=True,
-            data={
-                "message": "Turo integration created for seed data",
-                "email": turo_email,
-                "account_id": current_user.id
-            }
-        )
+    from core.security.encryption import encrypt_password
     
-    except Exception as e:
-        logger.exception(f"Error creating seed Turo integration: {e}")
-        db.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to create integration: {str(e)}"
+    # Create or update integration
+    integration = get_turo_integration(db, current_user.id)
+    
+    if integration:
+        # Update existing
+        integration.turo_email = turo_email
+        integration.turo_password_encrypted = encrypt_password("seed_password")  # Dummy password
+        integration.has_active_session = False
+    else:
+        # Create new
+        integration = TuroIntegration(
+            account_id=current_user.id,
+            turo_email=turo_email,
+            turo_password_encrypted=encrypt_password("seed_password"),  # Dummy password
+            has_active_session=False
         )
+        db.add(integration)
+    
+    db.commit()
+    logger.info(f"Turo integration created for seed data: account {current_user.id}")
+    
+    return APIResponse(
+        success=True,
+        data={
+            "message": "Turo integration created for seed data",
+            "email": turo_email,
+            "account_id": current_user.id
+        }
+    )
 
 @router.post("/seed", response_model=APIResponse, tags=["Development"])
+@handle_route_errors("seeding data")
 async def seed_data(
     request: SeedDataRequest,
     current_user: Account = Depends(get_current_active_user),
@@ -446,59 +403,48 @@ async def seed_data(
     Uses the same data structure as scraped data.
     Overwrites existing data if overwrite=True.
     """
-    try:
-        account = current_user
-        scraped_data: Dict[str, Any] = {}
-        
-        if request.vehicles:
-            scraped_data["vehicles"] = request.vehicles
-        if request.trips:
-            scraped_data["trips"] = request.trips
-        if request.reviews:
-            scraped_data["reviews"] = request.reviews
-        if request.earnings:
-            scraped_data["earnings"] = request.earnings
-        
-        if not scraped_data:
-            raise HTTPException(
-                status_code=400,
-                detail="No seed data provided. Include at least one of: vehicles, trips, reviews, earnings"
-            )
-        
-        # Save data using DatabaseService (handles overwriting automatically)
-        counts = {}
-        if request.vehicles:
-            vehicles = DatabaseService.save_vehicles(db, account, request.vehicles)
-            counts["vehicles"] = len(vehicles)
-        if request.trips:
-            trips = DatabaseService.save_trips(db, account, request.trips)
-            counts["trips"] = len(trips)
-        if request.reviews:
-            reviews = DatabaseService.save_reviews(db, account, request.reviews)
-            counts["reviews"] = len(reviews)
-        if request.earnings:
-            breakdowns, vehicle_earnings = DatabaseService.save_earnings(db, account, request.earnings)
-            counts["earnings_breakdowns"] = len(breakdowns)
-            counts["vehicle_earnings"] = len(vehicle_earnings)
-        
-        logger.info(f"Successfully seeded data for account {account.user_id}: {counts}")
-        
-        return APIResponse(
-            success=True,
-            data={
-                "message": "Seed data saved successfully",
-                "counts": counts
-            }
+    scraped_data: Dict[str, Any] = {}
+    
+    if request.vehicles:
+        scraped_data["vehicles"] = request.vehicles
+    if request.trips:
+        scraped_data["trips"] = request.trips
+    if request.reviews:
+        scraped_data["reviews"] = request.reviews
+    if request.earnings:
+        scraped_data["earnings"] = request.earnings
+    
+    if not scraped_data:
+        raise HTTPException(
+            status_code=400,
+            detail="No seed data provided. Include at least one of: vehicles, trips, reviews, earnings"
         )
     
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error seeding data: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to seed data: {str(e)}"
-        )
+    # Save data using DatabaseService (handles overwriting automatically)
+    counts = {}
+    if request.vehicles:
+        vehicles = DatabaseService.save_vehicles(db, current_user, request.vehicles)
+        counts["vehicles"] = len(vehicles)
+    if request.trips:
+        trips = DatabaseService.save_trips(db, current_user, request.trips)
+        counts["trips"] = len(trips)
+    if request.reviews:
+        reviews = DatabaseService.save_reviews(db, current_user, request.reviews)
+        counts["reviews"] = len(reviews)
+    if request.earnings:
+        breakdowns, vehicle_earnings = DatabaseService.save_earnings(db, current_user, request.earnings)
+        counts["earnings_breakdowns"] = len(breakdowns)
+        counts["vehicle_earnings"] = len(vehicle_earnings)
+    
+    logger.info(f"Successfully seeded data for account {current_user.user_id}: {counts}")
+    
+    return APIResponse(
+        success=True,
+        data={
+            "message": "Seed data saved successfully",
+            "counts": counts
+        }
+    )
 
 # ------------------------------ DEPENDENCY INJECTION ------------------------------
 
@@ -753,8 +699,8 @@ async def get_monthly_utilization(
     current_user: Account = Depends(get_current_active_user),
     service: TuroDataService = Depends(get_turo_data_service)
 ) -> APIResponse:
-    """Get monthly utilization data for all vehicles using corrected calculation."""
-    monthly_data = service.get_monthly_utilization_v2(account=current_user, year=year)
+    """Get monthly utilization data for all vehicles."""
+    monthly_data = service.get_monthly_utilization(account=current_user, year=year)
     
     return APIResponse(
         success=True,

@@ -106,8 +106,12 @@ class BouncieApiClient {
    * Get all vehicles from Bouncie
    */
   async getVehicles(): Promise<any[]> {
+    console.log('[Bouncie API Client] Fetching vehicles from /vehicles');
     const data = await this.request<any[]>('/vehicles');
-    return Array.isArray(data) ? data : [];
+    console.log('[Bouncie API Client] Raw vehicles response:', data);
+    const vehicles = Array.isArray(data) ? data : [];
+    console.log('[Bouncie API Client] Processed vehicles:', vehicles);
+    return vehicles;
   }
 
   /**
@@ -129,8 +133,78 @@ class BouncieApiClient {
     const queryString = queryParams.toString();
     const endpoint = `/trips${queryString ? `?${queryString}` : ''}`;
     
+    console.log('[Bouncie API Client] Fetching trips from:', endpoint);
     const data = await this.request<any[]>(endpoint);
-    return Array.isArray(data) ? data : [];
+    console.log('[Bouncie API Client] Raw trips response:', data);
+    const trips = Array.isArray(data) ? data : [];
+    console.log('[Bouncie API Client] Processed trips:', trips);
+    return trips;
+  }
+
+  /**
+   * Get specific vehicle details/status
+   */
+  async getVehicle(imei: string): Promise<any> {
+    try {
+      console.log(`[Bouncie API Client] Fetching vehicle ${imei} from /vehicles/${imei}`);
+      const data = await this.request<any>(`/vehicles/${imei}`);
+      console.log(`[Bouncie API Client] Raw vehicle ${imei} response:`, data);
+      return data;
+    } catch (error) {
+      console.error(`Failed to get vehicle ${imei}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get today's trips for calculating miles driven today
+   */
+  async getTripsToday(imei?: string): Promise<any[]> {
+    const today = new Date().toISOString().split('T')[0];
+    const params: any = {
+      'starts-after': today,
+      'ends-before': today
+    };
+    if (imei) params.imei = imei;
+    
+    return this.getTrips(params);
+  }
+
+  /**
+   * Get active/current trip (trip without endTime)
+   */
+  async getActiveTrip(imei: string): Promise<any | null> {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const trips = await this.getTrips({
+        'starts-after': today,
+        imei: imei
+      });
+      
+      // Find trip without endTime (active trip)
+      const activeTrip = trips.find(trip => !trip.endTime);
+      return activeTrip || null;
+    } catch (error) {
+      console.error(`Failed to get active trip for ${imei}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Get all vehicles with their current status
+   */
+  async getAllVehiclesWithStatus(): Promise<any[]> {
+    try {
+      console.log('[Bouncie API Client] Getting all vehicles with status');
+      const vehicles = await this.getVehicles();
+      console.log('[Bouncie API Client] Vehicles with status:', vehicles);
+      // If vehicles endpoint returns status, use it
+      // Otherwise, we'll need to fetch each vehicle individually
+      return vehicles;
+    } catch (error) {
+      console.error('Failed to get vehicles with status:', error);
+      return [];
+    }
   }
 
   /**

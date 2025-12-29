@@ -73,6 +73,20 @@ class VehicleMappingUpdateRequest(BaseModel):
     bouncie_nickname: Optional[str] = None
     bouncie_vin: Optional[str] = None
 
+class BouncieDTCCodeOut(BaseOutModel):
+    """Bouncie DTC code output model."""
+    id: int
+    vehicle_id: Optional[int] = None
+    vehicle_name: Optional[str] = None
+    imei: str
+    code: str
+    description: Optional[str] = None
+    is_active: bool
+    occurred_at: datetime
+    cleared_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
 # ------------------------------ RESPONSE MODELS ------------------------------
 
 class APIResponse(BaseModel):

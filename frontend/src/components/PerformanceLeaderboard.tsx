@@ -46,14 +46,14 @@ export const PerformanceLeaderboard = () => {
   }, []);
 
   return (
-    <Card className="rounded-xl shadow-sm h-full flex flex-col">
-      <CardHeader className="pb-3">
+    <Card className="rounded-xl shadow-sm h-full flex flex-col w-full max-w-full">
+      <CardHeader className="pb-3 w-full">
         <CardTitle className="text-lg font-semibold flex items-center gap-2">
           <TrendingUp className="h-5 w-5 text-primary" />
           Top Performers
         </CardTitle>
       </CardHeader>
-      <CardContent className="flex-1 overflow-auto">
+      <CardContent className="flex-1 overflow-auto w-full">
         {loading ? (
           <div className="flex items-center justify-center py-8">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -64,7 +64,7 @@ export const PerformanceLeaderboard = () => {
             <p className="text-sm text-muted-foreground">No vehicle data available</p>
           </div>
         ) : (
-        <div className="space-y-3">
+        <div className="space-y-3 w-full">
           {topVehicles.map((vehicle) => (
             <div
               key={vehicle.rank}

@@ -60,9 +60,15 @@ app.include_router(s3_router, prefix="/api/documents")
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
 
-def _build_redirect_url(error: Optional[str] = None, success: bool = False) -> str:
+def _build_redirect_url(error: Optional[str] = None, success: bool = False, is_popup: bool = False) -> str:
     """Build frontend redirect URL with query parameters."""
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:8080")
+    if is_popup:
+        # Redirect to callback page that will close popup and notify parent
+        if success:
+            return f"{frontend_url}/auth/bouncie/callback?success=true&popup=true"
+        return f"{frontend_url}/auth/bouncie/callback?error={error or 'unknown_error'}&popup=true"
+    # Normal redirect to settings
     if success:
         return f"{frontend_url}/settings?bouncie_success=true"
     return f"{frontend_url}/settings?bouncie_error={error or 'unknown_error'}"
@@ -73,6 +79,7 @@ async def bouncie_oauth_callback(
     code: Optional[str] = Query(None),
     state: Optional[str] = Query(None),
     error: Optional[str] = Query(None),
+    popup: Optional[str] = Query(None, description="Whether this is from a popup window"),
     db: Session = Depends(get_db)
 ):
     """
@@ -80,13 +87,15 @@ async def bouncie_oauth_callback(
     Bouncie redirects here after user authorization.
     Exchanges code for tokens, saves to database, redirects to frontend.
     """
+    is_popup = popup == "true"
+    
     if error:
         logger.error(f"Bouncie OAuth error: {error}")
-        return RedirectResponse(url=_build_redirect_url(error=error))
+        return RedirectResponse(url=_build_redirect_url(error=error, is_popup=is_popup))
     
     if not code:
         logger.error("Bouncie callback received without authorization code")
-        return RedirectResponse(url=_build_redirect_url(error="no_code"))
+        return RedirectResponse(url=_build_redirect_url(error="no_code", is_popup=is_popup))
     
     try:
         account_id = int(state) if state else None
@@ -96,7 +105,7 @@ async def bouncie_oauth_callback(
     
     if not account_id:
         logger.error("Bouncie callback received without valid account_id in state")
-        return RedirectResponse(url=_build_redirect_url(error="no_account"))
+        return RedirectResponse(url=_build_redirect_url(error="no_account", is_popup=is_popup))
     
     try:
         service = BouncieService(db=db, account_id=account_id)
@@ -105,15 +114,15 @@ async def bouncie_oauth_callback(
         if result.get("success"):
             logger.info(f"Successfully saved Bouncie tokens for account {account_id}")
             await handle_bouncie_auto_processing(db, account_id)
-            return RedirectResponse(url=_build_redirect_url(success=True))
+            return RedirectResponse(url=_build_redirect_url(success=True, is_popup=is_popup))
         
         error_msg = result.get("error", "unknown_error")
         logger.error(f"Failed to exchange Bouncie token for account {account_id}: {error_msg}")
-        return RedirectResponse(url=_build_redirect_url(error=error_msg))
+        return RedirectResponse(url=_build_redirect_url(error=error_msg, is_popup=is_popup))
     
     except Exception as e:
         logger.exception(f"Exception in Bouncie callback handler: {e}")
-        return RedirectResponse(url=_build_redirect_url(error="server_error"))
+        return RedirectResponse(url=_build_redirect_url(error="server_error", is_popup=is_popup))
 
 # ------------------------------ HEALTH ENDPOINTS ------------------------------
 @app.get("/", tags=["Health"])

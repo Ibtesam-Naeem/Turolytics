@@ -84,6 +84,10 @@ class BouncieService:
                 self.token_expires_at = integration.expires_at
                 self.headers["Authorization"] = self.access_token
                 logger.debug(f"Loaded Bouncie tokens for account {account.id} (user_id: {account.user_id})")
+                if self.refresh_token:
+                    logger.debug(f"✅ Refresh token loaded: {self.refresh_token[:10]}...")
+                else:
+                    logger.warning(f"⚠️  No refresh token found for account {account.id} - token refresh will not be possible. Please re-authenticate with offline_access scope.")
         except Exception as e:
             logger.error(f"Error loading tokens: {e}")
 
@@ -157,6 +161,7 @@ class BouncieService:
             return False
 
         try:
+            logger.info("Attempting to refresh access token using refresh token...")
             data = {
                 "client_id": self.client_id,
                 "client_secret": self.client_secret,
@@ -174,31 +179,52 @@ class BouncieService:
 
             if response.status_code == 200:
                 token_data = response.json()
+                logger.info(f"✅ Token refresh successful")
+                
                 # Preserve existing refresh_token if new one is not provided
-                new_refresh_token = token_data.get("refresh_token")
-                if not new_refresh_token:
-                    # If refresh_token not in response, keep the existing one
-                    new_refresh_token = self.refresh_token
+                new_refresh_token = (
+                    token_data.get("refresh_token") or 
+                    token_data.get("refreshToken") or
+                    token_data.get("refresh") or
+                    self.refresh_token  # Keep existing if not provided
+                )
+                
+                if new_refresh_token != self.refresh_token:
+                    logger.info(f"New refresh token received: {new_refresh_token[:20]}...")
+                else:
+                    logger.info("Using existing refresh token (no new one provided)")
+                
                 self._save_tokens(
                     token_data.get("access_token"),
                     new_refresh_token, 
                     token_data.get("expires_in", 3600)
                 )
+                logger.info("✅ Tokens saved successfully after refresh")
                 return True
             else:
-                logger.error(f"Token refresh failed: {response.status_code} - {response.text}")
+                logger.error(f"❌ Token refresh failed: {response.status_code}")
+                logger.error(f"Response: {response.text}")
                 return False
                 
         except Exception as e:
             logger.error(f"Exception refreshing token: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return False
     
     # ------------------------------ AUTHENTICATION ------------------------------
     
     def get_authorization_url(self, state: str = None) -> str:
-        params = {"response_type": "code", "client_id": self.client_id, "redirect_uri": self.redirect_uri, "scope": "read"}
+        # Include offline_access scope to request refresh tokens
+        params = {
+            "response_type": "code", 
+            "client_id": self.client_id, 
+            "redirect_uri": self.redirect_uri, 
+            "scope": "read offline_access"
+        }
         if state:
             params["state"] = state
+        logger.info(f"Generated OAuth URL with scope: {params.get('scope')}")
         return f"{BOUNCIE_AUTH_URL}?{urlencode(params)}"
     
     @staticmethod
@@ -234,14 +260,44 @@ class BouncieService:
             if response.status_code == 200:
                 token_data = response.json()
                 
+                # Detailed logging to see exactly what Bouncie returns
+                import json
+                logger.info("=" * 80)
+                logger.info("BOUNCIE TOKEN EXCHANGE RESPONSE:")
+                logger.info(json.dumps(token_data, indent=2))
+                logger.info("=" * 80)
+                logger.info(f"Response keys: {list(token_data.keys())}")
+                logger.info(f"Has access_token: {'access_token' in token_data}")
+                logger.info(f"Has refresh_token: {'refresh_token' in token_data}")
+                
+                # Check for refresh token in various possible field names
+                refresh_token = (
+                    token_data.get("refresh_token") or 
+                    token_data.get("refreshToken") or
+                    token_data.get("refresh") or
+                    None
+                )
+                
+                if refresh_token:
+                    logger.info(f"✅ Refresh token found: {refresh_token[:20]}...")
+                else:
+                    logger.warning("⚠️  No refresh token found in response")
+                    logger.warning(f"Available keys: {list(token_data.keys())}")
+                    logger.warning("This may be because 'offline_access' scope was not included in the authorization request.")
+                
                 if self.db and self.account_id:
                     save_success = self._save_tokens(
                         token_data.get("access_token"),
-                        token_data.get("refresh_token"),  
+                        refresh_token,  
                         token_data.get("expires_in", 3600)
                     )
                     if not save_success:
                         logger.warning("Token exchange succeeded but failed to save to database")
+                    elif refresh_token:
+                        logger.info(f"✅ Refresh token saved successfully to database - automatic refresh is now enabled")
+                    else:
+                        logger.warning("⚠️  No refresh_token in token response - token refresh will not be possible")
+                        logger.warning("Please re-authenticate with 'offline_access' scope to enable automatic token refresh")
                 else:
                     self.access_token = token_data.get("access_token")
                     self.refresh_token = token_data.get("refresh_token")
@@ -270,13 +326,17 @@ class BouncieService:
         if not self.access_token:
             return {"success": False, "error": "No access token available"}
         
+        # Check if token is expired and refresh automatically if we have a refresh token
         if self.token_expires_at and datetime.now(timezone.utc) >= self.token_expires_at:
-             logger.info("Token expired, refreshing before request...")
+             logger.info("⏰ Token expired, attempting automatic refresh...")
              if not self.refresh_token:
-                 logger.warning("Cannot refresh token: No refresh token available. Please reconnect Bouncie.")
+                 logger.warning("❌ Cannot refresh token: No refresh token available. Please reconnect Bouncie with offline_access scope.")
                  return {"success": False, "error": "Token expired and no refresh token available. Please reconnect Bouncie."}
+             logger.info("🔄 Refreshing access token using refresh token...")
              if not self._refresh_access_token_sync():
-                 return {"success": False, "error": "Token expired and refresh failed"}
+                 logger.error("❌ Token refresh failed")
+                 return {"success": False, "error": "Token expired and refresh failed. Please reconnect Bouncie."}
+             logger.info("✅ Token refreshed successfully, continuing with request...")
 
         if not self.access_token:
             return {"success": False, "error": "No access token available"}
@@ -295,21 +355,41 @@ class BouncieService:
             
             response = requests.request(method, url, headers=headers, timeout=30, **request_kwargs)
             
+            # If we get 401, try refreshing the token automatically
             if response.status_code == 401 and self.refresh_token:
-                logger.info("Access token expired (401), attempting refresh...")
+                logger.info("🔄 Received 401 Unauthorized, attempting automatic token refresh...")
                 if self._refresh_access_token_sync():
+                    # Reload tokens after refresh
+                    self._load_tokens()
                     headers["Authorization"] = self.headers["Authorization"]
+                    logger.info("✅ Token refreshed, retrying request...")
                     response = requests.request(method, url, headers=headers, timeout=30, **request_kwargs)
+                else:
+                    logger.error("❌ Token refresh failed after 401 error")
             
             try:
                 response_data = response.json()
             except:
                 response_data = response.text
             
+            # Log API responses for debugging
             if response.status_code == 200:
+                logger.info(f"✅ Bouncie API {method} {endpoint} - Success")
+                logger.debug(f"Response data type: {type(response_data)}")
+                if isinstance(response_data, list):
+                    logger.info(f"Response contains {len(response_data)} items")
+                    if len(response_data) > 0:
+                        logger.info(f"First item keys: {list(response_data[0].keys()) if isinstance(response_data[0], dict) else 'Not a dict'}")
+                        logger.debug(f"First item sample: {str(response_data[0])[:500]}")
+                elif isinstance(response_data, dict):
+                    logger.info(f"Response keys: {list(response_data.keys())}")
+                    logger.debug(f"Response sample: {str(response_data)[:500]}")
+                else:
+                    logger.debug(f"Response: {str(response_data)[:500]}")
                 return {"success": True, "data": response_data, "status_code": response.status_code}
             else:
-                logger.error(f"API request failed: {response.status_code} - {response_data}")
+                logger.error(f"❌ Bouncie API {method} {endpoint} - Failed: {response.status_code}")
+                logger.error(f"Response: {response_data}")
                 return {
                     "success": False,
                     "error": f"HTTP {response.status_code}",
@@ -330,7 +410,18 @@ class BouncieService:
         return await asyncio.to_thread(self._make_request, method, endpoint, params, **kwargs)
     
     async def get_vehicles(self) -> Dict[str, Any]:
-        return await self._api_call("GET", "/vehicles")
+        logger.info("🚗 Fetching vehicles from Bouncie API...")
+        result = await self._api_call("GET", "/vehicles")
+        if result.get("success"):
+            vehicles = result.get("data", [])
+            logger.info(f"✅ Retrieved {len(vehicles)} vehicles from Bouncie")
+            for i, vehicle in enumerate(vehicles[:3]):  # Log first 3 vehicles
+                logger.info(f"  Vehicle {i+1}: IMEI={vehicle.get('imei')}, Keys={list(vehicle.keys()) if isinstance(vehicle, dict) else 'N/A'}")
+                if isinstance(vehicle, dict) and 'location' in vehicle:
+                    logger.info(f"    Location: {vehicle.get('location')}")
+        else:
+            logger.error(f"❌ Failed to fetch vehicles: {result.get('error')}")
+        return result
     
     async def get_trips(
         self,
@@ -347,14 +438,58 @@ class BouncieService:
         if imei:
             params["imei"] = imei
         
-        return await self._api_call("GET", "/trips", params=params)
+        logger.info(f"🗺️  Fetching trips from Bouncie API (start={start_date}, end={end_date}, imei={imei})...")
+        result = await self._api_call("GET", "/trips", params=params)
+        if result.get("success"):
+            trips = result.get("data", [])
+            logger.info(f"✅ Retrieved {len(trips)} trips from Bouncie")
+            for i, trip in enumerate(trips[:3]):  # Log first 3 trips
+                logger.info(f"  Trip {i+1}: IMEI={trip.get('imei')}, Keys={list(trip.keys()) if isinstance(trip, dict) else 'N/A'}")
+                if isinstance(trip, dict):
+                    if 'gps' in trip:
+                        gps_data = trip.get('gps')
+                        logger.info(f"    GPS data type: {type(gps_data)}")
+                        if isinstance(gps_data, dict) and 'coordinates' in gps_data:
+                            coords = gps_data.get('coordinates')
+                            logger.info(f"    GPS coordinates type: {type(coords)}, length: {len(coords) if isinstance(coords, (list, str)) else 'N/A'}")
+                    if 'location' in trip:
+                        logger.info(f"    Location: {trip.get('location')}")
+        else:
+            logger.error(f"❌ Failed to fetch trips: {result.get('error')}")
+        return result
+    
+    async def get_vehicle_status(self, imei: str) -> Dict[str, Any]:
+        """
+        Get live status for a specific vehicle by IMEI.
+        Returns current location, speed, fuel level, etc.
+        """
+        logger.info(f"🚗 Fetching vehicle status for IMEI: {imei}")
+        result = await self._api_call("GET", f"/vehicles/{imei}")
+        if result.get("success"):
+            vehicle_data = result.get("data", {})
+            logger.info(f"✅ Retrieved vehicle status for {imei}")
+            if isinstance(vehicle_data, dict):
+                logger.info(f"  Available keys: {list(vehicle_data.keys())}")
+                if 'location' in vehicle_data:
+                    logger.info(f"  Location: {vehicle_data.get('location')}")
+        else:
+            logger.error(f"❌ Failed to fetch vehicle status: {result.get('error')}")
+        return result
     
     # ------------------------------ WEBHOOK SUPPORT ------------------------------
     
     def get_webhook_events(self) -> list:
         return [
-            "device_connected", "device_disconnected", "new_trip_data", "new_trip_metrics",
-            "new_mil_event", "new_battery_status", "trip_ended", "geo_zone_entered", "geo_zone_exited"
+            "device_connected", 
+            "device_disconnected", 
+            "new_trip_data", 
+            "new_trip_metrics",
+            "new_mil_event", 
+            "new_battery_status", 
+            "trip_ended", 
+            "geo_zone_entered", 
+            "geo_zone_exited",
+            "vin_change"
         ]
     
 # ------------------------------ END OF FILE ------------------------------

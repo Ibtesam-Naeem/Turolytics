@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
+import { useRegionalSettings } from "@/contexts/RegionalSettingsContext";
+import { formatCurrency } from "@/lib/regional-utils";
 import { 
   Calculator, 
   DollarSign, 
@@ -39,6 +41,7 @@ interface SavedCalculation {
 }
 
 const ROICalculator = () => {
+  const { currency } = useRegionalSettings();
   const [vehicleName, setVehicleName] = useState("");
   const [vehiclePrice, setVehiclePrice] = useState(35000);
   const [dailyRate, setDailyRate] = useState(85);
@@ -69,9 +72,7 @@ const ROICalculator = () => {
   const utilizationRate = (bookingDays / 30) * 100;
   const profitMargin = (monthlyProfit / monthlyRevenue) * 100;
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value);
-  };
+  // formatCurrency will be imported from regional-utils
 
   const saveCalculation = () => {
     if (!vehicleName.trim()) {
@@ -147,7 +148,7 @@ const ROICalculator = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground font-medium">Annual Profit</p>
-                  <p className="text-3xl font-bold mt-1 text-success">{formatCurrency(annualProfit)}</p>
+                  <p className="text-3xl font-bold mt-1 text-success">{formatCurrency(annualProfit, currency)}</p>
                 </div>
                 <div className="p-3 rounded-full bg-success/20">
                   <DollarSign className="h-5 w-5 text-success" />
@@ -242,7 +243,7 @@ const ROICalculator = () => {
                       className="mt-2"
                     />
                     <p className="text-xs text-muted-foreground">
-                      Annual depreciation: {formatCurrency(annualDepreciation)}
+                      Annual depreciation: {formatCurrency(annualDepreciation, currency)}
                     </p>
                   </div>
                 </div>
@@ -290,7 +291,7 @@ const ROICalculator = () => {
                 <div className="p-4 rounded-lg bg-muted/50 border border-border">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Projected Monthly Revenue</span>
-                    <span className="text-lg font-bold text-foreground">{formatCurrency(monthlyRevenue)}</span>
+                    <span className="text-lg font-bold text-foreground">{formatCurrency(monthlyRevenue, currency)}</span>
                   </div>
                 </div>
               </CardContent>
@@ -340,7 +341,7 @@ const ROICalculator = () => {
                 <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Total Monthly Expenses</span>
-                    <span className="text-lg font-bold text-destructive">{formatCurrency(totalMonthlyExpenses)}</span>
+                    <span className="text-lg font-bold text-destructive">{formatCurrency(totalMonthlyExpenses, currency)}</span>
                   </div>
                 </div>
               </CardContent>
@@ -364,16 +365,16 @@ const ROICalculator = () => {
                   <div className="space-y-2">
                     <div className="flex justify-between py-2 border-b border-border">
                       <span className="text-muted-foreground">Revenue</span>
-                      <span className="font-semibold text-success">{formatCurrency(monthlyRevenue)}</span>
+                      <span className="font-semibold text-success">{formatCurrency(monthlyRevenue, currency)}</span>
                     </div>
                     <div className="flex justify-between py-2 border-b border-border">
                       <span className="text-muted-foreground">Expenses</span>
-                      <span className="font-semibold text-destructive">-{formatCurrency(totalMonthlyExpenses)}</span>
+                      <span className="font-semibold text-destructive">-{formatCurrency(totalMonthlyExpenses, currency)}</span>
                     </div>
                     <div className="flex justify-between py-2 bg-muted/50 rounded-lg px-3 -mx-3">
                       <span className="font-semibold">Net Profit</span>
                       <span className={`font-bold ${monthlyProfit >= 0 ? 'text-success' : 'text-destructive'}`}>
-                        {formatCurrency(monthlyProfit)}
+                        {formatCurrency(monthlyProfit, currency)}
                       </span>
                     </div>
                   </div>
@@ -385,16 +386,16 @@ const ROICalculator = () => {
                   <div className="space-y-2">
                     <div className="flex justify-between py-2 border-b border-border">
                       <span className="text-muted-foreground">Gross Profit</span>
-                      <span className="font-semibold">{formatCurrency(annualProfit)}</span>
+                      <span className="font-semibold">{formatCurrency(annualProfit, currency)}</span>
                     </div>
                     <div className="flex justify-between py-2 border-b border-border">
                       <span className="text-muted-foreground">Depreciation</span>
-                      <span className="font-semibold text-destructive">-{formatCurrency(annualDepreciation)}</span>
+                      <span className="font-semibold text-destructive">-{formatCurrency(annualDepreciation, currency)}</span>
                     </div>
                     <div className="flex justify-between py-2 bg-muted/50 rounded-lg px-3 -mx-3">
                       <span className="font-semibold">Net Profit</span>
                       <span className={`font-bold ${netAnnualProfit >= 0 ? 'text-success' : 'text-destructive'}`}>
-                        {formatCurrency(netAnnualProfit)}
+                        {formatCurrency(netAnnualProfit, currency)}
                       </span>
                     </div>
                   </div>
@@ -481,11 +482,11 @@ const ROICalculator = () => {
                             </div>
                             <div>
                               <span className="text-muted-foreground">Profit: </span>
-                              <span className="font-semibold">{formatCurrency(calc.annualProfit)}/yr</span>
+                              <span className="font-semibold">{formatCurrency(calc.annualProfit, currency)}/yr</span>
                             </div>
                           </div>
                           <p className="text-xs text-muted-foreground mt-1">
-                            {formatCurrency(calc.vehiclePrice)} • ${calc.dailyRate}/day • {calc.bookingDays} days/mo
+                            {formatCurrency(calc.vehiclePrice, currency)} • {formatCurrency(calc.dailyRate, currency)}/day • {calc.bookingDays} days/mo
                           </p>
                         </div>
                       ))}

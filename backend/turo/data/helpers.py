@@ -8,26 +8,19 @@ from playwright.async_api import Page, ElementHandle, Frame
 import logging
 
 from core.config.settings import TIMEOUT_IFRAME, TIMEOUT_SELECTOR_WAIT, DELAY_LONG, DELAY_SHORT
+from core.utils.route_helpers import parse_amount as _parse_amount
 
 logger = logging.getLogger(__name__)
 
 # ------------------------------ COMMON EXTRACTION HELPERS ------------------------------
 
+# Re-export parse_amount for backward compatibility with existing imports
+parse_amount = _parse_amount
+
 def extract_with_regex(text: str, pattern: str, group: int = 1) -> Optional[str]:
     """Extract text using regex pattern."""
     match = re.search(pattern, text)
     return match.group(group) if match else None
-
-def parse_amount(amount_str: str) -> Optional[float]:
-    """Parse amount string like '$100.00' into a float."""
-    if not amount_str:
-        return None
-    try:
-        cleaned = amount_str.replace('$', '').replace(',', '')
-        return float(cleaned)
-        
-    except (ValueError, TypeError):
-        return None
 
 async def try_selectors(
     element: Union[Page, ElementHandle], 

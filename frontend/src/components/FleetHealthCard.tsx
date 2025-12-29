@@ -10,7 +10,8 @@ import {
 } from "@/components/ui/accordion";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { bouncieService } from "@/services/bouncie-service";
+import { bouncieService, BouncieDTCCode } from "@/services/bouncie-service";
+import { useBouncieLiveData } from "@/hooks/useBouncieLiveData";
 
 interface VehicleInfo {
   name: string;
@@ -30,6 +31,11 @@ export const FleetHealthCard = () => {
   const navigate = useNavigate();
   const [bouncieConnected, setBouncieConnected] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
+  const [dtcCodes, setDtcCodes] = useState<BouncieDTCCode[]>([]);
+  const [loadingDtcCodes, setLoadingDtcCodes] = useState(false);
+  
+  // Get live vehicle data for fuel levels
+  const { liveVehicles, bouncieConnected: liveDataConnected } = useBouncieLiveData(60000); // Refresh every minute
 
   useEffect(() => {
     const checkBouncieConnection = async () => {
@@ -47,6 +53,59 @@ export const FleetHealthCard = () => {
     checkBouncieConnection();
   }, []);
 
+  // Use live data connection status if available, otherwise use checked status
+  const isConnected = liveDataConnected !== null ? liveDataConnected : bouncieConnected;
+
+  // Fetch DTC codes when connected
+  useEffect(() => {
+    const fetchDtcCodes = async () => {
+      if (!isConnected) {
+        setDtcCodes([]);
+        return;
+      }
+
+      try {
+        setLoadingDtcCodes(true);
+        const result = await bouncieService.getDTCCodes(undefined, undefined, true, 100, 0);
+        setDtcCodes(result.codes || []);
+      } catch (error) {
+        console.error('Failed to fetch DTC codes:', error);
+        setDtcCodes([]);
+      } finally {
+        setLoadingDtcCodes(false);
+      }
+    };
+
+    fetchDtcCodes();
+    // Refresh DTC codes every 2 minutes
+    const interval = setInterval(fetchDtcCodes, 120000);
+    return () => clearInterval(interval);
+  }, [isConnected]);
+
+  // Calculate low fuel vehicles (fuel level < 10%)
+  const lowFuelVehicles = liveVehicles.filter(vehicle => {
+    const fuelLevel = vehicle.fuelLevel;
+    return fuelLevel !== null && fuelLevel !== undefined && fuelLevel < 10;
+  });
+
+  // Get active DTC codes grouped by vehicle
+  const engineAlertVehicles = dtcCodes
+    .filter(code => code.is_active)
+    .reduce((acc, code) => {
+      const vehicleName = code.vehicle_name || `Vehicle ${code.imei}`;
+      const existing = acc.find(v => v.name === vehicleName);
+      if (existing) {
+        existing.details = `${existing.details}, ${code.code}`;
+      } else {
+        acc.push({
+          name: vehicleName,
+          location: `IMEI: ${code.imei}`,
+          details: `${code.code}${code.description ? ` - ${code.description}` : ''}`
+        });
+      }
+      return acc;
+    }, [] as VehicleInfo[]);
+
   const alerts: AlertItem[] = [
     {
       icon: Wrench,
@@ -58,16 +117,22 @@ export const FleetHealthCard = () => {
     {
       icon: Droplet,
       label: "Low fuel",
-      count: 0,
-      severity: "success",
-      vehicles: []
+      count: lowFuelVehicles.length,
+      severity: lowFuelVehicles.length > 0 ? "warning" : "success",
+      vehicles: lowFuelVehicles.map(vehicle => ({
+        name: vehicle.vehicleName,
+        location: vehicle.location 
+          ? `${vehicle.location.lat.toFixed(4)}, ${vehicle.location.lon.toFixed(4)}`
+          : "Location unknown",
+        details: `Fuel: ${vehicle.fuelLevel?.toFixed(1) || 'N/A'}%`
+      }))
     },
     {
       icon: AlertTriangle,
       label: "Engine alerts",
-      count: 0,
-      severity: "success",
-      vehicles: []
+      count: engineAlertVehicles.length,
+      severity: engineAlertVehicles.length > 0 ? "destructive" : "success",
+      vehicles: engineAlertVehicles
     },
     {
       icon: Clock,
@@ -113,11 +178,11 @@ export const FleetHealthCard = () => {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {loading ? (
+        {loading || loadingDtcCodes ? (
           <div className="flex flex-col items-center justify-center py-8 text-center">
             <p className="text-sm text-muted-foreground">Loading...</p>
           </div>
-        ) : bouncieConnected === false ? (
+        ) : isConnected === false ? (
           <div className="flex flex-col items-center justify-center py-8 text-center">
             <AlertTriangle className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
             <p className="text-lg font-semibold text-foreground mb-2">Connect Bouncie to View Fleet Health</p>

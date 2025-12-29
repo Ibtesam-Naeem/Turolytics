@@ -17,6 +17,8 @@ import {
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { useState } from "react";
+import { useRegionalSettings } from "@/contexts/RegionalSettingsContext";
+import { formatDistance, formatCurrency, formatCurrencyDecimal, formatTimeString } from "@/lib/regional-utils";
 
 interface UpcomingTrip {
   id: string;
@@ -46,6 +48,7 @@ interface UpcomingTripsCardProps {
 }
 
 export const UpcomingTripsCard = ({ trips, turoConnected, onConnectClick }: UpcomingTripsCardProps) => {
+  const { distanceUnit, currency, timeFormat } = useRegionalSettings();
   const [selectedTrip, setSelectedTrip] = useState<UpcomingTrip | null>(null);
 
   // Calculate derived values for display
@@ -81,9 +84,9 @@ export const UpcomingTripsCard = ({ trips, turoConnected, onConnectClick }: Upco
           align: "start",
           loop: false,
         }}
-        className="w-full"
+        className="w-full max-w-full"
       >
-        <Card className="rounded-2xl shadow-lg border-border/50 overflow-hidden">
+        <Card className="rounded-2xl shadow-lg border-border/50 overflow-hidden w-full max-w-full">
         <CardHeader className="bg-gradient-to-r from-primary/5 to-transparent border-b border-border/50">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -183,7 +186,7 @@ export const UpcomingTripsCard = ({ trips, turoConnected, onConnectClick }: Upco
                       <Gauge className="h-4 w-4 text-primary" />
                       <div>
                         <p className="text-xs text-muted-foreground font-medium">Limit</p>
-                        <span className="font-bold text-foreground text-base">{trip.kmsAllowed} km</span>
+                        <span className="font-bold text-foreground text-base">{formatDistance(trip.kmsAllowed, distanceUnit)}</span>
                       </div>
                     </div>
                   </div>
@@ -239,10 +242,10 @@ export const UpcomingTripsCard = ({ trips, turoConnected, onConnectClick }: Upco
 
                 {/* Kilometers Included */}
                 <div>
-                  <h4 className="font-semibold mb-2">Kilometers included</h4>
-                  <p className="text-2xl font-bold">{details.totalKms} km</p>
+                  <h4 className="font-semibold mb-2">{distanceUnit === "miles" ? "Miles" : "Kilometers"} included</h4>
+                  <p className="text-2xl font-bold">{formatDistance(details.totalKms, distanceUnit)}</p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {selectedTrip.guestName} can be charged CA${details.overageRate.toFixed(2)} for every kilometer over the total included for the trip.
+                    {selectedTrip.guestName} can be charged {formatCurrencyDecimal(details.overageRate, currency)} for every {distanceUnit === "miles" ? "mile" : "kilometer"} over the total included for the trip.
                   </p>
                 </div>
 
@@ -252,25 +255,25 @@ export const UpcomingTripsCard = ({ trips, turoConnected, onConnectClick }: Upco
                 <div className="space-y-2">
                   <h4 className="font-semibold">Trip price</h4>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">{details.days} day @ CA${details.dailyRate.toFixed(2)}/day</span>
-                    <span className="font-medium">CA${(details.days * details.dailyRate).toFixed(2)}</span>
+                    <span className="text-muted-foreground">{details.days} day @ {formatCurrencyDecimal(details.dailyRate, currency)}/day</span>
+                    <span className="font-medium">{formatCurrencyDecimal(details.days * details.dailyRate, currency)}</span>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Distance limited to {details.kmsPerDay} kilometers per day
+                    Distance limited to {formatDistance(details.kmsPerDay, distanceUnit)} per day
                   </p>
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">{details.totalKms} total kilometers</span>
-                    <span>CA$0.00</span>
+                    <span className="text-muted-foreground">{formatDistance(details.totalKms, distanceUnit)} total</span>
+                    <span>{formatCurrencyDecimal(0, currency)}</span>
                   </div>
                   {details.boostPricing > 0 && (
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Last-minute boost pricing</span>
-                      <span>CA${details.boostPricing.toFixed(2)}</span>
+                      <span>{formatCurrencyDecimal(details.boostPricing, currency)}</span>
                     </div>
                   )}
                   <div className="flex justify-between font-semibold pt-2 border-t border-border">
                     <span>Trip total</span>
-                    <span>CA${details.tripTotal.toFixed(2)}</span>
+                    <span>{formatCurrencyDecimal(details.tripTotal, currency)}</span>
                   </div>
                 </div>
 
@@ -284,18 +287,18 @@ export const UpcomingTripsCard = ({ trips, turoConnected, onConnectClick }: Upco
                       <span className="text-muted-foreground">Turo fees</span>
                       <p className="text-xs text-muted-foreground">Includes platform fees and protection plan</p>
                     </div>
-                    <span className="text-destructive">- CA${details.turoFees.toFixed(2)}</span>
+                    <span className="text-destructive">- {formatCurrencyDecimal(details.turoFees, currency)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <div>
                       <span className="text-muted-foreground">Sales Tax</span>
                       <p className="text-xs text-muted-foreground">Applied to Turo services</p>
                     </div>
-                    <span className="text-destructive">- CA${details.salesTax.toFixed(2)}</span>
+                    <span className="text-destructive">- {formatCurrencyDecimal(details.salesTax, currency)}</span>
                   </div>
                   <div className="flex justify-between font-bold text-lg pt-2 border-t border-border bg-success/10 rounded-lg p-3 -mx-1">
                     <span>You earned</span>
-                    <span className="text-success">CA${details.netEarnings.toFixed(2)}</span>
+                    <span className="text-success">{formatCurrencyDecimal(details.netEarnings, currency)}</span>
                   </div>
                 </div>
               </div>

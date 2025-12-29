@@ -115,6 +115,130 @@ def filter_trips_by_date_range(
     
     return matching_trips
 
+# ------------------------------ ODOMETER UTILITIES ------------------------------
+
+def get_odometer_at_time_from_trips(
+    trips: List[Dict[str, Any]],
+    target_time: datetime,
+    imei: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Get odometer reading at a specific timestamp from Bouncie trips.
+    
+    Args:
+        trips: List of Bouncie trip dictionaries
+        target_time: Target datetime to get odometer reading
+        imei: Optional IMEI to filter trips
+    
+    Returns:
+        Dict with odometer reading and metadata, or None if not found
+        {
+            "odometer": float,
+            "timestamp": datetime,
+            "source": "trip_start" | "trip_end" | "interpolated" | "last_trip_before" | "first_trip_after",
+            "trip_id": str (optional)
+        }
+    """
+    if not trips:
+        return None
+    
+    # Filter by IMEI if provided
+    if imei:
+        trips = [t for t in trips if t.get('imei') == imei]
+    
+    # Find trip that contains target_time
+    for trip in trips:
+        trip_start = parse_bouncie_datetime(trip.get("startTime"))
+        trip_end = parse_bouncie_datetime(trip.get("endTime"))
+        
+        if not trip_start or not trip_end:
+            continue
+        
+        # If target_time is within this trip
+        if trip_start <= target_time <= trip_end:
+            start_odometer = trip.get("startOdometer")
+            end_odometer = trip.get("endOdometer")
+            
+            if start_odometer is None and end_odometer is None:
+                continue
+            
+            # If exactly at start
+            if target_time == trip_start and start_odometer is not None:
+                return {
+                    "odometer": float(start_odometer),
+                    "timestamp": target_time,
+                    "source": "trip_start",
+                    "trip_id": trip.get("transactionId")
+                }
+            
+            # If exactly at end
+            if target_time == trip_end and end_odometer is not None:
+                return {
+                    "odometer": float(end_odometer),
+                    "timestamp": target_time,
+                    "source": "trip_end",
+                    "trip_id": trip.get("transactionId")
+                }
+            
+            # Interpolate between start and end
+            if start_odometer is not None and end_odometer is not None:
+                trip_duration = (trip_end - trip_start).total_seconds()
+                time_elapsed = (target_time - trip_start).total_seconds()
+                
+                if trip_duration > 0:
+                    ratio = time_elapsed / trip_duration
+                    odometer = start_odometer + (end_odometer - start_odometer) * ratio
+                    return {
+                        "odometer": float(odometer),
+                        "timestamp": target_time,
+                        "source": "interpolated",
+                        "trip_id": trip.get("transactionId")
+                    }
+    
+    # No trip contains target_time - find nearest trip
+    # Build list of valid trips with parsed timestamps
+    valid_trips = []
+    for trip in trips:
+        trip_start = parse_bouncie_datetime(trip.get("startTime"))
+        trip_end = parse_bouncie_datetime(trip.get("endTime"))
+        if trip_start and trip_end:
+            valid_trips.append((trip, trip_start, trip_end))
+    
+    if not valid_trips:
+        return None
+    
+    # Find last trip before target_time
+    trips_before = [(t, s, e) for t, s, e in valid_trips if e <= target_time]
+    if trips_before:
+        trips_before.sort(key=lambda x: x[2], reverse=True)  # Sort by endTime desc
+        trip, _, trip_end = trips_before[0]
+        end_odometer = trip.get("endOdometer")
+        if end_odometer is not None:
+            return {
+                "odometer": float(end_odometer),
+                "timestamp": trip_end,
+                "source": "last_trip_before",
+                "trip_id": trip.get("transactionId"),
+                "note": f"Odometer from last trip before target time ({target_time})"
+            }
+    
+    # Find first trip after target_time
+    trips_after = [(t, s, e) for t, s, e in valid_trips if s >= target_time]
+    if trips_after:
+        trips_after.sort(key=lambda x: x[1])  # Sort by startTime asc
+        trip, trip_start, _ = trips_after[0]
+        start_odometer = trip.get("startOdometer")
+        if start_odometer is not None:
+            return {
+                "odometer": float(start_odometer),
+                "timestamp": trip_start,
+                "source": "first_trip_after",
+                "trip_id": trip.get("transactionId"),
+                "note": f"Odometer from first trip after target time ({target_time})"
+            }
+    
+    return None
+
 
 # ------------------------------ END OF FILE ------------------------------
 

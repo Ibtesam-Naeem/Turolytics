@@ -51,6 +51,8 @@ class Account(Base):
     turo_integration = relationship("TuroIntegration", back_populates="account", uselist=False, cascade="all, delete-orphan")
     bouncie_vehicle_mappings = relationship("BouncieVehicleMapping", back_populates="account", cascade="all, delete-orphan")
     bouncie_trip_matches = relationship("BouncieTripMatch", back_populates="account", cascade="all, delete-orphan")
+    bouncie_dtc_codes = relationship("BouncieDTCCode", back_populates="account", cascade="all, delete-orphan")
+    bouncie_webhook_logs = relationship("BouncieWebhookLog", back_populates="account", cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="account", cascade="all, delete-orphan")
     
     @staticmethod
