@@ -80,6 +80,8 @@ const Settings = () => {
   const [bouncieLoading, setBouncieLoading] = useState(true);
   const [bouncieConnecting, setBouncieConnecting] = useState(false);
   const [bouncieDisconnecting, setBouncieDisconnecting] = useState(false);
+  const [bouncieConnectDialogOpen, setBouncieConnectDialogOpen] = useState(false);
+  const [bouncieCredentials, setBouncieCredentials] = useState({ email: "", password: "" });
   const [syncing, setSyncing] = useState(false);
   const [turoStatus, setTuroStatus] = useState<TuroIntegrationStatus | null>(null);
   const [turoLoading, setTuroLoading] = useState(true);
@@ -399,17 +401,37 @@ const Settings = () => {
   };
 
   const handleConnectBouncie = async () => {
+    if (!bouncieCredentials.email || !bouncieCredentials.password) {
+      toast({
+        title: "Missing Credentials",
+        description: "Please enter both email and password.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       setBouncieConnecting(true);
-      const authUrl = await bouncieService.getAuthorizationUrl();
-      // Open in same window - backend will redirect back to /settings
-      window.location.href = authUrl;
+      const result = await bouncieService.connectAutomated(bouncieCredentials.email, bouncieCredentials.password);
+      
+      if (result.success) {
+        toast({
+          title: "Bouncie Connected",
+          description: "Your Bouncie account has been successfully connected.",
+        });
+        setBouncieConnectDialogOpen(false);
+        setBouncieCredentials({ email: "", password: "" });
+        await loadBouncieStatus();
+      } else {
+        throw new Error(result.message || "Connection failed");
+      }
     } catch (error) {
       toast({
         title: "Connection Failed",
-        description: error instanceof Error ? error.message : "Failed to initiate Bouncie connection.",
+        description: error instanceof Error ? error.message : "Failed to connect Bouncie account.",
         variant: "destructive",
       });
+    } finally {
       setBouncieConnecting(false);
     }
   };
@@ -677,7 +699,7 @@ const Settings = () => {
 
                       <Button 
                         variant={bouncieConnected ? "outline" : "default"}
-                        onClick={bouncieConnected ? handleDisconnectBouncie : handleConnectBouncie}
+                        onClick={bouncieConnected ? handleDisconnectBouncie : () => setBouncieConnectDialogOpen(true)}
                         disabled={bouncieConnecting || bouncieDisconnecting}
                         className="w-full"
                       >
@@ -803,6 +825,60 @@ const Settings = () => {
                     </Button>
                     <Button onClick={handleConnectTuro} disabled={turoConnecting}>
                       {turoConnecting ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Connecting...
+                        </>
+                      ) : (
+                        "Connect"
+                      )}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              {/* Bouncie Connect Dialog */}
+              <Dialog open={bouncieConnectDialogOpen} onOpenChange={setBouncieConnectDialogOpen}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Connect Bouncie Account</DialogTitle>
+                    <DialogDescription>
+                      Enter your Bouncie email and password. Your credentials will be used to automatically log in and authorize the application.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="bouncie-email">Bouncie Email</Label>
+                      <Input
+                        id="bouncie-email"
+                        type="email"
+                        placeholder="you@example.com"
+                        value={bouncieCredentials.email}
+                        onChange={(e) => setBouncieCredentials(prev => ({ ...prev, email: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="bouncie-password">Bouncie Password</Label>
+                      <Input
+                        id="bouncie-password"
+                        type="password"
+                        placeholder="••••••••"
+                        value={bouncieCredentials.password}
+                        onChange={(e) => setBouncieCredentials(prev => ({ ...prev, password: e.target.value }))}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !bouncieConnecting) {
+                            handleConnectBouncie();
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setBouncieConnectDialogOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button onClick={handleConnectBouncie} disabled={bouncieConnecting}>
+                      {bouncieConnecting ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           Connecting...

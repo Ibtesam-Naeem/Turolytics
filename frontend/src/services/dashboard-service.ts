@@ -122,10 +122,28 @@ class DashboardService {
         return rating !== null && rating !== undefined && rating !== 0;
       });
       
-      const totalReviews = vehicles.reduce((sum, v) => {
-        const count = v.review_count || 0;
-        return sum + (typeof count === 'number' ? count : 0);
-      }, 0);
+      // Fetch total reviews directly from reviews endpoint for accurate count
+      let totalReviews = 0;
+      try {
+        const reviewsResponse = await apiClient.get<{
+          success: boolean;
+          data: {
+            reviews: Array<any>;
+            total: number;
+          };
+        }>('/api/turo/data/reviews?limit=1');
+        
+        totalReviews = reviewsResponse.data?.total || 0;
+        console.log('Dashboard: Total reviews from reviews endpoint:', totalReviews);
+      } catch (error) {
+        console.error('Error fetching total reviews:', error);
+        // Fallback to summing vehicle review counts
+        totalReviews = vehicles.reduce((sum, v) => {
+          const count = v.review_count || 0;
+          return sum + (typeof count === 'number' ? count : 0);
+        }, 0);
+        console.log('Dashboard: Fallback - Total reviews calculated from vehicles:', totalReviews);
+      }
       
       const averageRating = vehiclesWithRatings.length > 0
         ? vehiclesWithRatings.reduce((sum, v) => {

@@ -10,6 +10,7 @@ from .data_fetcher import fetch_trips_in_date_range
 from .matching import match_trip, match_all_trips
 from .utils import trip_to_dict
 from .helpers import format_date_for_api
+from .data.login import complete_bouncie_login
 from .schemas import (
     APIResponse,
     MatchRequest,
@@ -19,11 +20,13 @@ from .schemas import (
     BouncieTripMatchDetailOut,
     BouncieVehicleMappingOut,
     BouncieDTCCodeOut,
+    BouncieLoginRequest,
 )
 from core.database import get_db
 from core.database.models import Trip, BouncieTripMatch, BouncieVehicleMapping, Account, Vehicle, BouncieDTCCode, BouncieWebhookLog
 from core.security.auth import get_current_active_user
 from core.utils.route_helpers import get_bouncie_integration, handle_route_errors
+from core.config.settings import settings
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -123,6 +126,73 @@ async def get_authorization_url(
     if popup:
         url += f"&popup=true"
     return APIResponse(success=True, data={"authorization_url": url})
+
+@router.post("/auth/automated-login", response_model=APIResponse, tags=["Authentication"])
+@handle_route_errors("automated Bouncie login")
+async def automated_bouncie_login(
+    request: BouncieLoginRequest,
+    current_user: Account = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+    service: BouncieService = Depends(get_bouncie_service)
+):
+    """
+    Automate Bouncie login using Playwright.
+    Logs in with credentials, authorizes the application, and returns the authorization code.
+    The authorization code can then be exchanged for tokens.
+    """
+    logger.info(f"Starting automated Bouncie login for account {current_user.id}")
+    
+    # Get authorization URL
+    state = str(current_user.user_id)
+    authorization_url = service.get_authorization_url(state)
+    
+    # Perform automated login
+    result = await complete_bouncie_login(
+        email=request.email,
+        password=request.password,
+        authorization_url=authorization_url,
+        headless=settings.scraping.headless
+    )
+    
+    if not result or not result.get("success"):
+        error_msg = result.get("error", "Login failed") if result else "Login failed"
+        logger.error(f"Automated login failed: {error_msg}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Automated login failed: {error_msg}"
+        )
+    
+    authorization_code = result.get("authorization_code")
+    if not authorization_code:
+        raise HTTPException(
+            status_code=400,
+            detail="Login successful but no authorization code received"
+        )
+    
+    # Exchange code for tokens
+    token_result = await service.exchange_code_for_token(authorization_code)
+    
+    if not token_result.get("success"):
+        logger.error(f"Token exchange failed: {token_result.get('error')}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Login successful but token exchange failed: {token_result.get('error')}"
+        )
+    
+    logger.info(f"✅ Automated Bouncie login and token exchange successful for account {current_user.id}")
+    
+    # Trigger automatic processing
+    from .auto_match import handle_bouncie_auto_processing
+    await handle_bouncie_auto_processing(db, current_user.id)
+    
+    return APIResponse(
+        success=True,
+        data={
+            "message": "Bouncie login and authorization successful",
+            "authorization_code": authorization_code,
+            "tokens_saved": True
+        }
+    )
 
 @router.get("/auth/status", response_model=APIResponse, tags=["Authentication"])
 @handle_route_errors("checking integration status")

@@ -39,6 +39,10 @@ export interface BouncieTripMatch {
   bouncie_latest_end?: string;
   created_at?: string;
   updated_at?: string;
+  // Extended fields for detail view
+  coordinates?: number[][];
+  polyline?: string;
+  match_data?: any;
 }
 
 export interface CreateVehicleMappingRequest {
@@ -108,6 +112,17 @@ class BouncieService {
   async getIntegrationStatus(): Promise<BouncieIntegrationStatus> {
     const response = await apiClient.get<{ success: boolean; data: BouncieIntegrationStatus }>('/api/bouncie/auth/status');
     return response.data;
+  }
+
+  async connectAutomated(email: string, password: string): Promise<{ success: boolean; message: string; authorization_code?: string; tokens_saved?: boolean }> {
+    const response = await apiClient.post<{ success: boolean; data: { message: string; authorization_code?: string; tokens_saved?: boolean } }>(
+      '/api/bouncie/auth/automated-login',
+      { email, password }
+    );
+    return {
+      success: response.success,
+      ...response.data
+    };
   }
 
   async disconnect(): Promise<void> {

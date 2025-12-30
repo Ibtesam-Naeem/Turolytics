@@ -73,6 +73,11 @@ class VehicleMappingUpdateRequest(BaseModel):
     bouncie_nickname: Optional[str] = None
     bouncie_vin: Optional[str] = None
 
+class BouncieLoginRequest(BaseModel):
+    """Request model for automated Bouncie login."""
+    email: str
+    password: str
+
 class BouncieDTCCodeOut(BaseOutModel):
     """Bouncie DTC code output model."""
     id: int

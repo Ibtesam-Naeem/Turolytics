@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertTriangle, Droplet, Wrench, Clock, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, Droplet, Wrench, CheckCircle2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,6 +12,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { bouncieService, BouncieDTCCode } from "@/services/bouncie-service";
 import { useBouncieLiveData } from "@/hooks/useBouncieLiveData";
+import { vehiclesService } from "@/services/vehicles-service";
 
 interface VehicleInfo {
   name: string;
@@ -33,6 +34,8 @@ export const FleetHealthCard = () => {
   const [loading, setLoading] = useState(true);
   const [dtcCodes, setDtcCodes] = useState<BouncieDTCCode[]>([]);
   const [loadingDtcCodes, setLoadingDtcCodes] = useState(false);
+  const [maintenanceVehicles, setMaintenanceVehicles] = useState<VehicleInfo[]>([]);
+  const [loadingMaintenance, setLoadingMaintenance] = useState(false);
   
   // Get live vehicle data for fuel levels
   const { liveVehicles, bouncieConnected: liveDataConnected } = useBouncieLiveData(60000); // Refresh every minute
@@ -82,6 +85,34 @@ export const FleetHealthCard = () => {
     return () => clearInterval(interval);
   }, [isConnected]);
 
+  // Fetch maintenance vehicles
+  useEffect(() => {
+    const fetchMaintenanceVehicles = async () => {
+      try {
+        setLoadingMaintenance(true);
+        const response = await vehiclesService.getVehicles({ include_stats: false, limit: 100 });
+        const maintenance = response.vehicles
+          .filter(v => v.status_mapped === "maintenance" || (v.status && v.status.toLowerCase().includes("maintenance")))
+          .map(v => ({
+            name: v.name + (v.year ? ` ${v.year}` : ''),
+            location: v.license_plate || "No license plate",
+            details: `Status: ${v.status || "Maintenance"}`
+          }));
+        setMaintenanceVehicles(maintenance);
+      } catch (error) {
+        console.error('Failed to fetch maintenance vehicles:', error);
+        setMaintenanceVehicles([]);
+      } finally {
+        setLoadingMaintenance(false);
+      }
+    };
+
+    fetchMaintenanceVehicles();
+    // Refresh maintenance vehicles every 2 minutes
+    const interval = setInterval(fetchMaintenanceVehicles, 120000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Calculate low fuel vehicles (fuel level < 10%)
   const lowFuelVehicles = liveVehicles.filter(vehicle => {
     const fuelLevel = vehicle.fuelLevel;
@@ -110,9 +141,9 @@ export const FleetHealthCard = () => {
     {
       icon: Wrench,
       label: "Maintenance required",
-      count: 0,
-      severity: "success",
-      vehicles: []
+      count: maintenanceVehicles.length,
+      severity: maintenanceVehicles.length > 0 ? "warning" : "success",
+      vehicles: maintenanceVehicles
     },
     {
       icon: Droplet,
@@ -133,13 +164,6 @@ export const FleetHealthCard = () => {
       count: engineAlertVehicles.length,
       severity: engineAlertVehicles.length > 0 ? "destructive" : "success",
       vehicles: engineAlertVehicles
-    },
-    {
-      icon: Clock,
-      label: "Late return",
-      count: 0,
-      severity: "success",
-      vehicles: []
     }
   ];
 
@@ -178,7 +202,7 @@ export const FleetHealthCard = () => {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {loading || loadingDtcCodes ? (
+        {loading || loadingDtcCodes || loadingMaintenance ? (
           <div className="flex flex-col items-center justify-center py-8 text-center">
             <p className="text-sm text-muted-foreground">Loading...</p>
           </div>

@@ -22,13 +22,18 @@ import {
   Shield,
   ExternalLink,
   Loader2,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { tripsService, Trip } from "@/services/trips-service";
 import { vehiclesService, Vehicle } from "@/services/vehicles-service";
+import { bouncieService, BouncieTripMatch } from "@/services/bouncie-service";
 import { format, parseISO } from "date-fns";
 import { useRegionalSettings } from "@/contexts/RegionalSettingsContext";
 import { formatDistance, formatCurrency, formatCurrencyDecimal, formatTimeString } from "@/lib/regional-utils";
+import mapboxgl from "mapbox-gl";
+import "mapbox-gl/dist/mapbox-gl.css";
 
 const TripHistory = () => {
   const { distanceUnit, currency, timeFormat } = useRegionalSettings();
@@ -45,6 +50,19 @@ const TripHistory = () => {
   const [offset, setOffset] = useState(0);
   const [vehiclesMap, setVehiclesMap] = useState<Map<number, Vehicle>>(new Map());
   const [allVehicles, setAllVehicles] = useState<Vehicle[]>([]);
+  const [tripMatch, setTripMatch] = useState<BouncieTripMatch | null>(null);
+  const [isLoadingMatch, setIsLoadingMatch] = useState(false);
+  const [individualTrips, setIndividualTrips] = useState<any[]>([]);
+  const [currentTripIndex, setCurrentTripIndex] = useState(0);
+  const [mapError, setMapError] = useState<string | null>(null);
+  const mapContainer = useRef<HTMLDivElement>(null);
+  const map = useRef<mapboxgl.Map | null>(null);
+  const markersRef = useRef<mapboxgl.Marker[]>([]);
+  const layersRef = useRef<string[]>([]);
+  const touchStartX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
+  const touchEndX = useRef<number | null>(null);
+  const touchEndY = useRef<number | null>(null);
 
   // Fetch trips and vehicles from API
   useEffect(() => {
@@ -154,7 +172,504 @@ const TripHistory = () => {
 
   const handleCloseModal = () => {
     setSelectedTrip(null);
+    setTripMatch(null);
+    setIndividualTrips([]);
+    setCurrentTripIndex(0);
+    setMapError(null);
+    // Clean up map
+    if (map.current) {
+      markersRef.current.forEach(marker => marker.remove());
+      markersRef.current = [];
+      layersRef.current.forEach(layerId => {
+        if (map.current?.getLayer(layerId)) {
+          map.current.removeLayer(layerId);
+        }
+        if (map.current?.getSource(layerId)) {
+          map.current.removeSource(layerId);
+        }
+      });
+      layersRef.current = [];
+    }
   };
+
+  const handlePreviousTrip = () => {
+    if (currentTripIndex > 0) {
+      setCurrentTripIndex(currentTripIndex - 1);
+    }
+  };
+
+  const handleNextTrip = () => {
+    if (currentTripIndex < individualTrips.length - 1) {
+      setCurrentTripIndex(currentTripIndex + 1);
+    }
+  };
+
+  // Swipe gesture handlers - only trigger on horizontal swipes
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    touchEndX.current = e.touches[0].clientX;
+    touchEndY.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = () => {
+    if (!touchStartX.current || !touchEndX.current || !touchStartY.current || !touchEndY.current) return;
+    
+    const deltaX = touchStartX.current - touchEndX.current;
+    const deltaY = Math.abs(touchStartY.current - (touchEndY.current || touchStartY.current));
+    const minSwipeDistance = 50; // Minimum distance for a swipe
+    
+    // Only trigger if horizontal swipe is dominant (more horizontal than vertical)
+    if (Math.abs(deltaX) > minSwipeDistance && Math.abs(deltaX) > deltaY) {
+      if (deltaX > 0) {
+        // Swipe left - next trip
+        handleNextTrip();
+      } else {
+        // Swipe right - previous trip
+        handlePreviousTrip();
+      }
+    }
+    
+    touchStartX.current = null;
+    touchStartY.current = null;
+    touchEndX.current = null;
+    touchEndY.current = null;
+  };
+
+  // Fetch Bouncie trip match when trip is selected
+  useEffect(() => {
+    const fetchTripMatch = async () => {
+      if (!selectedTrip) {
+        setTripMatch(null);
+        return;
+      }
+
+      setIsLoadingMatch(true);
+      try {
+        const response = await bouncieService.getTripMatches(
+          selectedTrip.trip_id,
+          true, // include_polylines
+          1,
+          0
+        );
+        
+        if (response.matches && response.matches.length > 0) {
+          // Get full detail with coordinates
+          const matchDetail = await bouncieService.getTripMatchDetail(
+            response.matches[0].id,
+            true // include_full_data
+          );
+          setTripMatch(matchDetail);
+          
+          // Extract individual trips from match_data
+          if (matchDetail.match_data && matchDetail.match_data.all_trips) {
+            const trips = matchDetail.match_data.all_trips;
+            console.log("Individual trips from match_data:", trips);
+            console.log("First trip sample:", trips[0]);
+            
+            // Process trips to ensure coordinates are properly extracted
+            const processedTrips = trips.map((trip: any, index: number) => {
+              let coords = trip.coordinates;
+              
+              console.log(`Trip ${index} raw data:`, {
+                hasCoordinates: !!trip.coordinates,
+                coordinatesLength: trip.coordinates?.length,
+                hasGps: !!trip.gps,
+                gpsType: trip.gps?.type,
+                gpsCoordsLength: trip.gps?.coordinates?.length,
+                firstCoord: trip.coordinates?.[0] || trip.gps?.coordinates?.[0]
+              });
+              
+              // If coordinates don't exist or empty, try to extract from GPS data
+              if (!coords || coords.length === 0) {
+                if (trip.gps) {
+                  const gps = trip.gps;
+                  if (gps.type === 'LineString' && gps.coordinates && Array.isArray(gps.coordinates)) {
+                    // Backend stores coordinates as [lat, lng] based on helpers.py line 37
+                    // But Bouncie API returns GeoJSON [lng, lat]
+                    // Check the first coordinate to determine format
+                    const firstCoord = gps.coordinates[0];
+                    if (Array.isArray(firstCoord) && firstCoord.length >= 2) {
+                      // If first value is > 90 or < -90, it's likely lng (so format is [lng, lat])
+                      // If first value is <= 90, it's likely lat (so format is [lat, lng])
+                      const isLngLatFormat = Math.abs(firstCoord[0]) > 90;
+                      
+                      coords = gps.coordinates.map((c: number[]) => {
+                        if (!Array.isArray(c) || c.length < 2) return null;
+                        // Convert [lng, lat] to [lat, lng] if needed
+                        return isLngLatFormat ? [c[1], c[0]] : c;
+                      }).filter((c: any) => c !== null);
+                      
+                      console.log(`Trip ${index} extracted ${coords.length} coordinates from GPS`);
+                    }
+                  }
+                }
+              }
+              
+              // Ensure coordinates is an array
+              if (!Array.isArray(coords)) {
+                coords = [];
+              }
+              
+              console.log(`Trip ${index} final coordinates:`, coords.length > 0 ? `${coords.length} points, first: [${coords[0][0]}, ${coords[0][1]}]` : 'none');
+              
+              return {
+                ...trip,
+                coordinates: coords,
+                coordinate_count: coords.length,
+              };
+            });
+            
+            console.log("Processed trips:", processedTrips);
+            setIndividualTrips(processedTrips);
+            setCurrentTripIndex(0);
+          } else {
+            // Fallback: if no individual trips, create one from aggregated coordinates
+            if (matchDetail.coordinates && matchDetail.coordinates.length > 0) {
+              setIndividualTrips([{
+                coordinates: matchDetail.coordinates,
+                polyline: matchDetail.polyline,
+                startTime: matchDetail.bouncie_earliest_start,
+                endTime: matchDetail.bouncie_latest_end,
+                distance: matchDetail.aggregated_distance_km,
+                coordinate_count: matchDetail.coordinate_count || matchDetail.coordinates.length,
+              }]);
+              setCurrentTripIndex(0);
+            } else {
+              setIndividualTrips([]);
+            }
+          }
+        } else {
+          setTripMatch(null);
+          setIndividualTrips([]);
+        }
+      } catch (err) {
+        console.error("Error fetching trip match:", err);
+        setTripMatch(null);
+      } finally {
+        setIsLoadingMatch(false);
+      }
+    };
+
+    fetchTripMatch();
+  }, [selectedTrip]);
+
+  // Initialize map when trip match is loaded
+  useEffect(() => {
+    if (!selectedTrip || !mapContainer.current || individualTrips.length === 0) {
+      return;
+    }
+
+    const currentTrip = individualTrips[currentTripIndex];
+    
+    // Validate trip has coordinates
+    if (!currentTrip || !currentTrip.coordinates || !Array.isArray(currentTrip.coordinates) || currentTrip.coordinates.length === 0) {
+      console.warn("No coordinates available for current trip, skipping map update", {
+        hasTrip: !!currentTrip,
+        hasCoordinates: !!currentTrip?.coordinates,
+        coordinatesLength: currentTrip?.coordinates?.length
+      });
+      return;
+    }
+
+    const token = "pk.eyJ1IjoiaWJ0ZXNhbW5hZWVtIiwiYSI6ImNtaHY3amJ6aDA3dmUyaXExbG42OTdlbW0ifQ.mCJtklraw0s8tPOaXqkDYg";
+    mapboxgl.accessToken = token;
+
+    // Clean up existing map layers and markers
+    const cleanup = () => {
+      if (map.current) {
+        markersRef.current.forEach(marker => marker.remove());
+        markersRef.current = [];
+        layersRef.current.forEach(layerId => {
+          if (map.current?.getLayer(layerId)) {
+            map.current.removeLayer(layerId);
+          }
+          if (map.current?.getSource(layerId)) {
+            map.current.removeSource(layerId);
+          }
+        });
+        layersRef.current = [];
+      }
+    };
+
+    // Initialize map if it doesn't exist
+    const initializeMap = () => {
+      if (!mapContainer.current) {
+        console.warn("Map container not available");
+        return;
+      }
+
+      if (map.current) {
+        // Map exists, just update it
+        updateMap();
+        return;
+      }
+
+      // Create new map
+      const firstCoord = currentTrip.coordinates[0];
+      const center: [number, number] = Array.isArray(firstCoord) && firstCoord.length >= 2
+        ? [firstCoord[1], firstCoord[0]] // Mapbox expects [lng, lat]
+        : [-98.5, 39.8]; // Default center
+
+      try {
+        map.current = new mapboxgl.Map({
+          container: mapContainer.current,
+          style: "mapbox://styles/mapbox/light-v11",
+          center: center,
+          zoom: 10,
+          // Add error handling for rate limiting
+          maxZoom: 18,
+          minZoom: 1,
+        });
+
+        map.current.addControl(new mapboxgl.NavigationControl(), "top-right");
+
+        // Handle map errors (including rate limiting)
+        map.current.on("error", (e: any) => {
+          console.error("Map error:", e);
+          const errorMessage = e.error?.message || e.message || "Unknown map error";
+          if (errorMessage.includes("rate limit") || errorMessage.includes("quota") || errorMessage.includes("429")) {
+            setMapError("Mapbox rate limit exceeded. The map may not load properly. Please check your Mapbox account or try again later.");
+            console.error("Mapbox rate limit exceeded. Please check your Mapbox account.");
+          } else {
+            setMapError(`Map error: ${errorMessage}`);
+          }
+        });
+
+        // Wait for map to load before adding sources
+        map.current.once("load", () => {
+          console.log("Map loaded successfully, updating with trip data");
+          setMapError(null); // Clear any previous errors
+          // Small delay to ensure style is fully loaded
+          setTimeout(() => {
+            updateMap();
+          }, 100);
+        });
+
+        // Also listen for style data load
+        map.current.once("styledata", () => {
+          console.log("Map style loaded");
+        });
+      } catch (error) {
+        console.error("Error initializing map:", error);
+      }
+    };
+
+    // Update map with current trip data
+    const updateMap = () => {
+      if (!map.current || !currentTrip) {
+        console.warn("Cannot update map - map or trip not available");
+        return;
+      }
+
+      cleanup();
+
+      // Get coordinates - prefer coordinates array, fallback to polyline if needed
+      let validCoords: number[][] = [];
+      
+      if (currentTrip.coordinates && Array.isArray(currentTrip.coordinates) && currentTrip.coordinates.length > 0) {
+        // Use coordinates array directly
+        validCoords = currentTrip.coordinates
+          .map((coord: number[]) => {
+            if (!Array.isArray(coord) || coord.length < 2) {
+              return null;
+            }
+            // Backend stores as [lat, lng], convert to [lng, lat] for Mapbox
+            return [coord[1], coord[0]];
+          })
+          .filter((coord: any) => coord !== null && coord[0] !== null && coord[1] !== null);
+      } else if (currentTrip.polyline && typeof currentTrip.polyline === 'string') {
+        // Try to decode polyline if coordinates aren't available
+        // Note: Would need @mapbox/polyline package for this
+        console.warn("Polyline string available but decoding not implemented. Using coordinates instead.");
+      }
+
+      if (validCoords.length === 0) {
+        console.warn("No valid coordinates available for route", {
+          hasCoordinates: !!currentTrip.coordinates,
+          coordinatesLength: currentTrip.coordinates?.length,
+          hasPolyline: !!currentTrip.polyline
+        });
+        return;
+      }
+
+      console.log(`Drawing route with ${validCoords.length} GPS points`);
+      console.log("First few coordinates:", validCoords.slice(0, 3));
+      console.log("Last few coordinates:", validCoords.slice(-3));
+
+      const routeId = `route-${currentTripIndex}`;
+
+      try {
+        // Ensure map is loaded and style is loaded
+        if (!map.current.loaded() || !map.current.isStyleLoaded()) {
+          console.warn("Map not ready yet, waiting...", {
+            loaded: map.current.loaded(),
+            styleLoaded: map.current.isStyleLoaded()
+          });
+          const onLoad = () => {
+            console.log("Map ready, retrying route update");
+            updateMap();
+          };
+          if (!map.current.loaded()) {
+            map.current.once("load", onLoad);
+          } else {
+            map.current.once("styledata", onLoad);
+          }
+          return;
+        }
+
+        // Remove existing layers and sources
+        if (map.current.getLayer(routeId)) {
+          map.current.removeLayer(routeId);
+        }
+        if (map.current.getLayer(`${routeId}-outline`)) {
+          map.current.removeLayer(`${routeId}-outline`);
+        }
+        if (map.current.getSource(routeId)) {
+          map.current.removeSource(routeId);
+        }
+
+        // Create GeoJSON feature
+        const routeFeature = {
+          type: "Feature" as const,
+          properties: {},
+          geometry: {
+            type: "LineString" as const,
+            coordinates: validCoords,
+          },
+        };
+
+        console.log("Adding route source with feature:", {
+          type: routeFeature.type,
+          coordinatesCount: routeFeature.geometry.coordinates.length,
+          firstCoord: routeFeature.geometry.coordinates[0],
+          lastCoord: routeFeature.geometry.coordinates[routeFeature.geometry.coordinates.length - 1]
+        });
+
+        // Add route source with error handling
+        try {
+          map.current.addSource(routeId, {
+            type: "geojson",
+            data: routeFeature,
+          });
+          console.log("Route source added successfully");
+        } catch (sourceError: any) {
+          console.error("Error adding route source:", sourceError);
+          // If source already exists, try to update it
+          if (sourceError.message?.includes("already exists")) {
+            const source = map.current.getSource(routeId) as mapboxgl.GeoJSONSource;
+            if (source) {
+              source.setData(routeFeature);
+              console.log("Updated existing route source");
+            }
+          } else {
+            throw sourceError;
+          }
+        }
+
+        // Add outline layer first (will appear behind main route)
+        map.current.addLayer({
+          id: `${routeId}-outline`,
+          type: "line",
+          source: routeId,
+          layout: {
+            "line-join": "round",
+            "line-cap": "round",
+          },
+          paint: {
+            "line-color": "#ffffff",
+            "line-width": 6,
+            "line-opacity": 0.4,
+          },
+        });
+        
+        layersRef.current.push(`${routeId}-outline`);
+        
+        // Add main route layer (will appear on top of outline)
+        map.current.addLayer({
+          id: routeId,
+          type: "line",
+          source: routeId,
+          layout: {
+            "line-join": "round",
+            "line-cap": "round",
+          },
+          paint: {
+            "line-color": "#3b82f6", // Use explicit blue color instead of CSS variable
+            "line-width": 4,
+            "line-opacity": 1.0,
+          },
+        });
+        
+        layersRef.current.push(routeId);
+
+        console.log("Route layers added successfully");
+
+        // Add start marker
+        const startCoord = currentTrip.coordinates[0];
+        if (Array.isArray(startCoord) && startCoord.length >= 2) {
+          const startMarker = new mapboxgl.Marker({ color: "#10b981" })
+            .setLngLat([startCoord[1], startCoord[0]])
+            .setPopup(new mapboxgl.Popup().setHTML("<div style='padding: 8px;'><strong>Start</strong></div>"))
+            .addTo(map.current);
+          markersRef.current.push(startMarker);
+        }
+
+        // Add end marker
+        const endCoord = currentTrip.coordinates[currentTrip.coordinates.length - 1];
+        if (Array.isArray(endCoord) && endCoord.length >= 2) {
+          const endMarker = new mapboxgl.Marker({ color: "#ef4444" })
+            .setLngLat([endCoord[1], endCoord[0]])
+            .setPopup(new mapboxgl.Popup().setHTML("<div style='padding: 8px;'><strong>End</strong></div>"))
+            .addTo(map.current);
+          markersRef.current.push(endMarker);
+        }
+
+        // Fit bounds to show entire route
+        const bounds = new mapboxgl.LngLatBounds();
+        currentTrip.coordinates.forEach((coord: number[]) => {
+          if (Array.isArray(coord) && coord.length >= 2) {
+            bounds.extend([coord[1], coord[0]]);
+          }
+        });
+        
+        if (bounds.isEmpty()) {
+          console.warn("Bounds are empty, cannot fit bounds");
+        } else {
+          map.current.fitBounds(bounds, { padding: 80, duration: 500 });
+        }
+      } catch (error) {
+        console.error("Error updating map:", error);
+      }
+    };
+
+    // Use a small delay to ensure DOM is ready, with retry logic
+    let retryCount = 0;
+    const maxRetries = 3;
+    
+    const tryInitialize = () => {
+      if (!mapContainer.current) {
+        if (retryCount < maxRetries) {
+          retryCount++;
+          setTimeout(tryInitialize, 100);
+          return;
+        }
+        console.warn("Map container not available after retries");
+        return;
+      }
+      initializeMap();
+    };
+
+    const timeoutId = setTimeout(tryInitialize, 100);
+
+    return () => {
+      clearTimeout(timeoutId);
+      cleanup();
+    };
+  }, [selectedTrip, individualTrips, currentTripIndex]);
 
   const getStatusBadge = (status: string) => {
     const statusUpper = status.toUpperCase();
@@ -441,7 +956,7 @@ const TripHistory = () => {
 
         {/* Trip Detail Modal */}
         <Dialog open={!!selectedTrip} onOpenChange={handleCloseModal}>
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Car className="h-5 w-5 text-primary" />
@@ -603,6 +1118,201 @@ const TripHistory = () => {
                     </CardContent>
                   </Card>
                 )}
+
+                {/* Bouncie Trip Match Section */}
+                <Card className="rounded-xl">
+                  <CardContent className="p-4 space-y-4">
+                    <h4 className="font-semibold flex items-center gap-2">
+                      <Route className="h-4 w-4 text-primary" />
+                      Bouncie Trip Tracking
+                    </h4>
+                    
+                    {isLoadingMatch ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                        <span className="ml-2 text-muted-foreground">Loading trip data...</span>
+                      </div>
+                    ) : tripMatch ? (
+                      <div className="space-y-4">
+                        {/* Match Statistics */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div className="space-y-1">
+                            <p className="text-xs text-muted-foreground">Bouncie Trips</p>
+                            <p className="text-lg font-bold">{tripMatch.bouncie_trip_count}</p>
+                          </div>
+                          {tripMatch.aggregated_distance_km != null && (
+                            <div className="space-y-1">
+                              <p className="text-xs text-muted-foreground">Total Distance</p>
+                              <p className="text-lg font-bold">
+                                {formatDistance(tripMatch.aggregated_distance_km, distanceUnit)}
+                              </p>
+                            </div>
+                          )}
+                          {tripMatch.total_duration_hours != null && (
+                            <div className="space-y-1">
+                              <p className="text-xs text-muted-foreground">Duration</p>
+                              <p className="text-lg font-bold">
+                                {tripMatch.total_duration_hours.toFixed(1)} hrs
+                              </p>
+                            </div>
+                          )}
+                          {tripMatch.coordinate_count != null && (
+                            <div className="space-y-1">
+                              <p className="text-xs text-muted-foreground">GPS Points</p>
+                              <p className="text-lg font-bold">{tripMatch.coordinate_count.toLocaleString()}</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Map with Trip Navigation */}
+                        {individualTrips.length > 0 ? (
+                          <div className="space-y-3">
+                            {/* Trip Navigation Controls */}
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm font-medium">
+                                  Trip {currentTripIndex + 1} of {individualTrips.length}
+                                </p>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  Swipe left/right or use arrows to navigate
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={handlePreviousTrip}
+                                  disabled={currentTripIndex === 0}
+                                  className="h-8 w-8 p-0"
+                                  title="Previous trip"
+                                >
+                                  <ChevronLeft className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={handleNextTrip}
+                                  disabled={currentTripIndex === individualTrips.length - 1}
+                                  className="h-8 w-8 p-0"
+                                  title="Next trip"
+                                >
+                                  <ChevronRight className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+
+                            {/* Current Trip Info */}
+                            {individualTrips[currentTripIndex] && (
+                              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                                {individualTrips[currentTripIndex].startTime && (
+                                  <div>
+                                    <span className="font-medium">Start:</span>{" "}
+                                    {(() => {
+                                      try {
+                                        return format(parseISO(individualTrips[currentTripIndex].startTime), "MMM d, h:mm a");
+                                      } catch {
+                                        return individualTrips[currentTripIndex].startTime;
+                                      }
+                                    })()}
+                                  </div>
+                                )}
+                                {individualTrips[currentTripIndex].endTime && (
+                                  <div>
+                                    <span className="font-medium">End:</span>{" "}
+                                    {(() => {
+                                      try {
+                                        return format(parseISO(individualTrips[currentTripIndex].endTime), "MMM d, h:mm a");
+                                      } catch {
+                                        return individualTrips[currentTripIndex].endTime;
+                                      }
+                                    })()}
+                                  </div>
+                                )}
+                                {individualTrips[currentTripIndex].distance != null && (
+                                  <div>
+                                    <span className="font-medium">Distance:</span>{" "}
+                                    {formatDistance(individualTrips[currentTripIndex].distance, distanceUnit)}
+                                  </div>
+                                )}
+                                {individualTrips[currentTripIndex].coordinate_count != null && (
+                                  <div>
+                                    <span className="font-medium">Points:</span>{" "}
+                                    {individualTrips[currentTripIndex].coordinate_count.toLocaleString()}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Map with Swipe Support */}
+                            <div 
+                              className="w-full h-[400px] rounded-lg border border-border overflow-hidden relative bg-muted/10"
+                              onTouchStart={handleTouchStart}
+                              onTouchMove={handleTouchMove}
+                              onTouchEnd={handleTouchEnd}
+                            >
+                              {mapError ? (
+                                <div className="w-full h-full flex items-center justify-center text-destructive bg-destructive/10">
+                                  <div className="text-center p-4">
+                                    <AlertTriangle className="h-8 w-8 mx-auto mb-2" />
+                                    <p className="font-medium">{mapError}</p>
+                                    <p className="text-sm text-muted-foreground mt-2">
+                                      The route line may not be visible due to this error.
+                                    </p>
+                                  </div>
+                                </div>
+                              ) : individualTrips[currentTripIndex]?.coordinates && individualTrips[currentTripIndex].coordinates.length > 0 ? (
+                                <div 
+                                  ref={mapContainer} 
+                                  className="w-full h-full"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                                  <div className="text-center">
+                                    <Route className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                                    <p>No GPS data for this trip</p>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            
+                            {/* Overall Tracking Period */}
+                            {tripMatch.bouncie_earliest_start && tripMatch.bouncie_latest_end && (
+                              <div className="text-xs text-muted-foreground">
+                                <span className="font-medium">Overall tracked period:</span>{" "}
+                                {(() => {
+                                  try {
+                                    return `${format(parseISO(tripMatch.bouncie_earliest_start!), "MMM d, yyyy h:mm a")} - ${format(parseISO(tripMatch.bouncie_latest_end!), "MMM d, yyyy h:mm a")}`;
+                                  } catch {
+                                    return `${tripMatch.bouncie_earliest_start} - ${tripMatch.bouncie_latest_end}`;
+                                  }
+                                })()}
+                              </div>
+                            )}
+                          </div>
+                        ) : tripMatch?.has_coordinates && tripMatch.coordinates && tripMatch.coordinates.length > 0 ? (
+                          <div className="space-y-2">
+                            <p className="text-sm text-muted-foreground">Route Map</p>
+                            <div 
+                              ref={mapContainer} 
+                              className="w-full h-[400px] rounded-lg border border-border overflow-hidden"
+                            />
+                          </div>
+                        ) : (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <Route className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                            <p>No GPS coordinates available for this trip</p>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Route className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p>No Bouncie trip data found for this trip</p>
+                        <p className="text-xs mt-1">Make sure the vehicle is mapped to a Bouncie device</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               </div>
             )}
           </DialogContent>
