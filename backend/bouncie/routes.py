@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, Query, Depends, Path, Request
 from typing import Optional, Dict, Any, List
 import logging
 import json
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 from .service import BouncieService
@@ -10,7 +11,6 @@ from .data_fetcher import fetch_trips_in_date_range
 from .matching import match_trip, match_all_trips
 from .utils import trip_to_dict
 from .helpers import format_date_for_api
-from .data.login import complete_bouncie_login
 from .schemas import (
     APIResponse,
     MatchRequest,
@@ -20,13 +20,11 @@ from .schemas import (
     BouncieTripMatchDetailOut,
     BouncieVehicleMappingOut,
     BouncieDTCCodeOut,
-    BouncieLoginRequest,
 )
 from core.database import get_db
 from core.database.models import Trip, BouncieTripMatch, BouncieVehicleMapping, Account, Vehicle, BouncieDTCCode, BouncieWebhookLog
 from core.security.auth import get_current_active_user
 from core.utils.route_helpers import get_bouncie_integration, handle_route_errors
-from core.config.settings import settings
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -111,6 +109,7 @@ router = APIRouter()
 # ------------------------------ AUTHENTICATION ROUTES ------------------------------
 
 @router.get("/auth/url", response_model=APIResponse, tags=["Authentication"])
+@handle_route_errors("getting authorization URL")
 async def get_authorization_url(
     popup: bool = Query(False, description="Whether this is for a popup window (adds popup param to callback)"),
     service: BouncieService = Depends(get_bouncie_service)
@@ -126,73 +125,6 @@ async def get_authorization_url(
     if popup:
         url += f"&popup=true"
     return APIResponse(success=True, data={"authorization_url": url})
-
-@router.post("/auth/automated-login", response_model=APIResponse, tags=["Authentication"])
-@handle_route_errors("automated Bouncie login")
-async def automated_bouncie_login(
-    request: BouncieLoginRequest,
-    current_user: Account = Depends(get_current_active_user),
-    db: Session = Depends(get_db),
-    service: BouncieService = Depends(get_bouncie_service)
-):
-    """
-    Automate Bouncie login using Playwright.
-    Logs in with credentials, authorizes the application, and returns the authorization code.
-    The authorization code can then be exchanged for tokens.
-    """
-    logger.info(f"Starting automated Bouncie login for account {current_user.id}")
-    
-    # Get authorization URL
-    state = str(current_user.user_id)
-    authorization_url = service.get_authorization_url(state)
-    
-    # Perform automated login
-    result = await complete_bouncie_login(
-        email=request.email,
-        password=request.password,
-        authorization_url=authorization_url,
-        headless=settings.scraping.headless
-    )
-    
-    if not result or not result.get("success"):
-        error_msg = result.get("error", "Login failed") if result else "Login failed"
-        logger.error(f"Automated login failed: {error_msg}")
-        raise HTTPException(
-            status_code=400,
-            detail=f"Automated login failed: {error_msg}"
-        )
-    
-    authorization_code = result.get("authorization_code")
-    if not authorization_code:
-        raise HTTPException(
-            status_code=400,
-            detail="Login successful but no authorization code received"
-        )
-    
-    # Exchange code for tokens
-    token_result = await service.exchange_code_for_token(authorization_code)
-    
-    if not token_result.get("success"):
-        logger.error(f"Token exchange failed: {token_result.get('error')}")
-        raise HTTPException(
-            status_code=400,
-            detail=f"Login successful but token exchange failed: {token_result.get('error')}"
-        )
-    
-    logger.info(f"✅ Automated Bouncie login and token exchange successful for account {current_user.id}")
-    
-    # Trigger automatic processing
-    from .auto_match import handle_bouncie_auto_processing
-    await handle_bouncie_auto_processing(db, current_user.id)
-    
-    return APIResponse(
-        success=True,
-        data={
-            "message": "Bouncie login and authorization successful",
-            "authorization_code": authorization_code,
-            "tokens_saved": True
-        }
-    )
 
 @router.get("/auth/status", response_model=APIResponse, tags=["Authentication"])
 @handle_route_errors("checking integration status")
@@ -329,11 +261,11 @@ async def get_access_token(
     Get access token for frontend to use directly with Bouncie API.
     Returns temporary access token that frontend can use to call Bouncie API directly.
     """
-    logger.info(f"🔑 Token request from user {current_user.id} (email: {current_user.email})")
+    logger.debug(f"Token request from user {current_user.id}")
     integration = get_bouncie_integration(db, current_user.id)
     
     if not integration:
-        logger.warning(f"❌ No Bouncie integration found for user {current_user.id}")
+        logger.warning(f"No Bouncie integration found for user {current_user.id}")
         raise HTTPException(
             status_code=404,
             detail="Bouncie not connected for this account"
@@ -342,20 +274,19 @@ async def get_access_token(
     service = BouncieService(db=db, account=current_user)
     
     if integration.expires_at and integration.expires_at < datetime.now(timezone.utc):
-        logger.info(f"⏰ Token expired for account {current_user.id}, refreshing...")
-        refresh_success = await service._refresh_access_token()
+        logger.info(f"Token expired for account {current_user.id}, refreshing")
+        refresh_success = await asyncio.to_thread(service._refresh_access_token)
         if not refresh_success:
-            logger.error(f"❌ Token refresh failed for account {current_user.id}")
+            logger.error(f"Token refresh failed for account {current_user.id}")
             raise HTTPException(
                 status_code=401,
                 detail="Token expired and refresh failed. Please reconnect Bouncie."
             )
-        logger.info(f"✅ Token refreshed successfully for account {current_user.id}")
     
     service._load_tokens()
     
     if not service.access_token:
-        logger.error(f"❌ No access token available for account {current_user.id}")
+        logger.error(f"No access token available for account {current_user.id}")
         raise HTTPException(
             status_code=401,
             detail="No access token available. Please reconnect Bouncie."
@@ -366,7 +297,7 @@ async def get_access_token(
         expires_in = int((integration.expires_at - datetime.now(timezone.utc)).total_seconds())
         expires_in = max(0, expires_in)
     
-    logger.info(f"✅ Token provided to user {current_user.id}, expires in {expires_in}s")
+    logger.debug(f"Token provided to user {current_user.id}, expires in {expires_in}s")
     return APIResponse(
         success=True,
         data={
@@ -1151,12 +1082,14 @@ async def get_odometer_at_time(
 # ------------------------------ WEBHOOK ROUTES ------------------------------
 
 @router.get("/webhooks/events", response_model=APIResponse, tags=["Webhooks"])
+@handle_route_errors("getting webhook events")
 async def get_webhook_events(service: BouncieService = Depends(get_bouncie_service)):
     """Get available webhook events."""
     events = service.get_webhook_events()
     return APIResponse(success=True, data={"events": events})
 
 @router.get("/webhooks/url", response_model=APIResponse, tags=["Webhooks"])
+@handle_route_errors("getting webhook URL")
 async def get_webhook_url(
     current_user: Account = Depends(get_current_active_user)
 ):
@@ -1468,7 +1401,7 @@ async def _handle_mil_event(
     db.commit()
     db.refresh(dtc_record)
     
-    logger.info(f"✅ Stored new DTC code: {dtc_code} ({description}) for IMEI {imei}, vehicle {vehicle_id}")
+    logger.info(f"Stored new DTC code: {dtc_code} ({description}) for IMEI {imei}, vehicle {vehicle_id}")
     
     return dtc_record
 
@@ -1504,9 +1437,9 @@ async def _handle_trip_ended(
         )
         
         if result.get("success"):
-            logger.info(f"✅ Automatic trip matching triggered after trip_ended event")
+            logger.info(f"Automatic trip matching triggered after trip_ended event")
         else:
-            logger.warning(f"⚠️ Trip matching failed after trip_ended: {result.get('error')}")
+            logger.warning(f"Trip matching failed after trip_ended: {result.get('error')}")
     except Exception as e:
         logger.exception(f"Error triggering trip matching after trip_ended: {e}")
 
@@ -1528,7 +1461,7 @@ async def _handle_device_connected(
     
     # You could store this in a device status table if needed
     # For now, just log it
-    logger.info(f"✅ Device connected at {connected_at}")
+    logger.info(f"Device connected at {connected_at}")
     
     # Could update vehicle mapping status or create device status record here
 
@@ -1550,7 +1483,7 @@ async def _handle_device_disconnected(
     
     # You could store this in a device status table if needed
     # For now, just log it
-    logger.info(f"⚠️ Device disconnected at {disconnected_at}")
+    logger.info(f"Device disconnected at {disconnected_at}")
     
     # Could update vehicle mapping status or create device status record here
 
@@ -1596,7 +1529,7 @@ async def _handle_vin_change(
     db.commit()
     db.refresh(mapping)
     
-    logger.info(f"✅ Updated VIN for IMEI {imei}: {old_vin} → {new_vin}")
+    logger.info(f"Updated VIN for IMEI {imei}: {old_vin} -> {new_vin}")
 
 # ------------------------------ DTC CODE ROUTES ------------------------------
 

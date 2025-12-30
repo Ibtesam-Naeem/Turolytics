@@ -9,6 +9,7 @@ import os
 from typing import Optional
 
 from core.database import init_db, get_db
+from core.database.db_service import DatabaseService
 from core.security.routes import router as auth_router
 from turo.routes import router as turo_router
 from bouncie.routes import router as bouncie_router
@@ -98,26 +99,33 @@ async def bouncie_oauth_callback(
         return RedirectResponse(url=_build_redirect_url(error="no_code", is_popup=is_popup))
     
     try:
-        account_id = int(state) if state else None
+        user_id = int(state) if state else None
     except (ValueError, TypeError):
         logger.warning(f"Invalid state parameter: {state}")
-        account_id = None
+        user_id = None
     
-    if not account_id:
-        logger.error("Bouncie callback received without valid account_id in state")
+    if not user_id:
+        logger.error("Bouncie callback received without valid user_id in state")
         return RedirectResponse(url=_build_redirect_url(error="no_account", is_popup=is_popup))
     
+    # Get account by user_id (state contains user_id, not account.id)
+    account = DatabaseService.get_account(db, user_id=user_id)
+    if not account:
+        logger.error(f"Account not found for user_id {user_id}")
+        return RedirectResponse(url=_build_redirect_url(error="account_not_found", is_popup=is_popup))
+    
     try:
-        service = BouncieService(db=db, account_id=account_id)
+        # Use account.id (not user_id) for BouncieService
+        service = BouncieService(db=db, account_id=account.id)
         result = await service.exchange_code_for_token(code)
         
         if result.get("success"):
-            logger.info(f"Successfully saved Bouncie tokens for account {account_id}")
-            await handle_bouncie_auto_processing(db, account_id)
+            logger.info(f"Successfully saved Bouncie tokens for account {account.id} (user_id: {account.user_id})")
+            await handle_bouncie_auto_processing(db, account.id)
             return RedirectResponse(url=_build_redirect_url(success=True, is_popup=is_popup))
         
         error_msg = result.get("error", "unknown_error")
-        logger.error(f"Failed to exchange Bouncie token for account {account_id}: {error_msg}")
+        logger.error(f"Failed to exchange Bouncie token for account {account.id}: {error_msg}")
         return RedirectResponse(url=_build_redirect_url(error=error_msg, is_popup=is_popup))
     
     except Exception as e:

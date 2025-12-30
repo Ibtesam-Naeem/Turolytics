@@ -3,10 +3,17 @@ from typing import Optional, List, Tuple, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, case, func
 from datetime import datetime, timezone, timedelta
+from calendar import monthrange
 import re
 
 from core.database.models import Trip, Vehicle, Review, EarningsBreakdown, VehicleEarnings, Account
 from . import parsing
+
+# ------------------------------ HELPER FUNCTIONS ------------------------------
+
+# Month names constant
+MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+               'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 # ------------------------------ SERVICE ------------------------------
 
@@ -19,6 +26,58 @@ class TuroDataService:
     def _build_base_query(self, model_class, account: Account):
         """Build base query filtered by account."""
         return self.db.query(model_class).filter(model_class.account_id == account.id)
+    
+    def _get_vehicle_name(self, trip: Trip) -> str:
+        """Get vehicle name for a trip, with caching to avoid N+1 queries."""
+        if not trip.vehicle_id:
+            return "Unknown Vehicle"
+        vehicle = self.db.query(Vehicle).filter(Vehicle.id == trip.vehicle_id).first()
+        return vehicle.name if vehicle else "Unknown Vehicle"
+    
+    def _is_completed_or_cancelled(self, trip: Trip) -> bool:
+        """Check if trip is completed or cancelled."""
+        if not trip.status:
+            return False
+        status_upper = trip.status.upper()
+        return any(s in status_upper for s in ['COMPLETED', 'CANCELLED', 'CANCELED'])
+    
+    def _parse_date_with_timezone(self, date_str: Optional[str], year: Optional[int] = None, scraped_at: Optional[datetime] = None) -> Optional[datetime]:
+        """Parse date string and ensure timezone awareness."""
+        if not date_str:
+            return None
+        
+        parsed_date = parsing._parse_turo_date(date_str, year)
+        if not parsed_date:
+            return None
+        
+        # Use scraped_at year if available for better accuracy
+        if scraped_at and not year:
+            try:
+                scraped_year = scraped_at.year
+                parsed_date = parsing._parse_turo_date(date_str, scraped_year)
+            except:
+                pass
+        
+        if parsed_date and parsed_date.tzinfo is None:
+            parsed_date = parsed_date.replace(tzinfo=timezone.utc)
+        
+        return parsed_date
+    
+    def _get_vehicle_year(self, vehicle: Vehicle) -> int:
+        """Extract vehicle year from vehicle object."""
+        if vehicle.year:
+            try:
+                return int(vehicle.year)
+            except (ValueError, TypeError):
+                pass
+        
+        # Try to parse year from name (e.g., "2024 Tesla Model 3")
+        if vehicle.name:
+            year_match = re.search(r'\b(19|20)\d{2}\b', vehicle.name)
+            if year_match:
+                return int(year_match.group())
+        
+        return datetime.now().year
     
     def get_trips(
         self,
@@ -128,18 +187,10 @@ class TuroDataService:
     
     def _is_date_today(self, date_str: Optional[str]) -> bool:
         """Check if a date string represents today."""
-        if not date_str:
-            return False
-        
-        parsed_date = parsing._parse_turo_date(date_str)
+        parsed_date = self._parse_date_with_timezone(date_str)
         if not parsed_date:
             return False
-        
-        today = datetime.now(timezone.utc).date()
-        # Make parsed_date timezone-aware if needed
-        if parsed_date.tzinfo is None:
-            parsed_date = parsed_date.replace(tzinfo=timezone.utc)
-        return parsed_date.date() == today
+        return parsed_date.date() == datetime.now(timezone.utc).date()
     
     def _calculate_vehicle_utilization(
         self,
@@ -201,35 +252,8 @@ class TuroDataService:
         period_end_date = period_end.date()
         
         for trip in trips:
-            # Parse start and end dates
-            start_date_obj = None
-            end_date_obj = None
-            
-            if trip.start_date:
-                start_date_obj = parsing._parse_turo_date(trip.start_date)
-                if start_date_obj:
-                    # Use scraped_at year if available for better accuracy
-                    if trip.scraped_at:
-                        try:
-                            scraped_year = trip.scraped_at.year
-                            start_date_obj = parsing._parse_turo_date(trip.start_date, scraped_year)
-                        except:
-                            pass
-                    if start_date_obj and start_date_obj.tzinfo is None:
-                        start_date_obj = start_date_obj.replace(tzinfo=timezone.utc)
-            
-            if trip.end_date:
-                end_date_obj = parsing._parse_turo_date(trip.end_date)
-                if end_date_obj:
-                    # Use scraped_at year if available
-                    if trip.scraped_at:
-                        try:
-                            scraped_year = trip.scraped_at.year
-                            end_date_obj = parsing._parse_turo_date(trip.end_date, scraped_year)
-                        except:
-                            pass
-                    if end_date_obj and end_date_obj.tzinfo is None:
-                        end_date_obj = end_date_obj.replace(tzinfo=timezone.utc)
+            start_date_obj = self._parse_date_with_timezone(trip.start_date, scraped_at=trip.scraped_at)
+            end_date_obj = self._parse_date_with_timezone(trip.end_date, scraped_at=trip.scraped_at)
             
             # If we have both dates, add all days in range
             if start_date_obj and end_date_obj:
@@ -277,8 +301,6 @@ class TuroDataService:
         Returns:
             List of month data with utilization and vehicle breakdown
         """
-        from calendar import monthrange
-        
         if year is None:
             year = datetime.now(timezone.utc).year
         
@@ -298,11 +320,9 @@ class TuroDataService:
         
         # Group trips by month
         monthly_data = {}
-        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
-                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
         
         for month in range(1, 13):
-            month_key = month_names[month - 1]
+            month_key = MONTH_NAMES[month - 1]
             month_start = datetime(year, month, 1, tzinfo=timezone.utc)
             _, last_day = monthrange(year, month)
             month_end = datetime(year, month, last_day, 23, 59, 59, tzinfo=timezone.utc)
@@ -322,18 +342,8 @@ class TuroDataService:
                 # Build set of booked dates for this vehicle in this month
                 booked_dates = set()
                 for trip in vehicle_trips:
-                    start_date_obj = None
-                    end_date_obj = None
-                    
-                    if trip.start_date:
-                        start_date_obj = parsing._parse_turo_date(trip.start_date, year)
-                        if start_date_obj and start_date_obj.tzinfo is None:
-                            start_date_obj = start_date_obj.replace(tzinfo=timezone.utc)
-                    
-                    if trip.end_date:
-                        end_date_obj = parsing._parse_turo_date(trip.end_date, year)
-                        if end_date_obj and end_date_obj.tzinfo is None:
-                            end_date_obj = end_date_obj.replace(tzinfo=timezone.utc)
+                    start_date_obj = self._parse_date_with_timezone(trip.start_date, year=year)
+                    end_date_obj = self._parse_date_with_timezone(trip.end_date, year=year)
                     
                     if start_date_obj and end_date_obj:
                         start_date = start_date_obj.date()
@@ -392,11 +402,7 @@ class TuroDataService:
             }
         
         # Return as list ordered by month, including all 12 months
-        result = []
-        for month in month_names:
-            result.append(monthly_data[month])
-        
-        return result
+        return [monthly_data[month] for month in MONTH_NAMES]
     
     def get_trips_today(
         self,
@@ -409,35 +415,19 @@ class TuroDataService:
         """
         today = datetime.now(timezone.utc).date()
         
-        # Get all trips for the account
+        # Get trips for the account, excluding completed/cancelled
         trips = self.db.query(Trip).filter(
-            Trip.account_id == account.id
+            Trip.account_id == account.id,
+            ~Trip.status.in_(['COMPLETED', 'CANCELLED', 'CANCELED'])
         ).all()
         
         trips_today = []
         for trip in trips:
-            # Skip completed or cancelled trips
-            status_upper = (trip.status or '').upper()
-            if any(s in status_upper for s in ['COMPLETED', 'CANCELLED', 'CANCELED']):
-                continue
-            
-            # Check if trip is scheduled for today (start_date is today)
-            is_scheduled_today = False
             if trip.start_date and self._is_date_today(trip.start_date):
-                is_scheduled_today = True
-            
-            if is_scheduled_today:
-                # Get vehicle name
-                vehicle_name = "Unknown Vehicle"
-                if trip.vehicle_id:
-                    vehicle = self.db.query(Vehicle).filter(Vehicle.id == trip.vehicle_id).first()
-                    if vehicle:
-                        vehicle_name = vehicle.name
-                
                 trips_today.append({
                     'id': trip.id,
                     'trip_id': trip.trip_id,
-                    'vehicle_name': vehicle_name,
+                    'vehicle_name': self._get_vehicle_name(trip),
                     'guest_name': trip.customer_name or 'Unknown Guest',
                     'location': trip.address or trip.location_type or 'Unknown Location',
                     'status': trip.status or 'Active',
@@ -456,47 +446,34 @@ class TuroDataService:
         These are upcoming trips that were scraped today (new bookings discovered today).
         Since we only scrape new trips, trips scraped today = new bookings today.
         """
-        from datetime import datetime, timezone
         today = datetime.now(timezone.utc).date()
         
-        # Get upcoming trips that were scraped today
-        # Since we only scrape new trips, trips scraped today = new bookings today
+        # Get upcoming trips that were scraped today, excluding completed/cancelled
         trips = self.db.query(Trip).filter(
             Trip.account_id == account.id,
             func.date(Trip.scraped_at) == today,
-            Trip.trip_type == 'booked_trips'  # Only upcoming/booked trips
+            Trip.trip_type == 'booked_trips',
+            ~Trip.status.in_(['COMPLETED', 'CANCELLED', 'CANCELED'])
         ).all()
         
         new_bookings = []
         for trip in trips:
-            # Filter out completed/cancelled trips to be safe
-            status_upper = (trip.status or '').upper()
-            if any(s in status_upper for s in ['COMPLETED', 'CANCELLED', 'CANCELED']):
-                continue
-            # Get vehicle name
-            vehicle_name = "Unknown Vehicle"
-            if trip.vehicle_id:
-                vehicle = self.db.query(Vehicle).filter(Vehicle.id == trip.vehicle_id).first()
-                if vehicle:
-                    vehicle_name = vehicle.name
-            
             # Parse dates for display
-            dates_str = "TBD"
             if trip.start_date and trip.end_date:
                 dates_str = f"{trip.start_date} - {trip.end_date}"
             elif trip.start_date:
                 dates_str = trip.start_date
+            else:
+                dates_str = "TBD"
             
             # Get earnings if available
-            earnings_str = "$0"
-            if trip.total_earnings:
-                earnings_str = f"${trip.total_earnings:,.0f}"
+            earnings_str = f"${trip.total_earnings:,.0f}" if trip.total_earnings else "$0"
             
             new_bookings.append({
                 'id': trip.id,
                 'trip_id': trip.trip_id,
                 'guest_name': trip.customer_name or 'Unknown Guest',
-                'vehicle_name': vehicle_name,
+                'vehicle_name': self._get_vehicle_name(trip),
                 'dates': dates_str,
                 'amount': earnings_str,
                 'created_at': trip.scraped_at.isoformat() if trip.scraped_at else None,
@@ -512,26 +489,17 @@ class TuroDataService:
         Get checkouts happening today (trips ending today).
         These are trips where the end_date is today.
         """
-        # Get all trips for the account
         trips = self.db.query(Trip).filter(
             Trip.account_id == account.id
         ).all()
         
         checkouts_today = []
         for trip in trips:
-            # Check if end_date is today
             if trip.end_date and self._is_date_today(trip.end_date):
-                # Get vehicle name
-                vehicle_name = "Unknown Vehicle"
-                if trip.vehicle_id:
-                    vehicle = self.db.query(Vehicle).filter(Vehicle.id == trip.vehicle_id).first()
-                    if vehicle:
-                        vehicle_name = vehicle.name
-                
                 checkouts_today.append({
                     'id': trip.id,
                     'trip_id': trip.trip_id,
-                    'vehicle_name': vehicle_name,
+                    'vehicle_name': self._get_vehicle_name(trip),
                     'guest_name': trip.customer_name or 'Unknown Guest',
                     'time': trip.end_time or 'TBD',
                     'location': trip.address or trip.location_type or 'Unknown Location',
@@ -552,32 +520,20 @@ class TuroDataService:
         """
         today = datetime.now(timezone.utc).date()
         
-        # Get all trips for the account
         trips = self.db.query(Trip).filter(
-            Trip.account_id == account.id
+            Trip.account_id == account.id,
+            ~Trip.status.in_(['COMPLETED', 'CANCELLED', 'CANCELED'])
         ).all()
         
         upcoming_trips = []
         for trip in trips:
-            # Skip completed or cancelled trips
-            status_upper = (trip.status or '').upper()
-            if any(s in status_upper for s in ['COMPLETED', 'CANCELLED', 'CANCELED']):
-                continue
-            
-            # Check if start_date is in the future
             is_upcoming = False
             if trip.start_date:
-                parsed_start = parsing._parse_turo_date(trip.start_date)
-                if parsed_start:
-                    # Make timezone-aware if needed
-                    if parsed_start.tzinfo is None:
-                        parsed_start = parsed_start.replace(tzinfo=timezone.utc)
-                    # Check if start date is today or in the future
-                    if parsed_start.date() >= today:
-                        is_upcoming = True
-                else:
+                parsed_start = self._parse_date_with_timezone(trip.start_date, scraped_at=trip.scraped_at)
+                if parsed_start and parsed_start.date() >= today:
+                    is_upcoming = True
+                elif not parsed_start:
                     # If we can't parse the date, check trip_type
-                    # booked_trips are typically upcoming
                     trip_type = (trip.trip_type or '').lower()
                     if 'booked' in trip_type:
                         is_upcoming = True
@@ -588,37 +544,21 @@ class TuroDataService:
                     is_upcoming = True
             
             if is_upcoming:
-                # Get vehicle name
-                vehicle_name = "Unknown Vehicle"
-                if trip.vehicle_id:
-                    vehicle = self.db.query(Vehicle).filter(Vehicle.id == trip.vehicle_id).first()
-                    if vehicle:
-                        vehicle_name = vehicle.name
-                
-                # Format start date for display
                 start_date_display = trip.start_date or "TBD"
                 if trip.start_time:
                     start_date_display = f"{start_date_display}, {trip.start_time}"
                 
-                # Get locations
-                pickup_location = trip.address or trip.location_type or "Location TBD"
-                dropoff_location = trip.address or trip.location_type or "Location TBD"  # Turo may not always provide separate dropoff
-                
-                # Calculate earnings
-                earnings = trip.total_earnings or 0
-                
-                # Get kilometers allowed
-                kms_allowed = trip.kilometers_included or 0
+                location = trip.address or trip.location_type or "Location TBD"
                 
                 upcoming_trips.append({
                     'id': trip.id,
                     'trip_id': trip.trip_id,
-                    'vehicle_name': vehicle_name,
+                    'vehicle_name': self._get_vehicle_name(trip),
                     'guest_name': trip.customer_name or 'Unknown Guest',
-                    'pickup_location': pickup_location,
-                    'dropoff_location': dropoff_location,
-                    'earnings': earnings,
-                    'kms_allowed': kms_allowed,
+                    'pickup_location': location,
+                    'dropoff_location': location,
+                    'earnings': trip.total_earnings or 0,
+                    'kms_allowed': trip.kilometers_included or 0,
                     'start_date': start_date_display,
                     'start_date_raw': trip.start_date,
                     'start_time': trip.start_time,
@@ -629,7 +569,7 @@ class TuroDataService:
         
         # Sort by start date (earliest first)
         upcoming_trips.sort(key=lambda x: (
-            parsing._parse_turo_date(x.get('start_date_raw', '')) or datetime.max.replace(tzinfo=timezone.utc)
+            self._parse_date_with_timezone(x.get('start_date_raw', '')) or datetime.max.replace(tzinfo=timezone.utc)
         ))
         
         return upcoming_trips[:limit]
@@ -646,38 +586,26 @@ class TuroDataService:
         """
         today = datetime.now(timezone.utc).date()
         
-        # Get all trips for the account
         trips = self.db.query(Trip).filter(
-            Trip.account_id == account.id
+            Trip.account_id == account.id,
+            ~Trip.status.in_(['COMPLETED', 'CANCELLED', 'CANCELED'])
         ).all()
         
         current_trips = []
         for trip in trips:
-            # Skip completed or cancelled trips
-            status_upper = (trip.status or '').upper()
-            if any(s in status_upper for s in ['COMPLETED', 'CANCELLED', 'CANCELED']):
-                continue
-            
-            # Check if trip is currently active
-            is_current = False
-            
             # Check start_date - should be today or in the past
             start_date_valid = False
             if trip.start_date:
-                parsed_start = parsing._parse_turo_date(trip.start_date)
-                if parsed_start:
-                    if parsed_start.tzinfo is None:
-                        parsed_start = parsed_start.replace(tzinfo=timezone.utc)
-                    if parsed_start.date() <= today:
-                        start_date_valid = True
-                else:
+                parsed_start = self._parse_date_with_timezone(trip.start_date, scraped_at=trip.scraped_at)
+                if parsed_start and parsed_start.date() <= today:
+                    start_date_valid = True
+                elif not parsed_start:
                     # If we can't parse, assume it's valid if trip_type is booked_trips
                     trip_type = (trip.trip_type or '').lower()
                     if 'booked' in trip_type:
                         start_date_valid = True
             else:
                 # If no start_date, check if trip was created recently (within last 7 days)
-                # and is not completed
                 if trip.created_at:
                     days_ago = (datetime.now(timezone.utc) - trip.created_at).days
                     if days_ago <= 7:
@@ -686,69 +614,32 @@ class TuroDataService:
             # Check end_date - should be today or in the future (or not set)
             end_date_valid = True
             if trip.end_date:
-                parsed_end = parsing._parse_turo_date(trip.end_date)
-                if parsed_end:
-                    if parsed_end.tzinfo is None:
-                        parsed_end = parsed_end.replace(tzinfo=timezone.utc)
-                    # If end_date is in the past, trip is not current
-                    if parsed_end.date() < today:
-                        end_date_valid = False
+                parsed_end = self._parse_date_with_timezone(trip.end_date, scraped_at=trip.scraped_at)
+                if parsed_end and parsed_end.date() < today:
+                    end_date_valid = False
             
-            # Also check if trip_type indicates it's an active trip
+            # Check if trip is currently active
             trip_type = (trip.trip_type or '').lower()
-            if 'booked' in trip_type and start_date_valid:
-                is_current = True
-            elif start_date_valid and end_date_valid:
-                is_current = True
+            is_current = (('booked' in trip_type and start_date_valid) or 
+                         (start_date_valid and end_date_valid))
             
             if is_current:
-                # Get vehicle name and year
-                vehicle_name = "Unknown Vehicle"
-                vehicle_year = None
+                # Get vehicle info
+                vehicle = None
                 if trip.vehicle_id:
                     vehicle = self.db.query(Vehicle).filter(Vehicle.id == trip.vehicle_id).first()
-                    if vehicle:
-                        vehicle_name = vehicle.name
-                        # Try to get year from vehicle model
-                        if vehicle.year:
-                            try:
-                                vehicle_year = int(vehicle.year)
-                            except (ValueError, TypeError):
-                                # If year is not a valid integer, try to parse from name
-                                year_match = re.search(r'\b(19|20)\d{2}\b', vehicle_name)
-                                if year_match:
-                                    vehicle_year = int(year_match.group())
-                                else:
-                                    vehicle_year = datetime.now().year
-                        else:
-                            # Try to parse year from name (e.g., "2024 Tesla Model 3")
-                            year_match = re.search(r'\b(19|20)\d{2}\b', vehicle_name)
-                            if year_match:
-                                vehicle_year = int(year_match.group())
-                            else:
-                                vehicle_year = datetime.now().year
                 
-                if not vehicle_year:
-                    vehicle_year = datetime.now().year
+                vehicle_name = vehicle.name if vehicle else "Unknown Vehicle"
+                vehicle_year = self._get_vehicle_year(vehicle) if vehicle else datetime.now().year
                 
-                # Get location
-                location = trip.address or trip.location_type or "Location TBD"
-                
-                # Get earnings
-                earnings = trip.total_earnings or 0
-                
-                # Get kilometers
-                kms_driven = trip.kilometers_driven or 0
-                kms_allowed = trip.kilometers_included or 0
-                
-                # Determine status based on trip data
-                # For now, we'll use a simple heuristic
-                status = "Active"
-                if status_upper:
-                    if any(s in status_upper for s in ['IN_PROGRESS', 'ACTIVE', 'ONGOING']):
-                        status = "Moving"
-                    elif any(s in status_upper for s in ['PARKED', 'STOPPED']):
-                        status = "Parked"
+                # Determine status
+                status_upper = (trip.status or '').upper()
+                if any(s in status_upper for s in ['IN_PROGRESS', 'ACTIVE', 'ONGOING']):
+                    status = "Moving"
+                elif any(s in status_upper for s in ['PARKED', 'STOPPED']):
+                    status = "Parked"
+                else:
+                    status = "Active"
                 
                 current_trips.append({
                     'id': trip.id,
@@ -756,15 +647,15 @@ class TuroDataService:
                     'vehicle_name': vehicle_name,
                     'vehicle_year': vehicle_year,
                     'guest_name': trip.customer_name or 'Unknown Guest',
-                    'location': location,
-                    'coordinates': "N/A",  # Not available from Turo directly
-                    'fuel_percent': None,  # Would come from Bouncie integration
-                    'speed': 0,  # Would come from Bouncie integration
+                    'location': trip.address or trip.location_type or "Location TBD",
+                    'coordinates': "N/A",
+                    'fuel_percent': None,
+                    'speed': 0,
                     'status': status,
-                    'kms_driven': kms_driven,
-                    'kms_allowed': kms_allowed,
-                    'earnings': earnings,
-                    'top_speed': 0,  # Would come from Bouncie integration
+                    'kms_driven': trip.kilometers_driven or 0,
+                    'kms_allowed': trip.kilometers_included or 0,
+                    'earnings': trip.total_earnings or 0,
+                    'top_speed': 0,
                     'start_date': trip.start_date,
                     'start_time': trip.start_time,
                     'end_date': trip.end_date,
@@ -773,7 +664,7 @@ class TuroDataService:
         
         # Sort by start date (most recent first)
         current_trips.sort(key=lambda x: (
-            parsing._parse_turo_date(x.get('start_date', '')) or datetime.min.replace(tzinfo=timezone.utc)
+            self._parse_date_with_timezone(x.get('start_date', '')) or datetime.min.replace(tzinfo=timezone.utc)
         ), reverse=True)
         
         return current_trips[:limit]
@@ -926,13 +817,10 @@ class TuroDataService:
         
         # Group revenue by month
         monthly_data = {}
-        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
-                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
         
         for month in range(1, 13):
-            month_key = month_names[month - 1]
+            month_key = MONTH_NAMES[month - 1]
             month_start = datetime(year, month, 1, tzinfo=timezone.utc)
-            from calendar import monthrange
             _, last_day = monthrange(year, month)
             month_end = datetime(year, month, last_day, 23, 59, 59, tzinfo=timezone.utc)
             
@@ -941,20 +829,14 @@ class TuroDataService:
             for trip in trips:
                 # Check if trip end_date falls in this month
                 if trip.end_date:
-                    parsed_end = parsing._parse_turo_date(trip.end_date, year)
-                    if parsed_end:
-                        if parsed_end.tzinfo is None:
-                            parsed_end = parsed_end.replace(tzinfo=timezone.utc)
-                        if month_start <= parsed_end <= month_end:
-                            month_revenue += float(trip.total_earnings or 0)
+                    parsed_end = self._parse_date_with_timezone(trip.end_date, year=year)
+                    if parsed_end and month_start <= parsed_end <= month_end:
+                        month_revenue += float(trip.total_earnings or 0)
                 # Also check start_date if end_date is not available
                 elif trip.start_date:
-                    parsed_start = parsing._parse_turo_date(trip.start_date, year)
-                    if parsed_start:
-                        if parsed_start.tzinfo is None:
-                            parsed_start = parsed_start.replace(tzinfo=timezone.utc)
-                        if month_start <= parsed_start <= month_end:
-                            month_revenue += float(trip.total_earnings or 0)
+                    parsed_start = self._parse_date_with_timezone(trip.start_date, year=year)
+                    if parsed_start and month_start <= parsed_start <= month_end:
+                        month_revenue += float(trip.total_earnings or 0)
             
             # Always include all months, even if revenue is 0
             monthly_data[month_key] = {
@@ -963,11 +845,7 @@ class TuroDataService:
             }
         
         # Return as list ordered by month, including all 12 months
-        result = []
-        for month in month_names:
-            result.append(monthly_data[month])
-        
-        return result
+        return [monthly_data[month] for month in MONTH_NAMES]
     
     def get_top_performing_vehicles(
         self,
@@ -985,69 +863,29 @@ class TuroDataService:
             offset=0
         )
         
-        # Calculate utilization for each vehicle
-        # Utilization = (estimated days booked / total days since vehicle creation) * 100
-        from datetime import datetime, timezone
-        
         top_vehicles = []
         for vehicle_data in vehicles_data:
-            vehicle_id = vehicle_data['id']
-            
-            # Get all trips for this vehicle
-            trips = self.db.query(Trip).filter(
-                Trip.account_id == account.id,
-                Trip.vehicle_id == vehicle_id
-            ).all()
-            
-            # Calculate days since vehicle creation
-            vehicle_created = vehicle_data.get('created_at')
-            if vehicle_created:
-                if isinstance(vehicle_created, str):
-                    try:
-                        vehicle_created = datetime.fromisoformat(vehicle_created.replace('Z', '+00:00'))
-                    except:
-                        vehicle_created = datetime.now(timezone.utc)
-                elif isinstance(vehicle_created, datetime):
-                    pass  # Already a datetime
-                else:
-                    vehicle_created = datetime.now(timezone.utc)
-                
-                # Ensure timezone-aware
-                if vehicle_created.tzinfo is None:
-                    vehicle_created = vehicle_created.replace(tzinfo=timezone.utc)
-                
-                now = datetime.now(timezone.utc)
-                days_since_creation = (now - vehicle_created).days
-            else:
-                days_since_creation = 30  # Default to 30 days if no creation date
-            
-            # Calculate utilization using actual trip dates
             vehicle_id = vehicle_data.get('id')
-            total_trips = vehicle_data.get('total_trips', 0) or vehicle_data.get('trip_count', 0) or 0
+            if not vehicle_id:
+                continue
             
-            if vehicle_id:
-                utilization = self._calculate_vehicle_utilization(
-                    vehicle_id=vehicle_id,
-                    account=account
-                )
-            else:
-                utilization = 0.0
+            utilization = self._calculate_vehicle_utilization(
+                vehicle_id=vehicle_id,
+                account=account
+            )
             
             # Only include vehicles with revenue
             revenue = vehicle_data.get('total_revenue', 0) or 0
             if revenue > 0:
-                rating = vehicle_data.get('avg_rating') or vehicle_data.get('rating')
-                if rating is None:
-                    rating = 0.0
-                else:
-                    rating = float(rating)
+                rating = vehicle_data.get('avg_rating') or vehicle_data.get('rating') or 0.0
+                total_trips = vehicle_data.get('total_trips', 0) or vehicle_data.get('trip_count', 0) or 0
                 
                 top_vehicles.append({
                     'vehicle_id': vehicle_id,
                     'vehicle_name': vehicle_data.get('name', 'Unknown Vehicle'),
                     'revenue': round(revenue, 2),
                     'utilization': round(utilization, 1),
-                    'rating': round(rating, 1),
+                    'rating': round(float(rating), 1),
                     'trips': int(total_trips)
                 })
         

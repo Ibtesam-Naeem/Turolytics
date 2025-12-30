@@ -8,14 +8,10 @@ from playwright.async_api import Page, ElementHandle, Frame
 import logging
 
 from core.config.settings import TIMEOUT_IFRAME, TIMEOUT_SELECTOR_WAIT, DELAY_LONG, DELAY_SHORT
-from core.utils.route_helpers import parse_amount as _parse_amount
 
 logger = logging.getLogger(__name__)
 
 # ------------------------------ COMMON EXTRACTION HELPERS ------------------------------
-
-# Re-export parse_amount for backward compatibility with existing imports
-parse_amount = _parse_amount
 
 def extract_with_regex(text: str, pattern: str, group: int = 1) -> Optional[str]:
     """Extract text using regex pattern."""
@@ -74,13 +70,6 @@ async def navigate_to_page(page: Page, url: str, page_name: str) -> bool:
     except Exception as e:
         logger.exception(f"Error navigating to {page_name}: {e}")
         return False
-
-async def navigate_and_extract(page: Page, url: str, page_name: str, extract_func: Callable[[Page], Awaitable[Any]]) -> Optional[Any]:
-    """Navigate to page and extract data with error handling."""
-    if not await navigate_to_page(page, url, page_name):
-        logger.error(f"Failed to navigate to {page_name}")
-        return None
-    return await extract_func(page)
 
 # ------------------------------ TURO LOGIN HELPERS ------------------------------
 

@@ -30,6 +30,53 @@ class DatabaseService:
         return db.query(Account).filter(Account.user_id == user_id).first()
     
     @staticmethod
+    def get_account(db: Session, account_id: int = None, user_id: int = None) -> Optional[Account]:
+        """
+        Get account by id or user_id. Tries account_id first, then falls back to user_id.
+        
+        Args:
+            db: Database session
+            account_id: Account.id to search for
+            user_id: Account.user_id to search for (fallback)
+        
+        Returns:
+            Account if found, None otherwise
+        """
+        if account_id:
+            account = db.query(Account).filter(Account.id == account_id).first()
+            if account:
+                return account
+        
+        if user_id:
+            return DatabaseService.get_account_by_user_id(db, user_id)
+        
+        return None
+    
+    @staticmethod
+    def get_account_or_raise(db: Session, account_id: int = None, user_id: int = None) -> Account:
+        """
+        Get account by id or user_id, raise HTTPException if not found.
+        
+        Args:
+            db: Database session
+            account_id: Account.id to search for
+            user_id: Account.user_id to search for (fallback)
+        
+        Returns:
+            Account if found
+        
+        Raises:
+            HTTPException: If account not found
+        """
+        from fastapi import HTTPException
+        
+        account = DatabaseService.get_account(db, account_id=account_id, user_id=user_id)
+        if not account:
+            identifier = account_id or user_id or "unknown"
+            raise HTTPException(status_code=404, detail=f"Account {identifier} not found")
+        return account
+    
+    @staticmethod
     def _get_existing_ids(
         db: Session, 
         user_id: int, 

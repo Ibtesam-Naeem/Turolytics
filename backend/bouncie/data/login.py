@@ -149,7 +149,7 @@ async def authorize_application(page: Page) -> Optional[str]:
         
         if 'code' in query_params:
             auth_code = query_params['code'][0]
-            logger.info(f"✅ Authorization code extracted: {auth_code[:20]}...")
+            logger.info(f"Authorization code extracted: {auth_code[:20]}...")
             return auth_code
         else:
             logger.warning(f"No authorization code found in URL: {current_url}")
@@ -206,7 +206,7 @@ async def complete_bouncie_login(
             logger.error("Failed to get authorization code")
             return None
         
-        logger.info("✅ Bouncie login and authorization completed successfully")
+        logger.info("Bouncie login and authorization completed successfully")
         
         return {
             "success": True,

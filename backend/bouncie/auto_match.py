@@ -96,7 +96,7 @@ async def process_bouncie_link(
             if not service.refresh_token:
                 return {"success": False, "error": "Bouncie token expired and no refresh token available. Please reconnect Bouncie."}
             logger.info(f"Token expired for account {account_id}, refreshing...")
-            if not service._refresh_access_token_sync():
+            if not service._refresh_access_token():
                 return {"success": False, "error": "Bouncie token expired and refresh failed. Please reconnect Bouncie."}
         
         results = {

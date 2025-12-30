@@ -8,7 +8,8 @@ import logging
 from core.config.settings import TIMEOUT_SELECTOR_WAIT
 
 logger = logging.getLogger(__name__)
-from .helpers import navigate_to_page, extract_with_regex, get_text, process_items_in_parallel, parse_amount, scraping_function
+from .helpers import navigate_to_page, extract_with_regex, get_text, process_items_in_parallel, scraping_function
+from core.utils.route_helpers import parse_amount
 from .selectors import (
     BUSINESS_EARNINGS_URL, EARNINGS_TOTAL_SELECTOR, EARNINGS_TOTAL_TEXT_SELECTOR,
     EARNINGS_LEGEND_SELECTOR, EARNINGS_LEGEND_TAG_SELECTOR, EARNINGS_AMOUNT_SELECTOR,

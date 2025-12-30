@@ -44,6 +44,38 @@ SCRAPER_MAP = {
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
 
+def _get_or_create_integration(
+    db: Session,
+    account_id: int,
+    email: str,
+    encrypted_password: str,
+    has_active_session: bool = False
+) -> TuroIntegration:
+    """Get existing integration or create new one."""
+    integration = get_turo_integration(db, account_id)
+    
+    if integration:
+        integration.turo_email = email
+        integration.turo_password_encrypted = encrypted_password
+        integration.has_active_session = has_active_session
+    else:
+        integration = TuroIntegration(
+            account_id=account_id,
+            turo_email=email,
+            turo_password_encrypted=encrypted_password,
+            has_active_session=has_active_session
+        )
+        db.add(integration)
+    
+    return integration
+
+def _list_response(items: List[Any], key: str = "items") -> APIResponse:
+    """Helper to create standardized list response."""
+    return APIResponse(
+        success=True,
+        data={key: items, "total": len(items)}
+    )
+
 async def _try_auto_scrape_on_first_connection(
     db: Session,
     current_user: Account,
@@ -102,7 +134,6 @@ class SeedDataRequest(BaseModel):
     trips: Optional[Dict[str, Any]] = None
     reviews: Optional[Dict[str, Any]] = None
     earnings: Optional[Dict[str, Any]] = None
-    overwrite: bool = True  # Whether to overwrite existing data
 
 # ------------------------------ AUTHENTICATION ENDPOINTS ------------------------------
 
@@ -151,22 +182,9 @@ async def connect_turo(
     """
     # Store credentials first (encrypted)
     encrypted_password = encrypt_password(request.password)
-    
-    integration = get_turo_integration(db, current_user.id)
-    
-    if integration:
-        integration.turo_email = request.email
-        integration.turo_password_encrypted = encrypted_password
-        integration.has_active_session = False
-    else:
-        integration = TuroIntegration(
-            account_id=current_user.id,
-            turo_email=request.email,
-            turo_password_encrypted=encrypted_password,
-            has_active_session=False
-        )
-        db.add(integration)
-    
+    integration = _get_or_create_integration(
+        db, current_user.id, request.email, encrypted_password, has_active_session=False
+    )
     db.commit()
     logger.info(f"Turo credentials stored for account {current_user.id}")
     
@@ -231,9 +249,8 @@ async def submit_turo_2fa(
             detail=result.get("error", "2FA submission failed")
         )
     
-    # Get email, account_id, and password from result (session is cleaned up in submit_turo_2fa_code)
+    # Get email and password from result (session is cleaned up in submit_turo_2fa_code)
     email = result.get("email")
-    account_id = result.get("account_id")
     password = result.get("password")  # Password from session (temporary, in-memory)
     
     if not email:
@@ -301,6 +318,7 @@ async def disconnect_turo(
 # ------------------------------ SCRAPING ENDPOINTS ------------------------------
 
 @router.get("/scrape/{task_id}/status", response_model=APIResponse, tags=["Scraping"])
+@handle_route_errors("getting scrape status")
 async def get_scrape_status(task_id: str = Path(..., description="Task ID from scrape endpoint")):
     """Get the status of a scraping task."""
     status = scraping_service.get_task_status(task_id)
@@ -359,26 +377,10 @@ async def seed_turo_integration(
     Create Turo integration record for seed data (without attempting login).
     This is used by the seed script to create the integration so frontend shows 'connected' status.
     """
-    from core.security.encryption import encrypt_password
-    
     # Create or update integration
-    integration = get_turo_integration(db, current_user.id)
-    
-    if integration:
-        # Update existing
-        integration.turo_email = turo_email
-        integration.turo_password_encrypted = encrypt_password("seed_password")  # Dummy password
-        integration.has_active_session = False
-    else:
-        # Create new
-        integration = TuroIntegration(
-            account_id=current_user.id,
-            turo_email=turo_email,
-            turo_password_encrypted=encrypt_password("seed_password"),  # Dummy password
-            has_active_session=False
-        )
-        db.add(integration)
-    
+    integration = _get_or_create_integration(
+        db, current_user.id, turo_email, encrypt_password("seed_password"), has_active_session=False
+    )
     db.commit()
     logger.info(f"Turo integration created for seed data: account {current_user.id}")
     
@@ -401,20 +403,8 @@ async def seed_data(
     """
     Seed database with sample data for development/testing.
     Uses the same data structure as scraped data.
-    Overwrites existing data if overwrite=True.
     """
-    scraped_data: Dict[str, Any] = {}
-    
-    if request.vehicles:
-        scraped_data["vehicles"] = request.vehicles
-    if request.trips:
-        scraped_data["trips"] = request.trips
-    if request.reviews:
-        scraped_data["reviews"] = request.reviews
-    if request.earnings:
-        scraped_data["earnings"] = request.earnings
-    
-    if not scraped_data:
+    if not any([request.vehicles, request.trips, request.reviews, request.earnings]):
         raise HTTPException(
             status_code=400,
             detail="No seed data provided. Include at least one of: vehicles, trips, reviews, earnings"
@@ -455,6 +445,7 @@ def get_turo_data_service(db: Session = Depends(get_db)) -> TuroDataService:
 # ------------------------------ DATA ENDPOINTS ------------------------------
 
 @router.get("/data/trips", response_model=APIResponse, response_model_exclude_none=True, tags=["Trips"])
+@handle_route_errors("getting trips")
 async def get_trips(
     trip_id: Optional[str] = Query(None, description="Filter by specific trip ID"),
     status: Optional[str] = Query(None, description="Filter by trip status (COMPLETED, CANCELLED, etc.)"),
@@ -497,6 +488,7 @@ async def get_trips(
     )
 
 @router.get("/data/vehicles", response_model=APIResponse, response_model_exclude_none=True, tags=["Vehicles"])
+@handle_route_errors("getting vehicles")
 async def get_vehicles(
     vehicle_id: Optional[int] = Query(None, description="Filter by vehicle ID"),
     license_plate: Optional[str] = Query(None, description="Filter by license plate"),
@@ -541,6 +533,7 @@ async def get_vehicles(
     )
 
 @router.get("/data/reviews", response_model=APIResponse, response_model_exclude_none=True, tags=["Reviews"])
+@handle_route_errors("getting reviews")
 async def get_reviews(
     review_id: Optional[int] = Query(None, description="Filter by review ID"),
     vehicle_id: Optional[int] = Query(None, description="Filter by vehicle ID"),
@@ -573,6 +566,7 @@ async def get_reviews(
     )
 
 @router.get("/data/earnings", response_model=APIResponse, response_model_exclude_none=True, tags=["Earnings"])
+@handle_route_errors("getting earnings")
 async def get_earnings(
     year: Optional[int] = Query(None, description="Filter by year"),
     current_user: Account = Depends(get_current_active_user),
@@ -592,74 +586,48 @@ async def get_earnings(
     )
 
 @router.get("/data/vehicles/top-performers", response_model=APIResponse, response_model_exclude_none=True, tags=["Vehicles"])
+@handle_route_errors("getting top performing vehicles")
 async def get_top_performing_vehicles(
     limit: int = Query(5, ge=1, le=20, description="Number of top performers to return"),
     current_user: Account = Depends(get_current_active_user),
     service: TuroDataService = Depends(get_turo_data_service)
 ) -> APIResponse:
     """Get top performing vehicles ranked by revenue."""
-    top_vehicles = service.get_top_performing_vehicles(
-        account=current_user,
-        limit=limit
-    )
-    
-    return APIResponse(
-        success=True,
-        data={
-            "vehicles": top_vehicles,
-            "total": len(top_vehicles)
-        }
-    )
+    top_vehicles = service.get_top_performing_vehicles(account=current_user, limit=limit)
+    return _list_response(top_vehicles, "vehicles")
 
 @router.get("/data/trips/today", response_model=APIResponse, response_model_exclude_none=True, tags=["Trips"])
+@handle_route_errors("getting trips today")
 async def get_trips_today(
     current_user: Account = Depends(get_current_active_user),
     service: TuroDataService = Depends(get_turo_data_service)
 ) -> APIResponse:
     """Get trips that are active/happening today."""
     trips = service.get_trips_today(account=current_user)
-    
-    return APIResponse(
-        success=True,
-        data={
-            "trips": trips,
-            "total": len(trips)
-        }
-    )
+    return _list_response(trips, "trips")
 
 @router.get("/data/trips/new-bookings-today", response_model=APIResponse, response_model_exclude_none=True, tags=["Trips"])
+@handle_route_errors("getting new bookings today")
 async def get_new_bookings_today(
     current_user: Account = Depends(get_current_active_user),
     service: TuroDataService = Depends(get_turo_data_service)
 ) -> APIResponse:
     """Get new bookings created today."""
     bookings = service.get_new_bookings_today(account=current_user)
-    
-    return APIResponse(
-        success=True,
-        data={
-            "bookings": bookings,
-            "total": len(bookings)
-        }
-    )
+    return _list_response(bookings, "bookings")
 
 @router.get("/data/trips/checkouts-today", response_model=APIResponse, response_model_exclude_none=True, tags=["Trips"])
+@handle_route_errors("getting checkouts today")
 async def get_checkouts_today(
     current_user: Account = Depends(get_current_active_user),
     service: TuroDataService = Depends(get_turo_data_service)
 ) -> APIResponse:
     """Get checkouts happening today (trips ending today)."""
     checkouts = service.get_checkouts_today(account=current_user)
-    
-    return APIResponse(
-        success=True,
-        data={
-            "checkouts": checkouts,
-            "total": len(checkouts)
-        }
-    )
+    return _list_response(checkouts, "checkouts")
 
 @router.get("/data/trips/upcoming", response_model=APIResponse, response_model_exclude_none=True, tags=["Trips"])
+@handle_route_errors("getting upcoming trips")
 async def get_upcoming_trips(
     limit: int = Query(50, ge=1, le=100, description="Maximum number of upcoming trips to return"),
     current_user: Account = Depends(get_current_active_user),
@@ -667,16 +635,10 @@ async def get_upcoming_trips(
 ) -> APIResponse:
     """Get upcoming trips (trips with start_date in the future)."""
     trips = service.get_upcoming_trips(account=current_user, limit=limit)
-    
-    return APIResponse(
-        success=True,
-        data={
-            "trips": trips,
-            "total": len(trips)
-        }
-    )
+    return _list_response(trips, "trips")
 
 @router.get("/data/trips/current", response_model=APIResponse, response_model_exclude_none=True, tags=["Trips"])
+@handle_route_errors("getting current trips")
 async def get_current_trips(
     limit: int = Query(50, ge=1, le=100, description="Maximum number of current trips to return"),
     current_user: Account = Depends(get_current_active_user),
@@ -684,16 +646,10 @@ async def get_current_trips(
 ) -> APIResponse:
     """Get current/active trips (trips that are happening right now)."""
     trips = service.get_current_trips(account=current_user, limit=limit)
-    
-    return APIResponse(
-        success=True,
-        data={
-            "trips": trips,
-            "total": len(trips)
-        }
-    )
+    return _list_response(trips, "trips")
 
 @router.get("/data/utilization/monthly", response_model=APIResponse, response_model_exclude_none=True, tags=["Analytics"])
+@handle_route_errors("getting monthly utilization")
 async def get_monthly_utilization(
     year: Optional[int] = Query(None, description="Year to get utilization data for (defaults to current year)"),
     current_user: Account = Depends(get_current_active_user),
@@ -711,6 +667,7 @@ async def get_monthly_utilization(
     )
 
 @router.get("/data/revenue/monthly", response_model=APIResponse, response_model_exclude_none=True, tags=["Analytics"])
+@handle_route_errors("getting monthly revenue")
 async def get_monthly_revenue(
     year: Optional[int] = Query(None, description="Year to get revenue data for (defaults to current year)"),
     current_user: Account = Depends(get_current_active_user),

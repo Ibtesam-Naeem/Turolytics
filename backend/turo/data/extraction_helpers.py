@@ -8,7 +8,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 from core.config.settings import TIMEOUT_SELECTOR_WAIT, TIMEOUT_PAGE_LOAD
-from .helpers import extract_with_regex, try_selectors, get_text, extract_texts_from_elements, parse_amount
+from .helpers import extract_with_regex, try_selectors, get_text, extract_texts_from_elements
+from core.utils.route_helpers import parse_amount
 from .selectors import (
     TRIP_DATE_SELECTORS, VEHICLE_SELECTORS, CUSTOMER_SELECTORS,
     CANCELLATION_SELECTOR, LICENSE_PLATE_SELECTORS,
