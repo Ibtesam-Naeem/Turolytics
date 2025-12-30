@@ -169,6 +169,47 @@ const TripHistory = () => {
     return formatTimeString(timeString, timeFormat);
   };
 
+  // Helper function to normalize coordinates to [lat, lng] format
+  // Validates and converts coordinates if needed
+  const normalizeCoordinates = (coords: any[]): number[][] => {
+    if (!Array.isArray(coords) || coords.length === 0) {
+      return [];
+    }
+
+    return coords
+      .map((coord: any) => {
+        if (!Array.isArray(coord) || coord.length < 2) {
+          return null;
+        }
+
+        const [first, second] = coord;
+        
+        // Validate that values are numbers
+        if (typeof first !== 'number' || typeof second !== 'number') {
+          return null;
+        }
+
+        // Check if coordinates are already in [lat, lng] format
+        // Latitude must be between -90 and 90
+        if (first >= -90 && first <= 90 && Math.abs(second) <= 180) {
+          // Already in [lat, lng] format
+          return [first, second];
+        }
+        
+        // Check if coordinates are in [lng, lat] format
+        // Longitude must be between -180 and 180
+        if (second >= -90 && second <= 90 && Math.abs(first) <= 180) {
+          // Convert from [lng, lat] to [lat, lng]
+          return [second, first];
+        }
+
+        // If we can't determine, assume [lat, lng] and return as-is
+        // (This handles edge cases where coordinates might be slightly outside normal ranges)
+        return [first, second];
+      })
+      .filter((coord: any) => coord !== null) as number[][];
+  };
+
 
   const handleCloseModal = () => {
     setSelectedTrip(null);
@@ -176,19 +217,27 @@ const TripHistory = () => {
     setIndividualTrips([]);
     setCurrentTripIndex(0);
     setMapError(null);
-    // Clean up map
+    // Clean up map completely
     if (map.current) {
-      markersRef.current.forEach(marker => marker.remove());
-      markersRef.current = [];
-      layersRef.current.forEach(layerId => {
-        if (map.current?.getLayer(layerId)) {
-          map.current.removeLayer(layerId);
-        }
-        if (map.current?.getSource(layerId)) {
-          map.current.removeSource(layerId);
-        }
-      });
-      layersRef.current = [];
+      try {
+        markersRef.current.forEach(marker => marker.remove());
+        markersRef.current = [];
+        layersRef.current.forEach(layerId => {
+          if (map.current?.getLayer(layerId)) {
+            map.current.removeLayer(layerId);
+          }
+          if (map.current?.getSource(layerId)) {
+            map.current.removeSource(layerId);
+          }
+        });
+        layersRef.current = [];
+        // Remove the map instance
+        map.current.remove();
+        map.current = null;
+      } catch (error) {
+        console.warn("Error cleaning up map:", error);
+        map.current = null;
+      }
     }
   };
 
@@ -271,6 +320,8 @@ const TripHistory = () => {
             console.log("First trip sample:", trips[0]);
             
             // Process trips to ensure coordinates are properly extracted
+            // Backend stores coordinates as [lat, lng] (see helpers.py line 37)
+            // We need to keep them in [lat, lng] format here, then convert to [lng, lat] for Mapbox
             const processedTrips = trips.map((trip: any, index: number) => {
               let coords = trip.coordinates;
               
@@ -288,37 +339,31 @@ const TripHistory = () => {
                 if (trip.gps) {
                   const gps = trip.gps;
                   if (gps.type === 'LineString' && gps.coordinates && Array.isArray(gps.coordinates)) {
-                    // Backend stores coordinates as [lat, lng] based on helpers.py line 37
-                    // But Bouncie API returns GeoJSON [lng, lat]
-                    // Check the first coordinate to determine format
-                    const firstCoord = gps.coordinates[0];
-                    if (Array.isArray(firstCoord) && firstCoord.length >= 2) {
-                      // If first value is > 90 or < -90, it's likely lng (so format is [lng, lat])
-                      // If first value is <= 90, it's likely lat (so format is [lat, lng])
-                      const isLngLatFormat = Math.abs(firstCoord[0]) > 90;
-                      
-                      coords = gps.coordinates.map((c: number[]) => {
+                    // GPS coordinates from Bouncie API are in GeoJSON format [lng, lat]
+                    // Backend should have converted them, but if we're getting raw GPS data,
+                    // we need to convert from [lng, lat] to [lat, lng] to match backend format
+                    coords = gps.coordinates
+                      .map((c: number[]) => {
                         if (!Array.isArray(c) || c.length < 2) return null;
-                        // Convert [lng, lat] to [lat, lng] if needed
-                        return isLngLatFormat ? [c[1], c[0]] : c;
-                      }).filter((c: any) => c !== null);
+                        // Assume raw GPS data is [lng, lat] (GeoJSON standard)
+                        // Convert to [lat, lng] to match backend storage format
+                        return [c[1], c[0]];
+                      })
+                      .filter((c: any) => c !== null);
                       
-                      console.log(`Trip ${index} extracted ${coords.length} coordinates from GPS`);
+                      console.log(`Trip ${index} extracted ${coords.length} coordinates from GPS (converted from [lng,lat] to [lat,lng])`);
                     }
                   }
                 }
-              }
               
-              // Ensure coordinates is an array
-              if (!Array.isArray(coords)) {
-                coords = [];
-              }
+              // Normalize coordinates to ensure they're in [lat, lng] format
+              coords = normalizeCoordinates(coords);
               
               console.log(`Trip ${index} final coordinates:`, coords.length > 0 ? `${coords.length} points, first: [${coords[0][0]}, ${coords[0][1]}]` : 'none');
               
               return {
                 ...trip,
-                coordinates: coords,
+                coordinates: coords, // Store as [lat, lng] - will convert to [lng, lat] for Mapbox
                 coordinate_count: coords.length,
               };
             });
@@ -329,13 +374,14 @@ const TripHistory = () => {
           } else {
             // Fallback: if no individual trips, create one from aggregated coordinates
             if (matchDetail.coordinates && matchDetail.coordinates.length > 0) {
+              const normalizedCoords = normalizeCoordinates(matchDetail.coordinates);
               setIndividualTrips([{
-                coordinates: matchDetail.coordinates,
+                coordinates: normalizedCoords,
                 polyline: matchDetail.polyline,
                 startTime: matchDetail.bouncie_earliest_start,
                 endTime: matchDetail.bouncie_latest_end,
                 distance: matchDetail.aggregated_distance_km,
-                coordinate_count: matchDetail.coordinate_count || matchDetail.coordinates.length,
+                coordinate_count: normalizedCoords.length,
               }]);
               setCurrentTripIndex(0);
             } else {
@@ -359,7 +405,19 @@ const TripHistory = () => {
 
   // Initialize map when trip match is loaded
   useEffect(() => {
-    if (!selectedTrip || !mapContainer.current || individualTrips.length === 0) {
+    // Wait for map container to be available and individual trips to be loaded
+    if (!selectedTrip || !mapContainer.current) {
+      return;
+    }
+
+    // Check if we have individual trips or need to use aggregated coordinates
+    if (individualTrips.length === 0) {
+      // If no individual trips but we have tripMatch with coordinates, wait for it to load
+      if (tripMatch && tripMatch.coordinates && tripMatch.coordinates.length > 0) {
+        // This case is handled by the fallback in the fetchTripMatch useEffect
+        // Just return here and let that handle it
+        return;
+      }
       return;
     }
 
@@ -370,7 +428,9 @@ const TripHistory = () => {
       console.warn("No coordinates available for current trip, skipping map update", {
         hasTrip: !!currentTrip,
         hasCoordinates: !!currentTrip?.coordinates,
-        coordinatesLength: currentTrip?.coordinates?.length
+        coordinatesLength: currentTrip?.coordinates?.length,
+        currentTripIndex,
+        individualTripsLength: individualTrips.length
       });
       return;
     }
@@ -403,9 +463,22 @@ const TripHistory = () => {
       }
 
       if (map.current) {
-        // Map exists, just update it
-        updateMap();
-        return;
+        // Map exists, check if it's still attached to the container
+        const mapContainerElement = map.current.getContainer();
+        if (mapContainerElement && mapContainerElement.parentElement) {
+          // Map is still attached, just update it
+          updateMap();
+          return;
+        } else {
+          // Map container was removed, clean up and recreate
+          console.log("Map container was removed, cleaning up and recreating");
+          try {
+            map.current.remove();
+          } catch (e) {
+            console.warn("Error removing old map:", e);
+          }
+          map.current = null;
+        }
       }
 
       // Create new map
@@ -445,14 +518,43 @@ const TripHistory = () => {
           setMapError(null); // Clear any previous errors
           // Small delay to ensure style is fully loaded
           setTimeout(() => {
-            updateMap();
-          }, 100);
+            if (map.current && mapContainer.current) {
+              updateMap();
+            }
+          }, 150);
         });
 
-        // Also listen for style data load
+        // Handle style data load
         map.current.once("styledata", () => {
           console.log("Map style loaded");
         });
+
+        // Handle map resize to ensure it renders correctly
+        map.current.once("resize", () => {
+          console.log("Map resized");
+          if (map.current) {
+            map.current.resize();
+          }
+        });
+
+        // Force a resize after a short delay to ensure proper rendering
+        // This is especially important when the map is in a dialog that was just opened
+        setTimeout(() => {
+          if (map.current && mapContainer.current) {
+            // Check if container is visible
+            const rect = mapContainer.current.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+              map.current.resize();
+            } else {
+              // Container not visible yet, try again
+              setTimeout(() => {
+                if (map.current && mapContainer.current) {
+                  map.current.resize();
+                }
+              }, 300);
+            }
+          }
+        }, 200);
       } catch (error) {
         console.error("Error initializing map:", error);
       }
@@ -646,30 +748,73 @@ const TripHistory = () => {
       }
     };
 
-    // Use a small delay to ensure DOM is ready, with retry logic
+    // Use a more robust initialization with retry logic
+    // The map container might not be rendered yet, so we need to wait for it
     let retryCount = 0;
-    const maxRetries = 3;
+    const maxRetries = 10; // Increased retries
+    const retryDelay = 150; // Increased delay
     
     const tryInitialize = () => {
+      // Check if container exists and has dimensions (is actually rendered)
       if (!mapContainer.current) {
         if (retryCount < maxRetries) {
           retryCount++;
-          setTimeout(tryInitialize, 100);
+          setTimeout(tryInitialize, retryDelay);
           return;
         }
         console.warn("Map container not available after retries");
         return;
       }
+
+      // Check if container has dimensions (is visible)
+      const container = mapContainer.current;
+      const hasDimensions = container.offsetWidth > 0 && container.offsetHeight > 0;
+      
+      if (!hasDimensions) {
+        if (retryCount < maxRetries) {
+          retryCount++;
+          setTimeout(tryInitialize, retryDelay);
+          return;
+        }
+        console.warn("Map container has no dimensions after retries");
+        return;
+      }
+
+      // Container is ready, initialize map
       initializeMap();
     };
 
-    const timeoutId = setTimeout(tryInitialize, 100);
+    // Start initialization with a small delay to ensure DOM is ready
+    const timeoutId = setTimeout(tryInitialize, 50);
 
     return () => {
       clearTimeout(timeoutId);
-      cleanup();
+      // Clean up map when component unmounts or dependencies change
+      if (map.current) {
+        cleanup();
+        // Don't remove the map instance, just clean up layers
+        // The map instance will be reused if it exists
+      }
     };
-  }, [selectedTrip, individualTrips, currentTripIndex]);
+  }, [selectedTrip, individualTrips, currentTripIndex, tripMatch]);
+
+  // Resize map when dialog opens (to handle case where map was initialized before dialog was visible)
+  useEffect(() => {
+    if (selectedTrip && map.current && mapContainer.current) {
+      // Small delay to ensure dialog is fully rendered
+      const timeoutId = setTimeout(() => {
+        if (map.current && mapContainer.current) {
+          const rect = mapContainer.current.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            map.current.resize();
+            console.log("Map resized after dialog open");
+          }
+        }
+      }, 300);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [selectedTrip]);
 
   const getStatusBadge = (status: string) => {
     const statusUpper = status.toUpperCase();

@@ -1,5 +1,20 @@
 import { useState, useEffect } from "react";
-import { Star, MessageSquare, TrendingUp, Search, Car, Calendar, ExternalLink, Filter, X, Loader2 } from "lucide-react";
+import { 
+  Star, 
+  MessageSquare, 
+  Search, 
+  Car, 
+  ExternalLink, 
+  Filter, 
+  X, 
+  Loader2,
+  TrendingUp,
+  CheckCircle2,
+  Clock,
+  AlertCircle,
+  ChevronDown,
+  Sparkles
+} from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -7,8 +22,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { reviewsService, Review } from "@/services/reviews-service";
-import { formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow, format } from "date-fns";
+import { cn } from "@/lib/utils";
 
 const Reviews = () => {
   const [selectedRating, setSelectedRating] = useState<number | null>(null);
@@ -18,6 +35,7 @@ const Reviews = () => {
   const [totalReviews, setTotalReviews] = useState(0);
   const [sortBy, setSortBy] = useState<string>("recent");
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeTab, setActiveTab] = useState<string>("all");
   const [limit] = useState(50);
   const [offset, setOffset] = useState(0);
 
@@ -30,7 +48,7 @@ const Reviews = () => {
         const response = await reviewsService.getReviews({
           min_rating: selectedRating || undefined,
           limit,
-          offset: 0, // Reset to 0 when filters change
+          offset: 0,
         });
         setReviews(response.reviews);
         setTotalReviews(response.total);
@@ -46,13 +64,12 @@ const Reviews = () => {
     loadReviews();
   }, [selectedRating, limit]);
 
-  // Calculate statistics from reviews
+  // Calculate statistics
   const validRatings = reviews.filter(r => r.rating != null && r.rating > 0 && r.rating <= 5);
   const averageRating = validRatings.length > 0
     ? validRatings.reduce((sum, r) => sum + (r.rating || 0), 0) / validRatings.length
     : 0;
 
-  // Calculate rating distribution
   const ratingDistribution = [5, 4, 3, 2, 1].map(stars => {
     const count = reviews.filter(r => r.rating === stars).length;
     const percentage = totalReviews > 0 ? (count / totalReviews) * 100 : 0;
@@ -60,17 +77,32 @@ const Reviews = () => {
   });
 
   const fiveStarCount = reviews.filter(r => r.rating === 5).length;
-  const fiveStarPercentage = totalReviews > 0 ? (fiveStarCount / totalReviews) * 100 : 0;
+  const fourStarCount = reviews.filter(r => r.rating === 4).length;
+  const threeStarCount = reviews.filter(r => r.rating === 3).length;
+  const twoStarCount = reviews.filter(r => r.rating === 2).length;
+  const oneStarCount = reviews.filter(r => r.rating === 1).length;
 
-  // Calculate response rate
   const reviewsWithResponse = reviews.filter(r => r.has_host_response).length;
   const responseRate = totalReviews > 0 ? (reviewsWithResponse / totalReviews) * 100 : 0;
   const pendingReplies = reviews.filter(r => !r.has_host_response && r.rating != null).length;
 
-  // Filter and sort reviews
-  let filteredReviews = selectedRating 
-    ? reviews.filter(r => r.rating === selectedRating)
-    : reviews;
+  // Filter reviews based on active tab
+  let filteredReviews = reviews;
+  
+  if (activeTab === "pending") {
+    filteredReviews = reviews.filter(r => !r.has_host_response && r.rating != null);
+  } else if (activeTab === "responded") {
+    filteredReviews = reviews.filter(r => r.has_host_response);
+  } else if (activeTab === "5star") {
+    filteredReviews = reviews.filter(r => r.rating === 5);
+  } else if (activeTab === "low") {
+    filteredReviews = reviews.filter(r => r.rating != null && r.rating <= 2);
+  }
+
+  // Apply rating filter
+  if (selectedRating) {
+    filteredReviews = filteredReviews.filter(r => r.rating === selectedRating);
+  }
 
   // Apply search filter
   if (searchQuery) {
@@ -89,7 +121,6 @@ const Reviews = () => {
     } else if (sortBy === "lowest") {
       return (a.rating || 0) - (b.rating || 0);
     } else {
-      // Most recent
       const dateA = a.date ? new Date(a.date).getTime() : 0;
       const dateB = b.date ? new Date(b.date).getTime() : 0;
       return dateB - dateA;
@@ -122,9 +153,32 @@ const Reviews = () => {
     }
   };
 
+  const formatFullDate = (dateString?: string) => {
+    if (!dateString) return "";
+    try {
+      const date = new Date(dateString);
+      return format(date, "MMM d, yyyy");
+    } catch {
+      return dateString;
+    }
+  };
+
   const handleReplyClick = () => {
-    // Placeholder for Turo routing - will be implemented later
     window.open('https://turo.com', '_blank');
+  };
+
+  const getRatingColor = (rating: number) => {
+    if (rating >= 4.5) return "text-emerald-500";
+    if (rating >= 3.5) return "text-yellow-500";
+    if (rating >= 2.5) return "text-orange-500";
+    return "text-red-500";
+  };
+
+  const getRatingBgColor = (rating: number) => {
+    if (rating >= 4.5) return "bg-emerald-500/10 border-emerald-500/20";
+    if (rating >= 3.5) return "bg-yellow-500/10 border-yellow-500/20";
+    if (rating >= 2.5) return "bg-orange-500/10 border-orange-500/20";
+    return "bg-red-500/10 border-red-500/20";
   };
 
   if (isLoading && reviews.length === 0) {
@@ -152,13 +206,13 @@ const Reviews = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background p-6">
-      <div className="mx-auto max-w-[2000px] space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
+    <div className="min-h-screen bg-gradient-to-b from-background to-muted/20 p-4 md:p-6">
+      <div className="mx-auto max-w-7xl space-y-6">
+        {/* Header Section */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-foreground">Reviews</h1>
-            <p className="text-sm text-muted-foreground">Guest feedback and ratings</p>
+            <h1 className="text-4xl font-bold text-foreground mb-2">Reviews</h1>
+            <p className="text-muted-foreground">Manage and respond to guest feedback</p>
           </div>
           {selectedRating && (
             <Button 
@@ -168,271 +222,464 @@ const Reviews = () => {
               className="gap-2"
             >
               <X className="h-4 w-4" />
-              Clear {selectedRating}-star filter
+              Clear filter
             </Button>
           )}
         </div>
 
-        {/* Rating Overview */}
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Card className="bg-gradient-to-br from-rating/10 to-rating/5 border-rating/20">
-            <CardContent className="p-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground font-medium">Average Rating</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Star className="h-6 w-6 fill-rating text-rating" />
-                    <span className="text-3xl font-bold text-foreground">
-                      {averageRating > 0 ? averageRating.toFixed(1) : "0.0"}
-                    </span>
+        {/* Stats Overview Cards */}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {/* Average Rating Card */}
+          <Card className="relative overflow-hidden border-2">
+            <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-primary/10" />
+            <CardContent className="p-6 relative">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 rounded-xl bg-primary/10">
+                  <Star className="h-6 w-6 text-primary fill-primary" />
+                </div>
+                <Badge variant="secondary" className="text-xs">
+                  {totalReviews} total
+                </Badge>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-muted-foreground">Average Rating</p>
+                <div className="flex items-baseline gap-2">
+                  <span className={cn("text-4xl font-bold", getRatingColor(averageRating))}>
+                    {averageRating > 0 ? averageRating.toFixed(1) : "0.0"}
+                  </span>
+                  <div className="flex items-center gap-0.5">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <Star 
+                        key={i} 
+                        className={cn(
+                          "h-4 w-4",
+                          i < Math.round(averageRating) ? "fill-primary text-primary" : "text-muted-foreground/30"
+                        )} 
+                      />
+                    ))}
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-sm text-muted-foreground">{totalReviews} reviews</p>
-                </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-success/10 to-success/5 border-success/20">
-            <CardContent className="p-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground font-medium">5-Star Reviews</p>
-                  <p className="text-3xl font-bold mt-1 text-success">{fiveStarCount}</p>
+          {/* 5-Star Reviews Card */}
+          <Card className="relative overflow-hidden border-2 border-emerald-500/20">
+            <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-emerald-500/10" />
+            <CardContent className="p-6 relative">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 rounded-xl bg-emerald-500/10">
+                  <Sparkles className="h-6 w-6 text-emerald-500" />
                 </div>
-                <div className="p-3 rounded-full bg-success/20">
-                  <Star className="h-5 w-5 fill-success text-success" />
-                </div>
+                <Badge className="bg-emerald-500/20 text-emerald-700 border-emerald-500/30">
+                  {totalReviews > 0 ? ((fiveStarCount / totalReviews) * 100).toFixed(0) : 0}%
+                </Badge>
               </div>
-              <p className="text-sm text-muted-foreground mt-3">
-                {fiveStarPercentage > 0 ? `${fiveStarPercentage.toFixed(0)}%` : "0%"} of all reviews
-              </p>
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-muted-foreground">5-Star Reviews</p>
+                <p className="text-4xl font-bold text-emerald-600">{fiveStarCount}</p>
+              </div>
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-chart-4/10 to-chart-4/5 border-chart-4/20">
-            <CardContent className="p-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground font-medium">Response Rate</p>
-                  <p className="text-3xl font-bold mt-1" style={{ color: 'hsl(var(--chart-4))' }}>
-                    {responseRate.toFixed(0)}%
-                  </p>
+          {/* Response Rate Card */}
+          <Card className="relative overflow-hidden border-2 border-blue-500/20">
+            <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-blue-500/10" />
+            <CardContent className="p-6 relative">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 rounded-xl bg-blue-500/10">
+                  <MessageSquare className="h-6 w-6 text-blue-500" />
                 </div>
-                <div className="p-3 rounded-full" style={{ backgroundColor: 'hsla(var(--chart-4), 0.2)' }}>
-                  <MessageSquare className="h-5 w-5" style={{ color: 'hsl(var(--chart-4))' }} />
-                </div>
+                <Badge className="bg-blue-500/20 text-blue-700 border-blue-500/30">
+                  {responseRate.toFixed(0)}%
+                </Badge>
               </div>
-              <p className="text-sm text-muted-foreground mt-3">
-                {pendingReplies} {pendingReplies === 1 ? 'pending reply' : 'pending replies'}
-              </p>
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-muted-foreground">Response Rate</p>
+                <p className="text-4xl font-bold text-blue-600">{responseRate.toFixed(0)}%</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Pending Replies Card */}
+          <Card className={cn(
+            "relative overflow-hidden border-2",
+            pendingReplies > 0 ? "border-amber-500/20" : "border-muted"
+          )}>
+            <div className={cn(
+              "absolute inset-0",
+              pendingReplies > 0 ? "bg-gradient-to-br from-amber-500/5 to-amber-500/10" : "bg-muted/5"
+            )} />
+            <CardContent className="p-6 relative">
+              <div className="flex items-center justify-between mb-4">
+                <div className={cn(
+                  "p-3 rounded-xl",
+                  pendingReplies > 0 ? "bg-amber-500/10" : "bg-muted/10"
+                )}>
+                  <Clock className={cn(
+                    "h-6 w-6",
+                    pendingReplies > 0 ? "text-amber-500" : "text-muted-foreground"
+                  )} />
+                </div>
+                {pendingReplies > 0 && (
+                  <Badge className="bg-amber-500/20 text-amber-700 border-amber-500/30">
+                    Action needed
+                  </Badge>
+                )}
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-muted-foreground">Pending Replies</p>
+                <p className={cn(
+                  "text-4xl font-bold",
+                  pendingReplies > 0 ? "text-amber-600" : "text-muted-foreground"
+                )}>
+                  {pendingReplies}
+                </p>
+              </div>
             </CardContent>
           </Card>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-4">
-          {/* Review Breakdown */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Filter className="h-4 w-4" />
-                Review Breakdown
-              </CardTitle>
-              <CardDescription className="text-xs">Click to filter by rating</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {ratingDistribution.map((item) => (
-                  <button
-                    key={item.stars}
-                    onClick={() => setSelectedRating(selectedRating === item.stars ? null : item.stars)}
-                    className={`flex items-center gap-2 w-full p-2 rounded-lg transition-all hover:bg-muted/50 ${
-                      selectedRating === item.stars ? 'bg-primary/10 ring-1 ring-primary' : ''
-                    } ${item.count === 0 ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                    disabled={item.count === 0}
-                  >
-                    <div className="flex items-center gap-0.5 w-8">
-                      <span className="text-xs font-medium">{item.stars}</span>
-                      <Star className="h-3 w-3 fill-rating text-rating" />
-                    </div>
-                    <Progress value={item.percentage} className="flex-1 h-2" />
-                    <span className="text-xs text-muted-foreground w-8 text-right">{item.count}</span>
-                  </button>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Recent Reviews */}
-          <Card className="lg:col-span-3">
-            <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-4">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  {selectedRating ? (
-                    <>
-                      {selectedRating}-Star Reviews
-                      <Badge variant="secondary">{filteredReviews.length}</Badge>
-                    </>
-                  ) : (
-                    'Recent Reviews'
-                  )}
+        {/* Main Content Area */}
+        <div className="grid gap-4 lg:grid-cols-12">
+          {/* Sidebar - Rating Breakdown */}
+          <div className="lg:col-span-3 space-y-3">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Filter className="h-5 w-5" />
+                  Rating Breakdown
                 </CardTitle>
-                <CardDescription>
-                  {selectedRating 
-                    ? `Showing all ${selectedRating}-star reviews` 
-                    : 'Latest guest feedback'}
-                </CardDescription>
-              </div>
-              <div className="flex gap-2">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input 
-                    placeholder="Search reviews..." 
-                    className="pl-9 w-[200px]"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
+                <CardDescription>Filter by rating</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {ratingDistribution.map((item) => (
+                    <button
+                      key={item.stars}
+                      onClick={() => setSelectedRating(selectedRating === item.stars ? null : item.stars)}
+                      className={cn(
+                        "flex items-center gap-2 w-full p-2 rounded-lg transition-all text-left",
+                        "hover:bg-muted/50",
+                        selectedRating === item.stars 
+                          ? "bg-primary/10 ring-2 ring-primary/20" 
+                          : "bg-muted/30",
+                        item.count === 0 && "opacity-50 cursor-not-allowed"
+                      )}
+                      disabled={item.count === 0}
+                    >
+                      <div className="flex items-center gap-1 min-w-[2.5rem]">
+                        <span className="text-xs font-semibold">{item.stars}</span>
+                        <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
+                      </div>
+                      <Progress 
+                        value={item.percentage} 
+                        className="flex-1 h-2"
+                      />
+                      <span className="text-xs font-medium text-muted-foreground min-w-[1.75rem] text-right">
+                        {item.count}
+                      </span>
+                    </button>
+                  ))}
                 </div>
-                <Select value={sortBy} onValueChange={setSortBy}>
-                  <SelectTrigger className="w-[130px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="recent">Most Recent</SelectItem>
-                    <SelectItem value="highest">Highest Rated</SelectItem>
-                    <SelectItem value="lowest">Lowest Rated</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {isLoading && reviews.length > 0 ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              </CardContent>
+            </Card>
+
+            {/* Quick Stats */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Quick Stats</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">5 Stars</span>
+                  <span className="text-xs font-semibold text-emerald-600">{fiveStarCount}</span>
                 </div>
-              ) : (
-                <div className="space-y-6">
-                  {filteredReviews.length === 0 ? (
-                    <div className="text-center py-12 text-muted-foreground">
-                      <Star className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                      <p>
-                        {selectedRating 
-                          ? `No ${selectedRating}-star reviews found`
-                          : searchQuery 
-                            ? "No reviews match your search"
-                            : "No reviews yet"}
-                      </p>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">4 Stars</span>
+                  <span className="text-xs font-semibold text-blue-600">{fourStarCount}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">3 Stars</span>
+                  <span className="text-xs font-semibold text-yellow-600">{threeStarCount}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">2 Stars</span>
+                  <span className="text-xs font-semibold text-orange-600">{twoStarCount}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">1 Star</span>
+                  <span className="text-xs font-semibold text-red-600">{oneStarCount}</span>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Main Reviews List */}
+          <div className="lg:col-span-9">
+            <Card>
+              <CardHeader>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div>
+                    <CardTitle className="text-2xl mb-2">
+                      {selectedRating 
+                        ? `${selectedRating}-Star Reviews` 
+                        : activeTab === "pending" 
+                          ? "Pending Replies"
+                          : activeTab === "responded"
+                            ? "Responded Reviews"
+                            : activeTab === "5star"
+                              ? "5-Star Reviews"
+                              : activeTab === "low"
+                                ? "Low Ratings"
+                                : "All Reviews"}
+                    </CardTitle>
+                    <CardDescription>
+                      {filteredReviews.length} {filteredReviews.length === 1 ? 'review' : 'reviews'}
+                    </CardDescription>
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input 
+                        placeholder="Search reviews..." 
+                        className="pl-9 w-[200px]"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                      />
                     </div>
-                  ) : (
-                    filteredReviews.map((review) => {
-                      const initials = review.customer_name
-                        ? review.customer_name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
-                        : '??';
-                      const rating = review.rating || 0;
-                      
-                      return (
-                        <div key={review.id} className="border-b border-border pb-6 last:border-0 last:pb-0">
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="flex items-start gap-3 flex-1">
-                              <Avatar className="h-10 w-10">
-                                <AvatarFallback className="bg-primary/10 text-primary">
-                                  {initials}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div className="flex-1">
-                                <div className="flex items-center flex-wrap gap-2">
-                                  <p className="font-medium text-foreground">
-                                    {review.customer_name || "Anonymous"}
-                                  </p>
-                                  {review.vehicle_info && (
-                                    <Badge variant="secondary" className="gap-1">
-                                      <Car className="h-3 w-3" />
-                                      {review.vehicle_info}
-                                    </Badge>
+                    <Select value={sortBy} onValueChange={setSortBy}>
+                      <SelectTrigger className="w-[140px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="recent">Most Recent</SelectItem>
+                        <SelectItem value="highest">Highest Rated</SelectItem>
+                        <SelectItem value="lowest">Lowest Rated</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {/* Tabs */}
+                <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-4">
+                  <TabsList className="grid w-full grid-cols-5">
+                    <TabsTrigger value="all">All</TabsTrigger>
+                    <TabsTrigger value="pending" className="relative">
+                      Pending
+                      {pendingReplies > 0 && (
+                        <Badge className="ml-2 h-5 w-5 p-0 flex items-center justify-center text-xs">
+                          {pendingReplies}
+                        </Badge>
+                      )}
+                    </TabsTrigger>
+                    <TabsTrigger value="responded">Responded</TabsTrigger>
+                    <TabsTrigger value="5star">5 Stars</TabsTrigger>
+                    <TabsTrigger value="low">Low</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </CardHeader>
+
+              <CardContent>
+                {isLoading && reviews.length > 0 ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {filteredReviews.length === 0 ? (
+                      <div className="text-center py-16 text-muted-foreground">
+                        <Star className="h-16 w-16 mx-auto mb-4 opacity-30" />
+                        <p className="text-lg font-medium mb-2">
+                          {selectedRating 
+                            ? `No ${selectedRating}-star reviews found`
+                            : searchQuery 
+                              ? "No reviews match your search"
+                              : activeTab === "pending"
+                                ? "No pending replies"
+                                : "No reviews yet"}
+                        </p>
+                        <p className="text-sm">
+                          {searchQuery && "Try adjusting your search terms"}
+                        </p>
+                      </div>
+                    ) : (
+                      filteredReviews.map((review) => {
+                        const initials = review.customer_name
+                          ? review.customer_name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+                          : '??';
+                        const rating = review.rating || 0;
+                        const hasResponse = review.has_host_response;
+                        
+                        return (
+                          <Card 
+                            key={review.id} 
+                            className={cn(
+                              "transition-all hover:shadow-md",
+                              !hasResponse && rating > 0 && "border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/10"
+                            )}
+                          >
+                            <CardContent className="p-4">
+                              <div className="flex items-start gap-3">
+                                <Avatar className="h-10 w-10 border-2 border-border shrink-0">
+                                  <AvatarFallback className="bg-gradient-to-br from-primary/20 to-primary/10 text-primary font-semibold text-sm">
+                                    {initials}
+                                  </AvatarFallback>
+                                </Avatar>
+                                
+                                <div className="flex-1 min-w-0 space-y-2">
+                                  {/* Header Row */}
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                                        <h3 className="font-semibold text-base text-foreground">
+                                          {review.customer_name || "Anonymous Guest"}
+                                        </h3>
+                                        {review.vehicle_info && (
+                                          <Badge variant="outline" className="gap-1.5 text-xs">
+                                            <Car className="h-3 w-3" />
+                                            {review.vehicle_info}
+                                          </Badge>
+                                        )}
+                                        {hasResponse && (
+                                          <Badge className="bg-emerald-500/20 text-emerald-700 border-emerald-500/30 gap-1.5 text-xs">
+                                            <CheckCircle2 className="h-3 w-3" />
+                                            Responded
+                                          </Badge>
+                                        )}
+                                        {!hasResponse && rating > 0 && (
+                                          <Badge className="bg-amber-500/20 text-amber-700 border-amber-500/30 gap-1.5 text-xs">
+                                            <Clock className="h-3 w-3" />
+                                            Pending
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      
+                                      <div className="flex items-center gap-2.5 flex-wrap">
+                                        {rating > 0 && (
+                                          <div className={cn(
+                                            "flex items-center gap-1 px-2 py-0.5 rounded-md border text-xs",
+                                            getRatingBgColor(rating)
+                                          )}>
+                                            <div className="flex items-center gap-0.5">
+                                              {Array.from({ length: 5 }).map((_, i) => (
+                                                <Star 
+                                                  key={i} 
+                                                  className={cn(
+                                                    "h-3 w-3",
+                                                    i < rating 
+                                                      ? "fill-yellow-400 text-yellow-400" 
+                                                      : "text-muted-foreground/30"
+                                                  )} 
+                                                />
+                                              ))}
+                                            </div>
+                                            <span className={cn("text-xs font-semibold ml-0.5", getRatingColor(rating))}>
+                                              {rating}.0
+                                            </span>
+                                          </div>
+                                        )}
+                                        {review.date && (
+                                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                            <span>{formatReviewDate(review.date)}</span>
+                                            <span>•</span>
+                                            <span>{formatFullDate(review.date)}</span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Review Text */}
+                                  {review.review_text && (
+                                    <div className="pt-1">
+                                      <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+                                        {review.review_text}
+                                      </p>
+                                    </div>
                                   )}
-                                </div>
-                                <div className="flex items-center gap-2 mt-1">
-                                  {rating > 0 && (
-                                    <div className="flex items-center gap-0.5">
-                                      {Array.from({ length: 5 }).map((_, i) => (
-                                        <Star 
-                                          key={i} 
-                                          className={`h-4 w-4 ${i < rating ? 'fill-rating text-rating' : 'text-muted'}`} 
-                                        />
+                                  
+                                  {/* Areas of Improvement */}
+                                  {review.areas_of_improvement && review.areas_of_improvement.length > 0 && (
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {review.areas_of_improvement.map((area, idx) => (
+                                        <Badge 
+                                          key={idx} 
+                                          variant="outline" 
+                                          className="text-xs bg-muted/50 py-0.5"
+                                        >
+                                          <AlertCircle className="h-2.5 w-2.5 mr-1" />
+                                          {area}
+                                        </Badge>
                                       ))}
                                     </div>
                                   )}
-                                  {review.date && (
-                                    <span className="text-sm text-muted-foreground">
-                                      {formatReviewDate(review.date)}
-                                    </span>
+                                  
+                                  {/* Host Response */}
+                                  {review.host_response && (
+                                    <div className="pt-1 p-3 rounded-lg bg-primary/5 border-l-2 border-primary">
+                                      <div className="flex items-center gap-1.5 mb-1">
+                                        <MessageSquare className="h-3.5 w-3.5 text-primary" />
+                                        <p className="text-xs font-semibold text-primary">Your Response</p>
+                                      </div>
+                                      <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+                                        {review.host_response}
+                                      </p>
+                                    </div>
+                                  )}
+                                  
+                                  {/* Reply Button */}
+                                  {!hasResponse && rating > 0 && (
+                                    <div className="pt-1">
+                                      <Button 
+                                        variant="outline" 
+                                        size="sm" 
+                                        className="gap-1.5 h-8 text-xs hover:bg-primary hover:text-primary-foreground transition-colors"
+                                        onClick={handleReplyClick}
+                                      >
+                                        <MessageSquare className="h-3.5 w-3.5" />
+                                        Reply on Turo
+                                        <ExternalLink className="h-3 w-3" />
+                                      </Button>
+                                    </div>
                                   )}
                                 </div>
-                                {review.review_text && (
-                                  <p className="text-sm text-foreground mt-3">{review.review_text}</p>
-                                )}
-                                
-                                {review.areas_of_improvement && review.areas_of_improvement.length > 0 && (
-                                  <div className="mt-2 flex flex-wrap gap-1">
-                                    {review.areas_of_improvement.map((area, idx) => (
-                                      <Badge key={idx} variant="outline" className="text-xs">
-                                        {area}
-                                      </Badge>
-                                    ))}
-                                  </div>
-                                )}
-                                
-                                {review.host_response && (
-                                  <div className="mt-3 p-3 rounded-lg bg-muted/50 border-l-2 border-primary">
-                                    <p className="text-xs font-medium text-primary mb-1">Your response:</p>
-                                    <p className="text-sm text-muted-foreground">{review.host_response}</p>
-                                  </div>
-                                )}
-                                
-                                {!review.has_host_response && rating > 0 && (
-                                  <div className="mt-3">
-                                    <Button 
-                                      variant="outline" 
-                                      size="sm" 
-                                      className="h-8 gap-2 hover:bg-primary hover:text-primary-foreground transition-colors"
-                                      onClick={handleReplyClick}
-                                    >
-                                      <MessageSquare className="h-4 w-4" />
-                                      Reply on Turo
-                                      <ExternalLink className="h-3 w-3" />
-                                    </Button>
-                                  </div>
-                                )}
                               </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              )}
-              
-              {filteredReviews.length > 0 && offset + limit < totalReviews && (
-                <Button 
-                  variant="outline" 
-                  className="w-full mt-6"
-                  onClick={loadMoreReviews}
-                  disabled={isLoading}
-                >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Loading...
-                    </>
-                  ) : (
-                    `Load More Reviews (${totalReviews - (offset + filteredReviews.length)} remaining)`
-                  )}
-                </Button>
-              )}
-            </CardContent>
-          </Card>
+                            </CardContent>
+                          </Card>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+                
+                {filteredReviews.length > 0 && offset + limit < totalReviews && (
+                  <div className="mt-6">
+                    <Button 
+                      variant="outline" 
+                      className="w-full"
+                      onClick={loadMoreReviews}
+                      disabled={isLoading}
+                    >
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Loading...
+                        </>
+                      ) : (
+                        <>
+                          Load More Reviews
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            ({totalReviews - (offset + filteredReviews.length)} remaining)
+                          </span>
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </div>
     </div>
