@@ -53,7 +53,7 @@ class TuroService {
   }
 
   // Scraping
-  async scrape(scraperType: 'all' | 'vehicles' | 'trips' | 'reviews' | 'earnings', email?: string, password?: string): Promise<{ task_id: string; account_id: number; scraper_type: string }> {
+  async scrape(scraperType: 'all' | 'vehicles' | 'trips' | 'reviews' | 'earnings' | 'transactions', email?: string, password?: string): Promise<{ task_id: string; account_id: number; scraper_type: string }> {
     const response = await apiClient.post<{ task_id: string; account_id: number; scraper_type: string }>(
       `/api/turo/scrape/${scraperType}`,
       email && password ? { email, password } : {}

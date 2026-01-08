@@ -11,6 +11,7 @@ from core.database.models import (
     Review,
     EarningsBreakdown,
     VehicleEarnings,
+    Transaction,
 )
 from core.utils.route_helpers import parse_amount
 
@@ -433,6 +434,140 @@ class DatabaseService:
         return saved_breakdowns, saved_vehicle_earnings
     
     @staticmethod
+    def has_existing_earnings(db: Session, user_id: int) -> bool:
+        """Check if account has existing earnings data."""
+        account = DatabaseService.get_account_by_user_id(db, user_id)
+        if not account:
+            return False
+        
+        has_breakdown = db.query(EarningsBreakdown).filter(
+            EarningsBreakdown.account_id == account.id
+        ).first() is not None
+        
+        has_vehicle_earnings = db.query(VehicleEarnings).filter(
+            VehicleEarnings.account_id == account.id
+        ).first() is not None
+        
+        return has_breakdown or has_vehicle_earnings
+    
+    @staticmethod
+    def has_existing_transactions(db: Session, user_id: int) -> bool:
+        """Check if account has existing transactions data."""
+        account = DatabaseService.get_account_by_user_id(db, user_id)
+        if not account:
+            return False
+        
+        return db.query(Transaction).filter(
+            Transaction.account_id == account.id
+        ).first() is not None
+    
+    @staticmethod
+    def save_transactions(db: Session, account: Account, transactions_data: Dict[str, Any]) -> List[Transaction]:
+        """Save transactions data."""
+        saved_transactions = []
+        
+        if not transactions_data or "transactions" not in transactions_data:
+            return saved_transactions
+        
+        transactions_list = transactions_data.get("transactions", [])
+        
+        logger.info(f"Attempting to save {len(transactions_list)} transactions for account {account.user_id}")
+        
+        for idx, transaction_data in enumerate(transactions_list, 1):
+            logger.debug(f"Processing transaction {idx}/{len(transactions_list)}: {transaction_data.get('type')} | {transaction_data.get('date')} | {transaction_data.get('reservation_id') or 'N/A'}")
+            # Try to find existing transaction by unique combination
+            # Use reservation_id + date + type + year as unique identifier
+            reservation_id = transaction_data.get("reservation_id")
+            date = transaction_data.get("date")
+            transaction_type = transaction_data.get("type")
+            year = transaction_data.get("year")
+            
+            existing_transaction = None
+            
+            # If we have a reservation_id, try to link to a trip
+            trip_id = None
+            vehicle_id = None
+            
+            if reservation_id:
+                # Try to find trip by reservation_id (trip_id in Trip model)
+                trip = db.query(Trip).filter(
+                    Trip.account_id == account.id,
+                    Trip.trip_id == reservation_id
+                ).first()
+                if trip:
+                    trip_id = trip.id
+                    vehicle_id = trip.vehicle_id
+            
+            # If we have vehicle_name but no vehicle_id, try to find vehicle
+            if not vehicle_id and transaction_data.get("vehicle_name"):
+                vehicle = db.query(Vehicle).filter(
+                    Vehicle.account_id == account.id,
+                    Vehicle.name == transaction_data.get("vehicle_name")
+                ).first()
+                if vehicle:
+                    vehicle_id = vehicle.id
+            
+            # Look for existing transaction
+            if reservation_id and date and transaction_type and year:
+                existing_transaction = db.query(Transaction).filter(
+                    Transaction.account_id == account.id,
+                    Transaction.reservation_id == reservation_id,
+                    Transaction.date == date,
+                    Transaction.type == transaction_type,
+                    Transaction.year == year
+                ).first()
+            elif date and transaction_type and year:
+                # For payments without reservation_id, use date + type + year + payment_details
+                existing_transaction = db.query(Transaction).filter(
+                    Transaction.account_id == account.id,
+                    Transaction.date == date,
+                    Transaction.type == transaction_type,
+                    Transaction.year == year,
+                    Transaction.payment_details == transaction_data.get("payment_details")
+                ).first()
+            
+            if not existing_transaction:
+                existing_transaction = Transaction(
+                    account_id=account.id,
+                    trip_id=trip_id,
+                    vehicle_id=vehicle_id,
+                    type=transaction_type,
+                    trip_name=transaction_data.get("trip_name"),
+                    vehicle_name=transaction_data.get("vehicle_name"),
+                    payment_details=transaction_data.get("payment_details"),
+                    reservation_id=reservation_id,
+                    date=date,
+                    year=year,
+                    earnings_amount=transaction_data.get("earnings_amount"),
+                    earnings_amount_numeric=transaction_data.get("earnings_amount_numeric"),
+                    payment_amount=transaction_data.get("payment_amount"),
+                    payment_amount_numeric=transaction_data.get("payment_amount_numeric")
+                )
+                db.add(existing_transaction)
+                logger.info(f"  [{idx}] NEW transaction: {transaction_type} | {transaction_data.get('trip_name') or transaction_data.get('payment_details')} | {date} | {reservation_id or 'N/A'}")
+            else:
+                # Update existing transaction
+                existing_transaction.trip_id = trip_id or existing_transaction.trip_id
+                existing_transaction.vehicle_id = vehicle_id or existing_transaction.vehicle_id
+                existing_transaction.trip_name = transaction_data.get("trip_name") or existing_transaction.trip_name
+                existing_transaction.vehicle_name = transaction_data.get("vehicle_name") or existing_transaction.vehicle_name
+                existing_transaction.payment_details = transaction_data.get("payment_details") or existing_transaction.payment_details
+                existing_transaction.earnings_amount = transaction_data.get("earnings_amount") or existing_transaction.earnings_amount
+                existing_transaction.earnings_amount_numeric = transaction_data.get("earnings_amount_numeric") or existing_transaction.earnings_amount_numeric
+                existing_transaction.payment_amount = transaction_data.get("payment_amount") or existing_transaction.payment_amount
+                existing_transaction.payment_amount_numeric = transaction_data.get("payment_amount_numeric") or existing_transaction.payment_amount_numeric
+                logger.info(f"  [{idx}] UPDATED existing transaction: {transaction_type} | {date} | {reservation_id or 'N/A'}")
+            
+            if DatabaseService._save_entity(db, existing_transaction, f"transaction {reservation_id or date or 'unknown'}"):
+                saved_transactions.append(existing_transaction)
+                logger.debug(f"  [{idx}] ✓ Saved successfully")
+            else:
+                logger.warning(f"  [{idx}] ✗ Failed to save transaction: {transaction_type} | {date} | {reservation_id or 'N/A'}")
+        
+        logger.info(f"Saved {len(saved_transactions)} transactions for account {account.user_id}")
+        return saved_transactions
+    
+    @staticmethod
     def save_scraped_data(db: Session, user_id: int, email: str, scraped_data: Dict[str, Any]) -> bool:
         """Save all scraped data to database."""
         try:
@@ -449,6 +584,9 @@ class DatabaseService:
             
             if "earnings" in scraped_data:
                 DatabaseService.save_earnings(db, account, scraped_data["earnings"])
+            
+            if "transactions" in scraped_data:
+                DatabaseService.save_transactions(db, account, scraped_data["transactions"])
             
             logger.info(f"Successfully saved all scraped data for user {user_id}")
             return True

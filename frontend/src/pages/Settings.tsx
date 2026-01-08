@@ -492,7 +492,7 @@ const Settings = () => {
     }
   };
 
-  const handleScrapeTuro = async (scraperType: 'trips' | 'earnings' | 'vehicles') => {
+  const handleScrapeTuro = async (scraperType: 'trips' | 'earnings' | 'vehicles' | 'transactions') => {
     if (!turoStatus?.connected) {
       toast({
         title: "Not Connected",
@@ -1268,6 +1268,25 @@ const Settings = () => {
                                   <>
                                     <Car className="mr-2 h-4 w-4" />
                                     Scrape Vehicles
+                                  </>
+                                )}
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleScrapeTuro('transactions')}
+                                disabled={!!turoScraping.taskId}
+                                className="w-full justify-start"
+                              >
+                                {turoScraping.type === 'transactions' && turoScraping.taskId ? (
+                                  <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Scraping Transactions...
+                                  </>
+                                ) : (
+                                  <>
+                                    <DollarSign className="mr-2 h-4 w-4" />
+                                    Scrape Transactions
                                   </>
                                 )}
                               </Button>

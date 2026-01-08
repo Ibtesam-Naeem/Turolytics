@@ -47,6 +47,7 @@ class Account(Base):
     reviews = relationship("Review", back_populates="account", cascade="all, delete-orphan")
     earnings_breakdowns = relationship("EarningsBreakdown", back_populates="account", cascade="all, delete-orphan")
     vehicle_earnings = relationship("VehicleEarnings", back_populates="account", cascade="all, delete-orphan")
+    transactions = relationship("Transaction", back_populates="account", cascade="all, delete-orphan")
     vehicle_utilization_history = relationship("VehicleUtilizationHistory", back_populates="account", cascade="all, delete-orphan")
     vehicle_odometer_history = relationship("VehicleOdometerHistory", back_populates="account", cascade="all, delete-orphan")
     session_storage = relationship("SessionStorage", back_populates="account", uselist=False, cascade="all, delete-orphan")

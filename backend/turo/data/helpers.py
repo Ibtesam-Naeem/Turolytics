@@ -7,7 +7,7 @@ from typing import Optional, List, Any, Union, Dict, Callable, Awaitable
 from playwright.async_api import Page, ElementHandle, Frame
 import logging
 
-from core.config.settings import TIMEOUT_IFRAME, TIMEOUT_SELECTOR_WAIT, DELAY_LONG, DELAY_SHORT
+from core.config.settings import TIMEOUT_IFRAME, TIMEOUT_SELECTOR_WAIT, DELAY_LONG, DELAY_SHORT, DELAY_MEDIUM
 
 logger = logging.getLogger(__name__)
 
@@ -286,9 +286,17 @@ async def select_earnings_year(page: Page, year: str) -> bool:
             logger.error(f"Could not find year dropdown button")
             return False
         
-        # Scroll into view and click
+        # Ensure button is in view and ready
         await dropdown_button.scroll_into_view_if_needed()
         await page.wait_for_timeout(DELAY_SHORT)
+        
+        # Verify button is actually visible and clickable
+        is_visible = await dropdown_button.is_visible()
+        if not is_visible:
+            logger.error("Dropdown button is not visible")
+            return False
+        
+        logger.debug("Clicking dropdown button...")
         await dropdown_button.click(force=True)
         await page.wait_for_timeout(DELAY_MEDIUM)
         

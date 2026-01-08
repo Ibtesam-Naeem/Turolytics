@@ -208,6 +208,38 @@ EARNINGS_YEAR_DROPDOWN_MENU = '.css-rx670o-Dropdown-Menu'
 EARNINGS_YEAR_DROPDOWN_ITEM = '[data-testid="dropdown-item"]'
 EARNINGS_YEAR_DROPDOWN_LABEL = '.css-iiw7vn-DropdownButtonLabel'
 
+# Transactions page year select (it's a <select> element, not a dropdown)
+TRANSACTIONS_YEAR_SELECT = 'select#earningsTableYearFilter'
+TRANSACTIONS_YEAR_SELECT_OPTION = 'select#earningsTableYearFilter option'
+
+# ------------------------------ TRANSACTIONS SELECTORS ------------------------------
+
+TRANSACTIONS_URL = "https://turo.com/us/en/earnings"
+TRANSACTION_HISTORY_LINK = 'li.earningsResources-listItem a[href="/us/en/earnings"]'
+TRANSACTION_HISTORY_LINK_TEXT = 'span.earningsResources-link:has-text("Transaction history"), span.css-u3ehcp-StyledText:has-text("Transaction history")'
+
+# Transaction table selectors
+TRANSACTIONS_TABLE_CONTAINER = '.css-1o66zyy-earningsTableStyles'
+TRANSACTIONS_TABLE_SCROLLABLE = '.css-1o66zyy-earningsTableStyles > div[style*="overflow: auto"]'
+TRANSACTIONS_TABLE_ROW = '[data-testid="earningsTableDesktop-row"]'
+
+# Transaction row cell selectors
+TRANSACTION_TYPE_CELL = '.e1p6hp1s5.css-qgt3bj-TD-TypeCell'
+TRANSACTION_RESERVATION_CELL = '.e1p6hp1s4.css-vxxe06-TD-ReservationCell'
+TRANSACTION_DATE_CELL = '.e1p6hp1s3.css-hs1krk-TD-DateCell'
+TRANSACTION_EARNINGS_CELL = '[data-testid="earningsTableDesktop-earningsCell"]'
+TRANSACTION_PAYMENT_CELL = '[data-testid="earningsTableDesktop-paymentCell"]'
+
+# Transaction type content selectors
+TRANSACTION_TRIP_LINK = 'a.e1p6hp1s0.css-1r8iimq-StyledText-DescriptionLink'
+TRANSACTION_TRIP_VEHICLE = 'p.ejw37iq0.css-1bhh7id-StyledText-TrimText'
+TRANSACTION_PAYMENT_TYPE = 'p.css-1s9awq7-StyledText'
+TRANSACTION_PAYMENT_DETAILS = 'p.ejw37iq0.css-1bhh7id-StyledText-TrimText'
+
+# Transaction amount selectors
+TRANSACTION_EARNINGS_AMOUNT = 'span'
+TRANSACTION_PAYMENT_AMOUNT = 'span'
+
 # ------------------------------ HELPER FUNCTIONS ------------------------------
 
 def contains_month_name(text: str | None) -> bool:

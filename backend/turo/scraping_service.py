@@ -15,6 +15,7 @@ from turo.data.vehicles import scrape_vehicle_listings
 from turo.data.trips import scrape_all_trips
 from turo.data.earnings import scrape_earnings_data
 from turo.data.ratings import scrape_ratings_data
+from turo.data.transactions import scrape_transactions_data
 
 
 # ------------------------------ LOGGING ------------------------------
@@ -32,6 +33,7 @@ class ScrapingType(Enum):
     TRIPS = "trips"
     EARNINGS = "earnings"
     REVIEWS = "reviews"
+    TRANSACTIONS = "transactions"
     ALL = "all"
 
 # ------------------------------ SCRAPING SERVICE ------------------------------
@@ -45,10 +47,12 @@ class ScrapingService:
             ScrapingType.TRIPS: scrape_all_trips,
             ScrapingType.EARNINGS: scrape_earnings_data,
             ScrapingType.REVIEWS: scrape_ratings_data,
+            ScrapingType.TRANSACTIONS: scrape_transactions_data,
         }
         self._semaphore = asyncio.Semaphore(settings.scraping.max_concurrent_tasks)
         self._background_tasks: set = set()
-        self._all_scraper_types = list(self._scrapers.keys())
+        # Exclude ALL from the list of scraper types to run
+        self._all_scraper_types = [st for st in self._scrapers.keys() if st != ScrapingType.ALL]
     
     async def _execute_scraping_session(self, scrapers: Sequence[ScrapingType], user_id: int, task_id: str, email: str = None, password: str = None) -> Dict[str, Any]:
         """Execute a scraping session with multiple scrapers."""
@@ -84,15 +88,20 @@ class ScrapingService:
                 page, context, browser = login_result
                 self._update_task_status(task_id, TaskStatus.RUNNING, "Login successful, starting scraping...", scraper_types=[t.value for t in scrapers])
                 
-                # Check if this is an initial scrape for earnings
+                # Check if this is an initial scrape for earnings and transactions
                 db_check = SessionLocal()
                 try:
                     is_initial_earnings_scrape = not DatabaseService.has_existing_earnings(db_check, user_id)
                     if is_initial_earnings_scrape:
                         logger.info("Initial earnings scrape detected - will scrape multiple years")
+                    
+                    is_initial_transactions_scrape = not DatabaseService.has_existing_transactions(db_check, user_id)
+                    if is_initial_transactions_scrape:
+                        logger.info("Initial transactions scrape detected - will scrape all years")
                 except Exception as e:
-                    logger.warning(f"Error checking existing earnings: {e}. Assuming regular scrape.")
+                    logger.warning(f"Error checking existing earnings/transactions: {e}. Assuming regular scrape.")
                     is_initial_earnings_scrape = False
+                    is_initial_transactions_scrape = False
                 finally:
                     db_check.close()
                 
@@ -107,6 +116,8 @@ class ScrapingService:
                             data = await scraper_func(page, existing_customer_ids=existing_customer_ids)
                         elif scraper_type == ScrapingType.EARNINGS:
                             data = await scraper_func(page, is_initial_scrape=is_initial_earnings_scrape)
+                        elif scraper_type == ScrapingType.TRANSACTIONS:
+                            data = await scraper_func(page, is_initial_scrape=is_initial_transactions_scrape)
                         else:
                             data = await scraper_func(page)
                         
@@ -228,6 +239,10 @@ class ScrapingService:
     async def scrape_earnings(self, user_id: int, email: str = None, password: str = None) -> str:
         """Scrape earnings only."""
         return await self._scrape(ScrapingType.EARNINGS, user_id, email, password)
+    
+    async def scrape_transactions(self, user_id: int, email: str = None, password: str = None) -> str:
+        """Scrape transactions only."""
+        return await self._scrape(ScrapingType.TRANSACTIONS, user_id, email, password)
     
     # ------------------------------ TASK MANAGEMENT ------------------------------
     
