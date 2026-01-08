@@ -1,4 +1,4 @@
-import { User as UserIcon, Bell, Shield, CreditCard, Car, Globe, DollarSign, Key, Trash2, Monitor, Link as LinkIcon, Building2, Check, Lock, Sparkles, Search, Loader2, RefreshCw, AlertCircle, Phone, MapPin } from "lucide-react";
+import { User as UserIcon, Bell, Shield, CreditCard, Car, Globe, DollarSign, Key, Trash2, Monitor, Link as LinkIcon, Building2, Check, Lock, Sparkles, Search, Loader2, RefreshCw, AlertCircle, Phone, MapPin, Route, Activity, Wifi, WifiOff, CheckCircle2, XCircle, Clock, Radio, Zap, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -13,13 +13,15 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
 import { bouncieService, BouncieIntegrationStatus } from "@/services/bouncie-service";
 import { turoService, TuroIntegrationStatus } from "@/services/turo-service";
-import { authService, User } from "@/services/auth-service";
+import { authService, User, UserSession } from "@/services/auth-service";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useRegionalSettings } from "@/contexts/RegionalSettingsContext";
+import { formatRelativeTime, getConnectionHealth } from "@/lib/utils";
+import { apiClient } from "@/lib/api-client";
 
 const countries = [
   { code: "US", name: "United States" },
@@ -80,17 +82,26 @@ const Settings = () => {
   const [bouncieLoading, setBouncieLoading] = useState(true);
   const [bouncieConnecting, setBouncieConnecting] = useState(false);
   const [bouncieDisconnecting, setBouncieDisconnecting] = useState(false);
+  const [bouncieDeletingData, setBouncieDeletingData] = useState(false);
+  const [bouncieDeleteDataDialogOpen, setBouncieDeleteDataDialogOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [turoStatus, setTuroStatus] = useState<TuroIntegrationStatus | null>(null);
   const [turoLoading, setTuroLoading] = useState(true);
   const [turoConnecting, setTuroConnecting] = useState(false);
   const [turoDisconnecting, setTuroDisconnecting] = useState(false);
+  const [turoDeletingData, setTuroDeletingData] = useState(false);
+  const [turoDeleteDataDialogOpen, setTuroDeleteDataDialogOpen] = useState(false);
   const [turoConnectDialogOpen, setTuroConnectDialogOpen] = useState(false);
   const [turo2FADialogOpen, setTuro2FADialogOpen] = useState(false);
   const [turoCredentials, setTuroCredentials] = useState({ email: "", password: "" });
   const [turo2FACode, setTuro2FACode] = useState("");
   const [turoSessionId, setTuroSessionId] = useState<string | null>(null);
+  const [turoScraping, setTuroScraping] = useState<{ type: string; taskId: string | null }>({ type: '', taskId: null });
+  const [turoScrapingStatus, setTuroScrapingStatus] = useState<string>('');
   const [bankingConnected, setBankingConnected] = useState(false);
+  // Usage stats
+  const [bouncieStats, setBouncieStats] = useState<{ vehicleMappings: number; loading: boolean }>({ vehicleMappings: 0, loading: false });
+  const [turoStats, setTuroStats] = useState<{ vehicles: number; trips: number; loading: boolean }>({ vehicles: 0, trips: 0, loading: false });
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
   const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
@@ -108,6 +119,9 @@ const Settings = () => {
     country: "",
     state: "",
   });
+  const [sessions, setSessions] = useState<UserSession[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [revokingSessionId, setRevokingSessionId] = useState<number | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -139,12 +153,28 @@ const Settings = () => {
       setBouncieLoading(true);
       const status = await bouncieService.getIntegrationStatus();
       setBouncieStatus(status);
+      
+      // Load usage stats if connected
+      if (status.connected) {
+        loadBouncieStats();
+      }
     } catch (error) {
       console.error('Failed to load Bouncie status:', error);
       // Set default status if API call fails (backend might not be running)
       setBouncieStatus({ connected: false, message: 'Unable to check status' });
     } finally {
       setBouncieLoading(false);
+    }
+  };
+
+  const loadBouncieStats = async () => {
+    try {
+      setBouncieStats(prev => ({ ...prev, loading: true }));
+      const mappings = await bouncieService.getVehicleMappings(1, 0);
+      setBouncieStats({ vehicleMappings: mappings.total, loading: false });
+    } catch (error) {
+      console.error('Failed to load Bouncie stats:', error);
+      setBouncieStats(prev => ({ ...prev, loading: false }));
     }
   };
 
@@ -210,6 +240,88 @@ const Settings = () => {
     loadUser();
   }, [toast]);
 
+  // Load sessions on mount
+  useEffect(() => {
+    const loadSessions = async () => {
+      try {
+        setSessionsLoading(true);
+        const sessionsData = await authService.getSessions();
+        setSessions(sessionsData);
+      } catch (error) {
+        console.error('Failed to load sessions:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load active sessions.",
+          variant: "destructive",
+        });
+      } finally {
+        setSessionsLoading(false);
+      }
+    };
+    loadSessions();
+  }, [toast]);
+
+  const handleRevokeSession = async (sessionId: number) => {
+    if (!confirm('Are you sure you want to revoke this session? The user will be logged out from that device.')) {
+      return;
+    }
+
+    try {
+      setRevokingSessionId(sessionId);
+      await authService.revokeSession(sessionId);
+      toast({
+        title: "Session Revoked",
+        description: "The session has been successfully revoked.",
+      });
+      // Reload sessions
+      const sessionsData = await authService.getSessions();
+      setSessions(sessionsData);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to revoke session.",
+        variant: "destructive",
+      });
+    } finally {
+      setRevokingSessionId(null);
+    }
+  };
+
+  const formatSessionInfo = (session: UserSession): string => {
+    const parts: string[] = [];
+    if (session.browser && session.browser !== "Unknown") {
+      parts.push(session.browser);
+    }
+    if (session.os && session.os !== "Unknown") {
+      parts.push(`on ${session.os}`);
+    }
+    if (session.location) {
+      parts.push(`• ${session.location}`);
+    }
+    return parts.length > 0 ? parts.join(" ") : "Unknown device";
+  };
+
+  const formatSessionTime = (dateString: string): string => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) {
+      return "Just now";
+    } else if (diffMins < 60) {
+      return `${diffMins} ${diffMins === 1 ? "minute" : "minutes"} ago`;
+    } else if (diffHours < 24) {
+      return `${diffHours} ${diffHours === 1 ? "hour" : "hours"} ago`;
+    } else if (diffDays < 7) {
+      return `${diffDays} ${diffDays === 1 ? "day" : "days"} ago`;
+    } else {
+      return date.toLocaleDateString();
+    }
+  };
+
   const handleUpdateProfile = async () => {
     try {
       setEditProfileLoading(true);
@@ -245,11 +357,33 @@ const Settings = () => {
       setTuroLoading(true);
       const status = await turoService.getIntegrationStatus();
       setTuroStatus(status);
+      
+      // Load usage stats if connected
+      if (status.connected) {
+        loadTuroStats();
+      }
     } catch (error) {
       console.error('Failed to load Turo status:', error);
       setTuroStatus({ connected: false, message: 'Unable to check status' });
     } finally {
       setTuroLoading(false);
+    }
+  };
+
+  const loadTuroStats = async () => {
+    try {
+      setTuroStats(prev => ({ ...prev, loading: true }));
+      const vehiclesResponse = await apiClient.get<{ success: boolean; data: { vehicles: any[]; total: number } }>('/api/turo/data/vehicles?limit=1');
+      const tripsResponse = await apiClient.get<{ success: boolean; data: { trips: any[]; total: number } }>('/api/turo/data/trips?limit=1');
+      
+      setTuroStats({
+        vehicles: vehiclesResponse.data?.total || 0,
+        trips: tripsResponse.data?.total || 0,
+        loading: false
+      });
+    } catch (error) {
+      console.error('Failed to load Turo stats:', error);
+      setTuroStats(prev => ({ ...prev, loading: false }));
     }
   };
 
@@ -358,6 +492,76 @@ const Settings = () => {
     }
   };
 
+  const handleScrapeTuro = async (scraperType: 'trips' | 'earnings' | 'vehicles') => {
+    if (!turoStatus?.connected) {
+      toast({
+        title: "Not Connected",
+        description: "Please connect your Turo account first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setTuroScraping({ type: scraperType, taskId: null });
+      setTuroScrapingStatus('Starting...');
+      
+      const result = await turoService.scrape(scraperType);
+      setTuroScraping({ type: scraperType, taskId: result.task_id });
+      setTuroScrapingStatus('Running...');
+      
+      toast({
+        title: "Scraping Started",
+        description: `Started scraping ${scraperType}. Task ID: ${result.task_id.substring(0, 8)}...`,
+      });
+
+      // Poll for status
+      const checkStatus = async () => {
+        if (!result.task_id) return;
+        
+        try {
+          const status = await turoService.getScrapeStatus(result.task_id);
+          setTuroScrapingStatus(status.status || 'Running...');
+          
+          if (status.status === 'completed') {
+            setTuroScraping({ type: '', taskId: null });
+            setTuroScrapingStatus('');
+            toast({
+              title: "Scraping Complete",
+              description: `Successfully scraped ${scraperType} data.`,
+            });
+          } else if (status.status === 'failed') {
+            setTuroScraping({ type: '', taskId: null });
+            setTuroScrapingStatus('');
+            toast({
+              title: "Scraping Failed",
+              description: status.message || `Failed to scrape ${scraperType}.`,
+              variant: "destructive",
+            });
+          } else {
+            // Still running, check again in 2 seconds
+            setTimeout(checkStatus, 2000);
+          }
+        } catch (error) {
+          console.error('Error checking scrape status:', error);
+          // Continue polling even on error
+          setTimeout(checkStatus, 2000);
+        }
+      };
+
+      // Start polling after a short delay
+      setTimeout(checkStatus, 2000);
+    } catch (error) {
+      setTuroScraping({ type: '', taskId: null });
+      setTuroScrapingStatus('');
+      toast({
+        title: "Scraping Failed",
+        description: error instanceof Error ? error.message : `Failed to start scraping ${scraperType}.`,
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleDeleteAccountContinue = () => {
     if (!deletionReason.trim()) {
       toast({
@@ -455,6 +659,48 @@ const Settings = () => {
       });
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleDeleteBouncieData = async () => {
+    try {
+      setBouncieDeletingData(true);
+      await bouncieService.deleteAllData();
+      toast({
+        title: "Data Deleted",
+        description: "All Bouncie data has been successfully deleted.",
+      });
+      setBouncieDeleteDataDialogOpen(false);
+      await loadBouncieStatus();
+    } catch (error) {
+      toast({
+        title: "Deletion Failed",
+        description: error instanceof Error ? error.message : "Failed to delete Bouncie data.",
+        variant: "destructive",
+      });
+    } finally {
+      setBouncieDeletingData(false);
+    }
+  };
+
+  const handleDeleteTuroData = async () => {
+    try {
+      setTuroDeletingData(true);
+      await turoService.deleteAllData();
+      toast({
+        title: "Data Deleted",
+        description: "All Turo data has been successfully deleted.",
+      });
+      setTuroDeleteDataDialogOpen(false);
+      await loadTuroStatus();
+    } catch (error) {
+      toast({
+        title: "Deletion Failed",
+        description: error instanceof Error ? error.message : "Failed to delete Turo data.",
+        variant: "destructive",
+      });
+    } finally {
+      setTuroDeletingData(false);
     }
   };
 
@@ -606,11 +852,21 @@ const Settings = () => {
             <div className="grid gap-6 lg:grid-cols-2">
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Car className="h-5 w-5" />
-                    Bouncie Integration
-                  </CardTitle>
-                  <CardDescription>Connect GPS tracking for real-time vehicle data</CardDescription>
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-primary/10">
+                        <Radio className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <CardTitle className="flex items-center gap-2">
+                          Bouncie Integration
+                        </CardTitle>
+                        <CardDescription className="mt-1">
+                          GPS tracking for real-time vehicle location, fuel levels, engine diagnostics, and trip matching
+                        </CardDescription>
+                      </div>
+                    </div>
+                  </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {bouncieLoading ? (
@@ -620,41 +876,126 @@ const Settings = () => {
                     </div>
                   ) : (
                     <>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <Label>Status</Label>
-                          <div className="mt-1 flex items-center gap-2">
-                            <Badge variant={bouncieConnected ? "default" : "secondary"}>
-                              {bouncieConnected ? "Connected" : "Not Connected"}
-                            </Badge>
+                      {/* Status and Health Indicators */}
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <Label>Connection Status</Label>
+                          <div className="flex items-center gap-2">
+                            {bouncieConnected ? (
+                              <Badge variant="default" className="gap-1">
+                                <CheckCircle2 className="h-3 w-3" />
+                                Connected
+                              </Badge>
+                            ) : (
+                              <Badge variant="secondary" className="gap-1">
+                                <XCircle className="h-3 w-3" />
+                                Not Connected
+                              </Badge>
+                            )}
                             {bouncieConnected && bouncieStatus?.expired && (
-                              <Badge variant="destructive">Expired</Badge>
+                              <Badge variant="destructive" className="gap-1">
+                                <AlertCircle className="h-3 w-3" />
+                                Expired
+                              </Badge>
                             )}
                           </div>
                         </div>
-                      </div>
-                      
-                      {bouncieConnected && bouncieStatus && (
-                        <div className="space-y-2 rounded-lg bg-muted p-3">
-                          {bouncieStatus.bouncie_user_email && (
-                            <div>
-                              <p className="text-sm font-medium">Connected Account</p>
-                              <p className="text-sm text-muted-foreground">{bouncieStatus.bouncie_user_email}</p>
-                            </div>
-                          )}
-                          {bouncieStatus.expires_at && (
-                            <div>
-                              <p className="text-sm font-medium">Expires</p>
-                              <p className="text-sm text-muted-foreground">
-                                {new Date(bouncieStatus.expires_at).toLocaleDateString()}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      )}
 
+                        {bouncieConnected && bouncieStatus && (
+                          <>
+                            {/* Connection Health */}
+                            {bouncieStatus.updated_at && (
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-muted-foreground flex items-center gap-1">
+                                  <Activity className="h-3 w-3" />
+                                  Last Sync
+                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium">
+                                    {formatRelativeTime(bouncieStatus.updated_at)}
+                                  </span>
+                                  {(() => {
+                                    const health = getConnectionHealth(bouncieStatus.updated_at);
+                                    return (
+                                      <Badge 
+                                        variant={
+                                          health.status === 'excellent' ? 'default' :
+                                          health.status === 'good' ? 'secondary' :
+                                          health.status === 'warning' ? 'outline' : 'destructive'
+                                        }
+                                        className="text-xs"
+                                      >
+                                        {health.label}
+                                      </Badge>
+                                    );
+                                  })()}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Usage Stats */}
+                            {bouncieStats.loading ? (
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                Loading stats...
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-2 gap-3 rounded-lg bg-muted/50 p-3">
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Vehicles Tracked</p>
+                                  <p className="text-lg font-semibold flex items-center gap-1">
+                                    <Car className="h-4 w-4 text-primary" />
+                                    {bouncieStats.vehicleMappings}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Sync Frequency</p>
+                                  <p className="text-lg font-semibold flex items-center gap-1">
+                                    <Zap className="h-4 w-4 text-primary" />
+                                    Real-time
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Account Info */}
+                            <div className="space-y-2 rounded-lg bg-muted p-3">
+                              {bouncieStatus.bouncie_user_email && (
+                                <div className="flex items-center justify-between">
+                                  <span className="text-sm text-muted-foreground">Connected Account</span>
+                                  <span className="text-sm font-medium">{bouncieStatus.bouncie_user_email}</span>
+                                </div>
+                              )}
+                              {bouncieStatus.expires_at && (
+                                <div className="flex items-center justify-between">
+                                  <span className="text-sm text-muted-foreground flex items-center gap-1">
+                                    <Clock className="h-3 w-3" />
+                                    Token Expires
+                                  </span>
+                                  <span className="text-sm font-medium">
+                                    {new Date(bouncieStatus.expires_at).toLocaleDateString()}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        )}
+
+                        {/* Error State */}
+                        {bouncieStatus?.message && bouncieStatus.message !== 'No Bouncie integration found for this account' && (
+                          <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-3">
+                            <div className="flex items-center gap-2 text-sm text-destructive">
+                              <AlertCircle className="h-4 w-4" />
+                              <span className="font-medium">Connection Issue</span>
+                            </div>
+                            <p className="text-xs text-destructive/80 mt-1">{bouncieStatus.message}</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Actions */}
                       {bouncieConnected && (
-                        <div className="space-y-2">
+                        <div className="space-y-2 pt-2 border-t">
                           <Button 
                             variant="outline" 
                             onClick={handleSyncMatches}
@@ -672,6 +1013,15 @@ const Settings = () => {
                                 Sync Trip Matches
                               </>
                             )}
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            onClick={() => setBouncieDeleteDataDialogOpen(true)}
+                            disabled={bouncieDeletingData}
+                            className="w-full text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete All Data
                           </Button>
                         </div>
                       )}
@@ -693,9 +1043,15 @@ const Settings = () => {
                             Disconnecting...
                           </>
                         ) : bouncieConnected ? (
-                          "Disconnect"
+                          <>
+                            <WifiOff className="mr-2 h-4 w-4" />
+                            Disconnect
+                          </>
                         ) : (
-                          "Connect Bouncie"
+                          <>
+                            <Wifi className="mr-2 h-4 w-4" />
+                            Connect Bouncie
+                          </>
                         )}
                       </Button>
                     </>
@@ -705,11 +1061,21 @@ const Settings = () => {
 
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <LinkIcon className="h-5 w-5" />
-                    Turo Account
-                  </CardTitle>
-                  <CardDescription>Sync bookings and guest information automatically</CardDescription>
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-primary/10">
+                        <LinkIcon className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <CardTitle className="flex items-center gap-2">
+                          Turo Account
+                        </CardTitle>
+                        <CardDescription className="mt-1">
+                          Automatically sync bookings, trips, earnings, vehicles, and guest reviews from your Turo account
+                        </CardDescription>
+                      </div>
+                    </div>
+                  </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {turoLoading ? (
@@ -719,26 +1085,215 @@ const Settings = () => {
                     </div>
                   ) : (
                     <>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <Label>Status</Label>
-                          <div className="mt-1">
-                            <Badge variant={turoStatus?.connected ? "default" : "secondary"}>
-                              {turoStatus?.connected ? "Connected" : "Not Connected"}
-                            </Badge>
+                      {/* Status and Health Indicators */}
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <Label>Connection Status</Label>
+                          <div className="flex items-center gap-2">
+                            {turoStatus?.connected ? (
+                              <Badge variant="default" className="gap-1">
+                                <CheckCircle2 className="h-3 w-3" />
+                                Connected
+                              </Badge>
+                            ) : (
+                              <Badge variant="secondary" className="gap-1">
+                                <XCircle className="h-3 w-3" />
+                                Not Connected
+                              </Badge>
+                            )}
+                            {turoStatus?.connected && !turoStatus?.has_active_session && (
+                              <Badge variant="outline" className="gap-1">
+                                <AlertCircle className="h-3 w-3" />
+                                Session Expired
+                              </Badge>
+                            )}
                           </div>
                         </div>
+
+                        {turoStatus?.connected && (
+                          <>
+                            {/* Connection Health */}
+                            {turoStatus.updated_at && (
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-muted-foreground flex items-center gap-1">
+                                  <Activity className="h-3 w-3" />
+                                  Last Sync
+                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium">
+                                    {formatRelativeTime(turoStatus.updated_at)}
+                                  </span>
+                                  {(() => {
+                                    const health = getConnectionHealth(turoStatus.updated_at);
+                                    return (
+                                      <Badge 
+                                        variant={
+                                          health.status === 'excellent' ? 'default' :
+                                          health.status === 'good' ? 'secondary' :
+                                          health.status === 'warning' ? 'outline' : 'destructive'
+                                        }
+                                        className="text-xs"
+                                      >
+                                        {health.label}
+                                      </Badge>
+                                    );
+                                  })()}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Usage Stats */}
+                            {turoStats.loading ? (
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                Loading stats...
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-2 gap-3 rounded-lg bg-muted/50 p-3">
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Vehicles</p>
+                                  <p className="text-lg font-semibold flex items-center gap-1">
+                                    <Car className="h-4 w-4 text-primary" />
+                                    {turoStats.vehicles}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Total Trips</p>
+                                  <p className="text-lg font-semibold flex items-center gap-1">
+                                    <Route className="h-4 w-4 text-primary" />
+                                    {turoStats.trips}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Account Info */}
+                            {turoStatus.email && (
+                              <div className="rounded-lg bg-muted p-3">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-sm text-muted-foreground">Connected Account</span>
+                                  <span className="text-sm font-medium">{turoStatus.email}</span>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Error State */}
+                            {!turoStatus.has_active_session && turoStatus.connected && (
+                              <div className="rounded-lg bg-warning/10 border border-warning/20 p-3">
+                                <div className="flex items-center gap-2 text-sm text-warning">
+                                  <AlertCircle className="h-4 w-4" />
+                                  <span className="font-medium">Session Expired</span>
+                                </div>
+                                <p className="text-xs text-warning/80 mt-1">
+                                  Please reconnect to refresh your session
+                                </p>
+                              </div>
+                            )}
+                          </>
+                        )}
+
+                        {/* Error State for connection issues */}
+                        {turoStatus?.message && turoStatus.message !== 'No Turo integration found for this account' && (
+                          <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-3">
+                            <div className="flex items-center gap-2 text-sm text-destructive">
+                              <AlertCircle className="h-4 w-4" />
+                              <span className="font-medium">Connection Issue</span>
+                            </div>
+                            <p className="text-xs text-destructive/80 mt-1">{turoStatus.message}</p>
+                          </div>
+                        )}
                       </div>
-                      {turoStatus?.connected && turoStatus.email && (
-                        <div className="space-y-2 rounded-lg bg-muted p-3">
-                          <p className="text-sm font-medium">Connected Account</p>
-                          <p className="text-sm text-muted-foreground">{turoStatus.email}</p>
-                        </div>
+
+                      {/* Actions */}
+                      {turoStatus?.connected && (
+                        <>
+                          <Separator />
+                          <div className="space-y-2">
+                            <Label>Test Scraping</Label>
+                            <p className="text-xs text-muted-foreground">
+                              Scrape individual data types for testing purposes
+                            </p>
+                            <div className="grid grid-cols-1 gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleScrapeTuro('trips')}
+                                disabled={!!turoScraping.taskId}
+                                className="w-full justify-start"
+                              >
+                                {turoScraping.type === 'trips' && turoScraping.taskId ? (
+                                  <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Scraping Trips...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Route className="mr-2 h-4 w-4" />
+                                    Scrape Trips
+                                  </>
+                                )}
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleScrapeTuro('earnings')}
+                                disabled={!!turoScraping.taskId}
+                                className="w-full justify-start"
+                              >
+                                {turoScraping.type === 'earnings' && turoScraping.taskId ? (
+                                  <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Scraping Earnings...
+                                  </>
+                                ) : (
+                                  <>
+                                    <DollarSign className="mr-2 h-4 w-4" />
+                                    Scrape Earnings
+                                  </>
+                                )}
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleScrapeTuro('vehicles')}
+                                disabled={!!turoScraping.taskId}
+                                className="w-full justify-start"
+                              >
+                                {turoScraping.type === 'vehicles' && turoScraping.taskId ? (
+                                  <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Scraping Vehicles...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Car className="mr-2 h-4 w-4" />
+                                    Scrape Vehicles
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                            {turoScrapingStatus && (
+                              <p className="text-xs text-muted-foreground">
+                                Status: {turoScrapingStatus}
+                              </p>
+                            )}
+                          </div>
+                          <Separator />
+                          <Button 
+                            variant="outline" 
+                            onClick={() => setTuroDeleteDataDialogOpen(true)}
+                            disabled={turoDeletingData || !!turoScraping.taskId}
+                            className="w-full text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete All Data
+                          </Button>
+                        </>
                       )}
                       <Button 
                         variant={turoStatus?.connected ? "outline" : "default"}
                         onClick={turoStatus?.connected ? handleDisconnectTuro : () => setTuroConnectDialogOpen(true)}
-                        disabled={turoConnecting || turoDisconnecting}
+                        disabled={turoConnecting || turoDisconnecting || !!turoScraping.taskId}
                         className="w-full"
                       >
                         {turoConnecting ? (
@@ -752,9 +1307,15 @@ const Settings = () => {
                             Disconnecting...
                           </>
                         ) : turoStatus?.connected ? (
-                          "Disconnect"
+                          <>
+                            <WifiOff className="mr-2 h-4 w-4" />
+                            Disconnect
+                          </>
                         ) : (
-                          "Connect Turo"
+                          <>
+                            <Wifi className="mr-2 h-4 w-4" />
+                            Connect Turo
+                          </>
                         )}
                       </Button>
                     </>
@@ -869,37 +1430,174 @@ const Settings = () => {
                 </DialogContent>
               </Dialog>
 
+              {/* Turo Delete Data Dialog */}
+              <Dialog open={turoDeleteDataDialogOpen} onOpenChange={setTuroDeleteDataDialogOpen}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2 text-destructive">
+                      <AlertCircle className="h-5 w-5" />
+                      Delete All Turo Data
+                    </DialogTitle>
+                    <DialogDescription>
+                      This action will permanently delete all Turo-related data from your account, including:
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-2 py-4">
+                    <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground ml-4">
+                      <li>All trips and trip history</li>
+                      <li>All vehicles</li>
+                      <li>All reviews</li>
+                      <li>All earnings data</li>
+                      <li>Session storage</li>
+                      <li>Integration credentials</li>
+                    </ul>
+                    <p className="text-sm font-medium text-destructive mt-4">
+                      This action cannot be undone. Are you sure you want to continue?
+                    </p>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setTuroDeleteDataDialogOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button 
+                      variant="destructive" 
+                      onClick={handleDeleteTuroData} 
+                      disabled={turoDeletingData}
+                    >
+                      {turoDeletingData ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Deleting...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Delete All Data
+                        </>
+                      )}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              {/* Bouncie Delete Data Dialog */}
+              <Dialog open={bouncieDeleteDataDialogOpen} onOpenChange={setBouncieDeleteDataDialogOpen}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2 text-destructive">
+                      <AlertCircle className="h-5 w-5" />
+                      Delete All Bouncie Data
+                    </DialogTitle>
+                    <DialogDescription>
+                      This action will permanently delete all Bouncie-related data from your account, including:
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-2 py-4">
+                    <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground ml-4">
+                      <li>All trip matches</li>
+                      <li>All vehicle mappings</li>
+                      <li>All DTC codes</li>
+                      <li>All webhook logs</li>
+                      <li>Integration/OAuth tokens</li>
+                    </ul>
+                    <p className="text-sm font-medium text-destructive mt-4">
+                      This action cannot be undone. Are you sure you want to continue?
+                    </p>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setBouncieDeleteDataDialogOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button 
+                      variant="destructive" 
+                      onClick={handleDeleteBouncieData} 
+                      disabled={bouncieDeletingData}
+                    >
+                      {bouncieDeletingData ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Deleting...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Delete All Data
+                        </>
+                      )}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Building2 className="h-5 w-5" />
-                    Banking Integration
-                  </CardTitle>
-                  <CardDescription>Connect for automatic transaction import</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label>Status</Label>
-                      <div className="mt-1">
-                        <Badge variant={bankingConnected ? "default" : "secondary"}>
-                          {bankingConnected ? "Connected" : "Not Connected"}
-                        </Badge>
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-primary/10">
+                        <Building2 className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <CardTitle className="flex items-center gap-2">
+                          Banking Integration
+                        </CardTitle>
+                        <CardDescription className="mt-1">
+                          Connect your bank accounts via Plaid to automatically import transactions, match payouts, and track expenses
+                        </CardDescription>
                       </div>
                     </div>
                   </div>
-                  {bankingConnected && (
-                    <div className="space-y-2 rounded-lg bg-muted p-3">
-                      <p className="text-sm font-medium">Connected Account</p>
-                      <p className="text-sm text-muted-foreground">Chase •••• 4242</p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label>Connection Status</Label>
+                      <div className="flex items-center gap-2">
+                        {bankingConnected ? (
+                          <Badge variant="default" className="gap-1">
+                            <CheckCircle2 className="h-3 w-3" />
+                            Connected
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="gap-1">
+                            <XCircle className="h-3 w-3" />
+                            Not Connected
+                          </Badge>
+                        )}
+                        <Badge variant="outline" className="text-xs">
+                          Coming Soon
+                        </Badge>
+                      </div>
                     </div>
-                  )}
+                    {bankingConnected && (
+                      <div className="rounded-lg bg-muted p-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">Connected Account</span>
+                          <span className="text-sm font-medium">Chase •••• 4242</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   <Button 
                     variant={bankingConnected ? "outline" : "default"}
                     onClick={() => setBankingConnected(!bankingConnected)}
+                    disabled={true}
+                    className="w-full"
                   >
-                    {bankingConnected ? "Disconnect" : "Connect Bank"}
+                    {bankingConnected ? (
+                      <>
+                        <WifiOff className="mr-2 h-4 w-4" />
+                        Disconnect
+                      </>
+                    ) : (
+                      <>
+                        <Wifi className="mr-2 h-4 w-4" />
+                        Connect Bank
+                      </>
+                    )}
                   </Button>
+                  <p className="text-xs text-muted-foreground text-center">
+                    Banking integration will be available soon
+                  </p>
                 </CardContent>
               </Card>
             </div>
@@ -1000,10 +1698,33 @@ const Settings = () => {
                 <CardContent className="space-y-4">
                   <div>
                     <Label>Password</Label>
-                    <p className="text-sm text-muted-foreground mt-1">Last changed 3 months ago</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {user?.password_changed_at 
+                        ? `Last changed ${formatRelativeTime(user.password_changed_at)}`
+                        : "Never changed"}
+                    </p>
                   </div>
-                  <Button variant="outline" onClick={() => setChangePasswordOpen(true)}>Change Password</Button>
-                  <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
+                  <Button 
+                    variant="outline" 
+                    onClick={() => {
+                      setChangePasswordOpen(true);
+                    }}
+                  >
+                    Change Password
+                  </Button>
+                  <ChangePasswordDialog 
+                    open={changePasswordOpen} 
+                    onOpenChange={setChangePasswordOpen}
+                    onPasswordChanged={async () => {
+                      // Reload user data after password change to update the date
+                      try {
+                        const userData = await authService.getCurrentUser();
+                        setUser(userData);
+                      } catch (error) {
+                        console.error('Failed to reload user data:', error);
+                      }
+                    }}
+                  />
                   <Separator />
                   <div className="flex items-center justify-between">
                     <div>
@@ -1024,22 +1745,50 @@ const Settings = () => {
                   <CardDescription>Manage your active login sessions</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between rounded-lg border p-3">
-                      <div>
-                        <p className="text-sm font-medium">Current Session</p>
-                        <p className="text-xs text-muted-foreground">Chrome on MacOS • Toronto, CA</p>
-                      </div>
-                      <Badge variant="secondary">Active</Badge>
+                  {sessionsLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading sessions...
                     </div>
-                    <div className="flex items-center justify-between rounded-lg border p-3">
-                      <div>
-                        <p className="text-sm font-medium">Mobile Device</p>
-                        <p className="text-xs text-muted-foreground">Safari on iPhone • 2 days ago</p>
-                      </div>
-                      <Button variant="ghost" size="sm">Revoke</Button>
+                  ) : sessions.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No active sessions found.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {sessions.map((session) => (
+                        <div key={session.id} className="flex items-center justify-between rounded-lg border p-3">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-medium">
+                                {session.is_current ? "Current Session" : formatSessionInfo(session)}
+                              </p>
+                              {session.is_current && (
+                                <Badge variant="default" className="text-xs">Current</Badge>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {formatSessionInfo(session)}
+                              {session.ip_address && ` • ${session.ip_address}`}
+                              {session.last_used_at && ` • ${formatSessionTime(session.last_used_at)}`}
+                            </p>
+                          </div>
+                          {!session.is_current && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleRevokeSession(session.id)}
+                              disabled={revokingSessionId === session.id}
+                            >
+                              {revokingSessionId === session.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                "Revoke"
+                              )}
+                            </Button>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                  </div>
+                  )}
                 </CardContent>
               </Card>
 

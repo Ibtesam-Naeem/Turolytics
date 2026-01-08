@@ -6,7 +6,7 @@ TRIPS_HISTORY_URL = "https://turo.com/ca/en/trips/history"
 
 VEHICLES_LISTINGS_URL = "https://turo.com/ca/en/vehicles/listings"
 BUSINESS_RATINGS_URL = "https://turo.com/ca/en/business/reviews"
-BUSINESS_EARNINGS_URL = "https://turo.com/ca/en/business/earnings"
+BUSINESS_EARNINGS_URL = "https://turo.com/us/en/business/earnings"
 
 # ------------------------------ LOGIN SELECTORS ------------------------------
 
@@ -201,6 +201,12 @@ VEHICLE_EARNINGS_ROW_SELECTOR = '.css-4a2atv-StyledTableRow'
 VEHICLE_EARNINGS_NAME_SELECTOR = 'p.css-nmsfeq-StyledText-StyledMakeModelYear'
 VEHICLE_EARNINGS_DETAILS_SELECTOR = 'p.css-47w2m9-StyledText-StyledMakeModelYear-StyledLicenseAndTrim'
 VEHICLE_EARNINGS_AMOUNT_SELECTOR = 'p.css-14bos0l-StyledText span'
+
+# Year dropdown selectors
+EARNINGS_YEAR_DROPDOWN_BUTTON = '[data-testid="test-button-dropdown"]'
+EARNINGS_YEAR_DROPDOWN_MENU = '.css-rx670o-Dropdown-Menu'
+EARNINGS_YEAR_DROPDOWN_ITEM = '[data-testid="dropdown-item"]'
+EARNINGS_YEAR_DROPDOWN_LABEL = '.css-iiw7vn-DropdownButtonLabel'
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
 

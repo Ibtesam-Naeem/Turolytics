@@ -72,7 +72,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     checkAuth();
   }, []);
 
-  // Periodically validate token (every 5 minutes)
+  // Periodically validate token (every 30 minutes)
   useEffect(() => {
     if (!user || user.mode === 'demo') return;
 
@@ -91,14 +91,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           }
         }
       }
-    }, 5 * 60 * 1000); // Check every 5 minutes
+    }, 30 * 60 * 1000); // Check every 30 minutes
 
     return () => clearInterval(interval);
   }, [user]);
 
   const login = async (email: string, password: string, rememberMe: boolean = true): Promise<{ error?: string }> => {
     try {
-      const response = await authService.login({ email, password });
+      const response = await authService.login({ 
+        email, 
+        password,
+        rememberMe 
+      });
       authService.setToken(response.access_token, rememberMe);
       
       // Save email if remember me is checked

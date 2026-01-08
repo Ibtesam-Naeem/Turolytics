@@ -22,12 +22,17 @@ from .selectors import (
 
 def build_summary(vehicle_earnings: list, earnings_breakdown: list) -> dict[str, Any]:
     """Build summary data for earnings."""
+    # Parse amounts and filter out None values
+    amounts = [
+        parse_amount(item['amount'])
+        for item in earnings_breakdown if item.get('amount')
+    ]
+    # Filter out None values before summing
+    valid_amounts = [amt for amt in amounts if amt is not None]
+    
     return {
         'total_vehicles': len(vehicle_earnings),
-        'total_breakdown_amount': sum(
-            parse_amount(item['amount'])
-            for item in earnings_breakdown if item.get('amount')
-        ) or 0,
+        'total_breakdown_amount': sum(valid_amounts) if valid_amounts else 0,
         'scraped_at': datetime.utcnow().isoformat()
     }
 
@@ -139,29 +144,105 @@ async def extract_vehicle_earnings(page: Page) -> list[dict[str, Optional[str]]]
         return []
 
 @scraping_function("earnings")
-async def scrape_earnings_data(page: Page) -> Optional[dict[str, Any]]:
-    """Scrape earnings data from the business earnings page."""
-    if not await navigate_to_page(page, BUSINESS_EARNINGS_URL, "Business Earnings"):
-        logger.error("Failed to navigate to earnings page")
+async def scrape_earnings_data(page: Page, is_initial_scrape: bool = False) -> Optional[dict[str, Any]]:
+    """Scrape earnings data from the business earnings page.
+    
+    Args:
+        page: Playwright page object
+        is_initial_scrape: If True, scrape multiple years (2025, 2026). 
+                          If False, only scrape current year.
+    
+    Returns:
+        Dictionary with earnings data aggregated across all scraped years
+    """
+    # Determine which years to scrape
+    current_year = datetime.now().year
+    years_to_scrape = []
+    
+    if is_initial_scrape:
+        # For initial scrape, scrape 2025 and 2026
+        years_to_scrape = ["2025", "2026"]
+        logger.info(f"Initial scrape detected - will scrape years: {years_to_scrape}")
+    else:
+        # For regular scrape, scrape current year and previous year (2025 and 2026)
+        # This ensures we always have data for both years
+        years_to_scrape = ["2025", "2026"]
+        logger.info(f"Regular scrape - will scrape years: {years_to_scrape}")
+    
+    # Aggregate data across all years
+    all_total_earnings = []
+    all_earnings_breakdown = []
+    all_vehicle_earnings = []
+    
+    for year in years_to_scrape:
+        try:
+            logger.info(f"Scraping earnings for year {year}...")
+            
+            # Navigate directly to the earnings page with year parameter
+            earnings_url_with_year = f"{BUSINESS_EARNINGS_URL}?year={year}"
+            logger.debug(f"Navigating to earnings URL: {earnings_url_with_year}")
+            if not await navigate_to_page(page, earnings_url_with_year, f"Business Earnings ({year})"):
+                logger.warning(f"Failed to navigate to earnings page for year {year}, skipping...")
+                continue
+            
+            # Verify we're on the correct page
+            current_url = page.url
+            logger.debug(f"Current URL after navigation: {current_url}")
+            if year not in current_url:
+                logger.warning(f"URL doesn't contain year {year} - may have been redirected. Current URL: {current_url}")
+            
+            # Wait a bit for the page to load
+            await page.wait_for_timeout(1000)
+            
+            # Extract data for this year
+            total_earnings, earnings_breakdown, vehicle_earnings = await asyncio.gather(
+                extract_total_earnings(page),
+                extract_earnings_breakdown(page),
+                extract_vehicle_earnings(page)
+            )
+            
+            # Add year to breakdown items and vehicle earnings
+            year_value = total_earnings.get('year') if total_earnings else year
+            if year_value:
+                for breakdown_item in earnings_breakdown:
+                    if breakdown_item:
+                        breakdown_item['year'] = year_value
+                
+                # Add year to vehicle earnings
+                for vehicle_item in vehicle_earnings:
+                    if vehicle_item:
+                        vehicle_item['year'] = year_value
+            
+            # Log what we found for this year
+            logger.info(f"Year {year} - Found {len(earnings_breakdown)} breakdown items, {len(vehicle_earnings)} vehicle earnings")
+            
+            # Store data for this year
+            if total_earnings:
+                all_total_earnings.append(total_earnings)
+            if earnings_breakdown:
+                all_earnings_breakdown.extend(earnings_breakdown)
+            if vehicle_earnings:
+                all_vehicle_earnings.extend(vehicle_earnings)
+            
+            logger.info(f"Successfully scraped earnings for year {year}")
+            
+        except Exception as e:
+            logger.error(f"Error scraping earnings for year {year}: {e}")
+            continue
+    
+    # If no data was scraped, return None
+    if not all_earnings_breakdown and not all_vehicle_earnings:
+        logger.warning("No earnings data was scraped from any year")
         return None
     
-    total_earnings, earnings_breakdown, vehicle_earnings = await asyncio.gather(
-        extract_total_earnings(page),
-        extract_earnings_breakdown(page),
-        extract_vehicle_earnings(page)
-    )
-    
-    year = total_earnings.get('year') if total_earnings else None
-    if year:
-        for breakdown_item in earnings_breakdown:
-            if breakdown_item:
-                breakdown_item['year'] = year
+    # Use the most recent year's total earnings, or aggregate if needed
+    final_total_earnings = all_total_earnings[-1] if all_total_earnings else None
     
     return {
-        'total_earnings': total_earnings,
-        'earnings_breakdown': earnings_breakdown,
-        'vehicle_earnings': vehicle_earnings,
-        'summary': build_summary(vehicle_earnings, earnings_breakdown)
+        'total_earnings': final_total_earnings,
+        'earnings_breakdown': all_earnings_breakdown,
+        'vehicle_earnings': all_vehicle_earnings,
+        'summary': build_summary(all_vehicle_earnings, all_earnings_breakdown)
     }
 
 # ------------------------------ END OF FILE ------------------------------

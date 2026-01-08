@@ -15,13 +15,18 @@ from core.security.auth import (
     verify_password,
     get_password_hash,
     generate_reset_token,
-    generate_verification_token
+    generate_verification_token,
+    oauth2_scheme
 )
 from core.security.schemas import (
     UserRegister, UserLogin, Token, UserOut,
     PasswordChangeRequest, PasswordResetRequest, PasswordResetConfirm,
     EmailVerificationRequest, EmailVerificationConfirm, ProfileUpdateRequest,
-    AccountDeletionRequest
+    AccountDeletionRequest, UserSessionOut
+)
+from core.security.session_manager import (
+    create_or_update_session, get_user_sessions, revoke_session,
+    hash_token
 )
 from core.config.settings import settings
 
@@ -45,6 +50,7 @@ async def register(user_data: UserRegister, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=Token)
 async def login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
@@ -57,10 +63,23 @@ async def login(
         )
     
     access_token = create_access_token(data={"sub": str(user.user_id)})
+    
+    # Create session record
+    try:
+        create_or_update_session(db, user, access_token, request)
+        logger.info(f"Session created for user {user.id}")
+    except Exception as e:
+        logger.error(f"Failed to create session record: {e}", exc_info=True)
+        # Don't fail login if session creation fails
+    
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.post("/login/json", response_model=Token)
-async def login_json(user_data: UserLogin, db: Session = Depends(get_db)):
+async def login_json(
+    request: Request,
+    user_data: UserLogin,
+    db: Session = Depends(get_db)
+):
     user = authenticate_user(db, user_data.email, user_data.password)
     if not user:
         raise HTTPException(
@@ -69,7 +88,27 @@ async def login_json(user_data: UserLogin, db: Session = Depends(get_db)):
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    access_token = create_access_token(data={"sub": str(user.user_id)})
+    # Set token expiration based on rememberMe
+    if user_data.rememberMe:
+        # Long expiration for "remember me" (30 days)
+        expires_delta = timedelta(minutes=settings.security.access_token_expire_minutes)
+    else:
+        # Short expiration for session-only (24 hours)
+        expires_delta = timedelta(hours=24)
+    
+    access_token = create_access_token(
+        data={"sub": str(user.user_id)},
+        expires_delta=expires_delta
+    )
+    
+    # Create session record
+    try:
+        create_or_update_session(db, user, access_token, request, expires_delta)
+        logger.info(f"Session created for user {user.id}")
+    except Exception as e:
+        logger.error(f"Failed to create session record: {e}", exc_info=True)
+        # Don't fail login if session creation fails
+    
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.get("/me", response_model=UserOut)
@@ -77,6 +116,61 @@ async def get_current_user_info(
     current_user: Account = Depends(get_current_active_user)
 ):
     return current_user
+
+@router.get("/sessions", response_model=list[UserSessionOut])
+async def get_sessions(
+    request: Request,
+    token: str = Depends(oauth2_scheme),
+    current_user: Account = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get all active sessions for the current user."""
+    # Get current token hash to mark current session
+    current_token_hash = hash_token(token) if token else None
+    
+    # Try to create/update session if it doesn't exist (for existing logins)
+    try:
+        create_or_update_session(db, current_user, token, request)
+    except Exception as e:
+        logger.warning(f"Failed to create/update session on get_sessions: {e}")
+    
+    sessions = get_user_sessions(db, current_user, current_token_hash)
+    
+    # Mark current session
+    result = []
+    for session in sessions:
+        session_dict = {
+            "id": session.id,
+            "user_agent": session.user_agent,
+            "ip_address": session.ip_address,
+            "device_type": session.device_type,
+            "browser": session.browser,
+            "os": session.os,
+            "location": session.location,
+            "created_at": session.created_at,
+            "last_used_at": session.last_used_at,
+            "expires_at": session.expires_at,
+            "is_active": session.is_active,
+            "is_current": session.session_token_hash == current_token_hash if current_token_hash else False
+        }
+        result.append(UserSessionOut(**session_dict))
+    
+    return result
+
+@router.delete("/sessions/{session_id}", status_code=status.HTTP_200_OK)
+async def revoke_session_endpoint(
+    session_id: int,
+    current_user: Account = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Revoke a specific session."""
+    success = revoke_session(db, current_user, session_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found"
+        )
+    return {"message": "Session revoked successfully"}
 
 @router.post("/password/change", status_code=status.HTTP_200_OK)
 async def change_password(
@@ -97,7 +191,9 @@ async def change_password(
             detail="Current password is incorrect"
         )
     
+    from datetime import datetime, timezone
     current_user.password_hash = get_password_hash(request.new_password)
+    current_user.password_changed_at = datetime.now(timezone.utc)
     db.commit()
     
     return {"message": "Password changed successfully"}
@@ -158,6 +254,7 @@ async def confirm_password_reset(
     account.password_hash = get_password_hash(request.new_password)
     account.password_reset_token = None
     account.password_reset_expires = None
+    account.password_changed_at = datetime.now(timezone.utc)
     db.commit()
     
     return {"message": "Password reset successfully"}

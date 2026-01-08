@@ -1,5 +1,5 @@
 # ------------------------------ IMPORTS ------------------------------
-from pydantic import BaseModel, field_serializer
+from pydantic import BaseModel, field_serializer, computed_field
 from typing import Optional, List, Any
 from datetime import datetime
 
@@ -8,7 +8,7 @@ from datetime import datetime
 class BaseOutModel(BaseModel):
     """Base model with common datetime serialization."""
     
-    @field_serializer('created_at', 'updated_at', 'scraped_at', check_fields=False)
+    @field_serializer('created_at', 'updated_at', 'scraped_at', 'listed_on_turo_date', 'removed_from_turo_date', check_fields=False)
     def serialize_datetime(self, dt: Optional[datetime]) -> Optional[str]:
         return dt.isoformat() if dt else None
     
@@ -19,8 +19,13 @@ class TripOut(BaseOutModel):
     """Trip output model."""
     id: int
     trip_id: str
-    trip_url: Optional[str] = None
     vehicle_id: Optional[int] = None
+    
+    @computed_field
+    @property
+    def trip_url(self) -> str:
+        """Generate Turo trip URL from trip_id."""
+        return f"https://turo.com/us/en/reservation/{self.trip_id}"
     customer_name: Optional[str] = None
     status: str
     trip_type: Optional[str] = None
@@ -32,7 +37,7 @@ class TripOut(BaseOutModel):
     end_date: Optional[str] = None
     end_time: Optional[str] = None
     location_type: Optional[str] = None
-    address: Optional[str] = None
+    location: Optional[str] = None
     kilometers_driven: Optional[int] = None
     kilometers_included: Optional[int] = None
     overage_rate: Optional[float] = None
@@ -41,7 +46,6 @@ class TripOut(BaseOutModel):
     deductible: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    scraped_at: Optional[datetime] = None
 
 class VehicleOut(BaseOutModel):
     """Vehicle output model."""
@@ -55,15 +59,23 @@ class VehicleOut(BaseOutModel):
     trip_info: Optional[str] = None
     rating: Optional[float] = None
     trip_count: Optional[int] = None
+    listed_on_turo_date: Optional[datetime] = None
+    removed_from_turo_date: Optional[datetime] = None
+    utilization_goal: Optional[float] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    scraped_at: Optional[datetime] = None
     total_revenue: Optional[float] = None
     total_odometer: Optional[int] = None
     total_trips: Optional[int] = None
     avg_rating: Optional[float] = None
     review_count: Optional[int] = None
-    utilization: Optional[float] = None 
+    utilization: Optional[float] = None
+
+class VehicleUpdateRequest(BaseModel):
+    """Vehicle update request model."""
+    listed_on_turo_date: Optional[datetime] = None
+    removed_from_turo_date: Optional[datetime] = None
+    utilization_goal: Optional[float] = None 
 
 class ReviewOut(BaseOutModel):
     """Review output model."""
@@ -80,7 +92,6 @@ class ReviewOut(BaseOutModel):
     has_host_response: bool = False
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    scraped_at: Optional[datetime] = None
 
 class EarningsBreakdownOut(BaseOutModel):
     """Earnings breakdown output model."""
@@ -91,19 +102,19 @@ class EarningsBreakdownOut(BaseOutModel):
     year: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    scraped_at: Optional[datetime] = None
 
 class VehicleEarningsOut(BaseOutModel):
     """Vehicle earnings output model."""
     id: int
+    vehicle_id: Optional[int] = None
     vehicle_name: str
     license_plate: Optional[str] = None
     trim: Optional[str] = None
     earnings_amount: Optional[str] = None
     earnings_amount_numeric: Optional[float] = None
+    year: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    scraped_at: Optional[datetime] = None
 
 # ------------------------------ RESPONSE MODELS ------------------------------
 

@@ -10,6 +10,9 @@ export interface Vehicle {
   status_mapped?: "active" | "maintenance" | "inactive";
   rating?: number;
   trip_count?: number;
+  listed_on_turo_date?: string; // ISO date string
+  removed_from_turo_date?: string; // ISO date string
+  utilization_goal?: number; // Target utilization percentage (0-100)
   created_at?: string;
   updated_at?: string;
   scraped_at?: string;
@@ -20,6 +23,12 @@ export interface Vehicle {
   avg_rating?: number;
   review_count?: number;
   utilization?: number; // Utilization percentage (0-100)
+}
+
+export interface VehicleUpdateRequest {
+  listed_on_turo_date?: string; // ISO date string
+  removed_from_turo_date?: string; // ISO date string
+  utilization_goal?: number; // Target utilization percentage (0-100)
 }
 
 export interface VehiclesResponse {
@@ -73,9 +82,22 @@ class VehiclesService {
       queryParams.append('offset', params.offset.toString());
     }
 
+    // Add cache-busting timestamp to ensure fresh data
+    queryParams.append('_t', Date.now().toString());
+    
     const response = await apiClient.get<{ success: boolean; data: VehiclesResponse }>(
       `/api/turo/data/vehicles${queryParams.toString() ? `?${queryParams.toString()}` : ''}`
     );
+    
+    // Debug: Log the response to verify odometer values
+    if (response.data?.vehicles) {
+      console.log('Vehicles API Response:', response.data.vehicles.map(v => ({
+        id: v.id,
+        name: v.name,
+        total_odometer: v.total_odometer
+      })));
+    }
+    
     return response.data;
   }
 
@@ -95,6 +117,14 @@ class VehiclesService {
       `/api/turo/data/utilization/monthly${queryParams.toString() ? `?${queryParams.toString()}` : ''}`
     );
     return response.data;
+  }
+
+  async updateVehicle(vehicleId: number, data: VehicleUpdateRequest): Promise<Vehicle> {
+    const response = await apiClient.patch<{ success: boolean; data: { vehicle: Vehicle } }>(
+      `/api/turo/data/vehicles/${vehicleId}`,
+      data
+    );
+    return response.data.vehicle;
   }
 }
 

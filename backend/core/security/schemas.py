@@ -14,6 +14,7 @@ class UserRegister(BaseModel):
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+    rememberMe: Optional[bool] = True
 
 class Token(BaseModel):
     access_token: str
@@ -31,6 +32,7 @@ class UserOut(BaseModel):
     state: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    password_changed_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
@@ -62,3 +64,19 @@ class ProfileUpdateRequest(BaseModel):
 class AccountDeletionRequest(BaseModel):
     reason: Optional[str] = Field(None, max_length=1000, description="Reason for account deletion")
 
+class UserSessionOut(BaseModel):
+    id: int
+    user_agent: Optional[str] = None
+    ip_address: Optional[str] = None
+    device_type: Optional[str] = None
+    browser: Optional[str] = None
+    os: Optional[str] = None
+    location: Optional[str] = None
+    created_at: datetime
+    last_used_at: datetime
+    expires_at: Optional[datetime] = None
+    is_active: int
+    is_current: bool = False  # Whether this is the current session
+    
+    class Config:
+        from_attributes = True

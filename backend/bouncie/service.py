@@ -90,7 +90,7 @@ class BouncieService:
                 self.headers["Authorization"] = self.access_token
                 logger.debug(f"Loaded Bouncie tokens for account {account.id} (user_id: {account.user_id})")
                 if not self.refresh_token:
-                    logger.warning(f"No refresh token found for account {account.id} - token refresh will not be possible")
+                    logger.debug(f"No refresh token found for account {account.id} - token refresh will not be possible")
         except Exception as e:
             logger.error(f"Error loading tokens: {e}")
 
@@ -266,7 +266,7 @@ class BouncieService:
                 )
                 
                 if not refresh_token:
-                    logger.warning("No refresh token found in response - token refresh will not be possible")
+                    logger.debug("No refresh token found in response - token refresh will not be possible")
                 
                 if self.db and self.account_id:
                     save_success = self._save_tokens(

@@ -50,14 +50,17 @@ def handle_route_errors(operation_name: str, rollback_db: bool = False):
 
 def parse_amount(amount_str: Optional[str]) -> Optional[float]:
     """
-    Parse amount string like '$100.00' or '$1,234.56' into a float.
-    Handles None, empty strings, and various formats.
+    Parse amount string like '$100.00', 'CA$1,234.56', or '$1,234.56' into a float.
+    Handles None, empty strings, and various formats including CA$ prefix.
     """
     if not amount_str:
         return None
     try:
-        # Remove currency symbols, commas, and whitespace
-        cleaned = str(amount_str).replace("$", "").replace(",", "").strip()
+        # Remove currency symbols (including CA$ prefix), commas, and whitespace
+        cleaned = str(amount_str).replace("CA$", "").replace("$", "").replace(",", "").strip()
+        # Handle empty string after cleaning (e.g., "CA$0" -> "0")
+        if not cleaned:
+            return 0.0
         return float(cleaned)
     except (ValueError, TypeError, AttributeError):
         return None

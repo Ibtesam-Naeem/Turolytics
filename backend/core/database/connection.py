@@ -41,6 +41,7 @@ def init_db() -> None:
         from core.database.models import (
             Account,
             Vehicle,
+            VehicleUtilizationHistory,
             Trip,
             Review,
             EarningsBreakdown,
@@ -50,6 +51,8 @@ def init_db() -> None:
             BouncieIntegration,
             BouncieVehicleMapping,
             BouncieTripMatch,
+            UserSession,
+            VehicleOdometerHistory,
         )
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created successfully")

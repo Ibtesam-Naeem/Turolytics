@@ -84,6 +84,18 @@ class ScrapingService:
                 page, context, browser = login_result
                 self._update_task_status(task_id, TaskStatus.RUNNING, "Login successful, starting scraping...", scraper_types=[t.value for t in scrapers])
                 
+                # Check if this is an initial scrape for earnings
+                db_check = SessionLocal()
+                try:
+                    is_initial_earnings_scrape = not DatabaseService.has_existing_earnings(db_check, user_id)
+                    if is_initial_earnings_scrape:
+                        logger.info("Initial earnings scrape detected - will scrape multiple years")
+                except Exception as e:
+                    logger.warning(f"Error checking existing earnings: {e}. Assuming regular scrape.")
+                    is_initial_earnings_scrape = False
+                finally:
+                    db_check.close()
+                
                 for scraper_type in scrapers:
                     try:
                         logger.info(f"Scraping {scraper_type.value}...")
@@ -93,6 +105,8 @@ class ScrapingService:
                             data = await scraper_func(page, existing_trip_ids=existing_trip_ids)
                         elif scraper_type == ScrapingType.REVIEWS:
                             data = await scraper_func(page, existing_customer_ids=existing_customer_ids)
+                        elif scraper_type == ScrapingType.EARNINGS:
+                            data = await scraper_func(page, is_initial_scrape=is_initial_earnings_scrape)
                         else:
                             data = await scraper_func(page)
                         

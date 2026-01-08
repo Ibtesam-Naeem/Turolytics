@@ -202,17 +202,24 @@ async def _perform_credential_login(page: Page, email: str, password: str) -> bo
 # ------------------------------ COMPLETE LOGIN FLOW (FOR SCRAPING) ------------------------------
 
 async def complete_turo_login(account_id: int = 1, email: str = None, password: str = None, two_fa_code: str = None) -> Optional[Tuple[Page, BrowserContext, Browser]]:
-    """Log into Turo using manual email/password and 2FA input, or restore existing session."""
+    """Log into Turo using manual email/password and 2FA input, or restore existing session.
+    
+    If email/password are not provided, will attempt to restore existing session only.
+    If session restoration fails and no credentials provided, returns None.
+    """
     browser = None
     try:
         headless = settings.scraping.headless
         
-        if not email or not password:
-            raise Exception("Turo credentials are required. Please provide email and password.")
-        
+        # First, try to restore existing session (works even without credentials)
         restored = await _try_restore_session(account_id, headless)
         if restored:
             return restored
+        
+        # If no session exists and no credentials provided, we can't proceed
+        if not email or not password:
+            logger.warning(f"No existing session found for account {account_id} and no credentials provided")
+            return None
         
         logger.info("Initiating Turo login automation...")
         page, context, browser = await launch_browser(headless=headless, storage_state_path=None)

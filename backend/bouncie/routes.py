@@ -22,10 +22,11 @@ from .schemas import (
     BouncieDTCCodeOut,
 )
 from core.database import get_db
-from core.database.models import Trip, BouncieTripMatch, BouncieVehicleMapping, Account, Vehicle, BouncieDTCCode, BouncieWebhookLog
+from core.database.models import Trip, BouncieTripMatch, BouncieVehicleMapping, Account, Vehicle, BouncieDTCCode, BouncieWebhookLog, VehicleOdometerHistory
 from core.security.auth import get_current_active_user
 from core.utils.route_helpers import get_bouncie_integration, handle_route_errors
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 logger = logging.getLogger(__name__)
 
@@ -206,14 +207,19 @@ async def delete_all_bouncie_data(
     Deletes:
     - All trip matches (BouncieTripMatch)
     - All vehicle mappings (BouncieVehicleMapping)
+    - All DTC codes (BouncieDTCCode)
+    - All webhook logs (BouncieWebhookLog)
     - Integration/OAuth tokens (BouncieIntegration)
     """
     deletion_summary = {
         "trip_matches_deleted": 0,
         "vehicle_mappings_deleted": 0,
+        "dtc_codes_deleted": 0,
+        "webhook_logs_deleted": 0,
         "integration_deleted": False
     }
     
+    # Delete trip matches
     trip_matches = db.query(BouncieTripMatch).filter(
         BouncieTripMatch.account_id == current_user.id
     ).all()
@@ -221,6 +227,7 @@ async def delete_all_bouncie_data(
     for match in trip_matches:
         db.delete(match)
     
+    # Delete vehicle mappings
     vehicle_mappings = db.query(BouncieVehicleMapping).filter(
         BouncieVehicleMapping.account_id == current_user.id
     ).all()
@@ -228,6 +235,23 @@ async def delete_all_bouncie_data(
     for mapping in vehicle_mappings:
         db.delete(mapping)
     
+    # Delete DTC codes
+    dtc_codes = db.query(BouncieDTCCode).filter(
+        BouncieDTCCode.account_id == current_user.id
+    ).all()
+    deletion_summary["dtc_codes_deleted"] = len(dtc_codes)
+    for code in dtc_codes:
+        db.delete(code)
+    
+    # Delete webhook logs
+    webhook_logs = db.query(BouncieWebhookLog).filter(
+        BouncieWebhookLog.account_id == current_user.id
+    ).all()
+    deletion_summary["webhook_logs_deleted"] = len(webhook_logs)
+    for log in webhook_logs:
+        db.delete(log)
+    
+    # Delete integration
     integration = get_bouncie_integration(db, current_user.id)
     if integration:
         db.delete(integration)
@@ -239,6 +263,8 @@ async def delete_all_bouncie_data(
         f"Deleted all Bouncie data for account {current_user.id}: "
         f"{deletion_summary['trip_matches_deleted']} trip matches, "
         f"{deletion_summary['vehicle_mappings_deleted']} vehicle mappings, "
+        f"{deletion_summary['dtc_codes_deleted']} DTC codes, "
+        f"{deletion_summary['webhook_logs_deleted']} webhook logs, "
         f"integration: {deletion_summary['integration_deleted']}"
     )
     
@@ -1078,6 +1104,130 @@ async def get_odometer_at_time(
                 "trips_found": len(trips)
             }
         )
+
+# ------------------------------ ODOMETER SNAPSHOT ROUTES ------------------------------
+
+@router.post("/odometer/snapshot", response_model=APIResponse, tags=["Live Data"])
+@handle_route_errors("storing odometer snapshot")
+async def store_odometer_snapshot(
+    current_user: Account = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+    service: BouncieService = Depends(get_bouncie_service)
+):
+    """
+    Store daily odometer snapshots for all mapped vehicles.
+    This should be called once daily (via cron job or scheduled task).
+    Gets current odometer from Bouncie and stores it in VehicleOdometerHistory.
+    """
+    if not service.access_token:
+        service._load_tokens()
+        if not service.access_token:
+            raise HTTPException(
+                status_code=401,
+                detail="Bouncie not connected. Please connect Bouncie first."
+            )
+    
+    # Get all vehicle mappings for this account
+    mappings = db.query(BouncieVehicleMapping).filter(
+        BouncieVehicleMapping.account_id == current_user.id
+    ).all()
+    
+    if not mappings:
+        return APIResponse(
+            success=True,
+            data={
+                "message": "No vehicle mappings found",
+                "snapshots_stored": 0
+            }
+        )
+    
+    # Get all vehicles from Bouncie
+    vehicles_result = await service.get_vehicles()
+    if not vehicles_result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch vehicles from Bouncie: {vehicles_result.get('error')}"
+        )
+    
+    bouncie_vehicles = vehicles_result.get("data", []) or []
+    imei_to_vehicle = {v.get("imei"): v for v in bouncie_vehicles if v.get("imei")}
+    
+    # Today's date (date only, no time)
+    today = datetime.now().date()
+    today_datetime = datetime.combine(today, datetime.min.time())
+    
+    snapshots_stored = 0
+    snapshots_updated = 0
+    errors = []
+    
+    for mapping in mappings:
+        try:
+            imei = mapping.imei
+            vehicle_id = mapping.vehicle_id
+            
+            # Get vehicle data from Bouncie
+            bouncie_vehicle = imei_to_vehicle.get(imei)
+            if not bouncie_vehicle:
+                errors.append(f"Vehicle with IMEI {imei} not found in Bouncie")
+                continue
+            
+            # Get odometer from stats
+            stats = bouncie_vehicle.get('stats', {})
+            odometer_miles = None
+            
+            if isinstance(stats, dict):
+                odometer_miles = stats.get('odometer')
+            
+            # Fallback: try vehicle level
+            if odometer_miles is None:
+                odometer_miles = bouncie_vehicle.get('odometer')
+            
+            if odometer_miles is None:
+                errors.append(f"No odometer data for IMEI {imei}")
+                continue
+            
+            # Check if snapshot already exists for today
+            existing = db.query(VehicleOdometerHistory).filter(
+                VehicleOdometerHistory.vehicle_id == vehicle_id,
+                VehicleOdometerHistory.account_id == current_user.id,
+                func.date(VehicleOdometerHistory.date) == today
+            ).first()
+            
+            if existing:
+                # Update existing snapshot
+                existing.odometer_miles = float(odometer_miles)
+                existing.recorded_at = datetime.now(timezone.utc)
+                snapshots_updated += 1
+            else:
+                # Create new snapshot
+                snapshot = VehicleOdometerHistory(
+                    vehicle_id=vehicle_id,
+                    account_id=current_user.id,
+                    imei=imei,
+                    odometer_miles=float(odometer_miles),
+                    date=today_datetime,
+                    source="bouncie",
+                    recorded_at=datetime.now(timezone.utc)
+                )
+                db.add(snapshot)
+                snapshots_stored += 1
+            
+        except Exception as e:
+            logger.error(f"Error storing odometer snapshot for vehicle {mapping.vehicle_id}: {e}")
+            errors.append(f"Vehicle {mapping.vehicle_id}: {str(e)}")
+    
+    db.commit()
+    
+    return APIResponse(
+        success=True,
+        data={
+            "message": "Odometer snapshots stored",
+            "snapshots_stored": snapshots_stored,
+            "snapshots_updated": snapshots_updated,
+            "total_processed": len(mappings),
+            "errors": errors if errors else None
+        }
+    )
 
 # ------------------------------ WEBHOOK ROUTES ------------------------------
 

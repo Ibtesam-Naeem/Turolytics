@@ -23,30 +23,39 @@ async def _element_exists(page, selector: str, timeout: int = TIMEOUT_SHORT_CHEC
         return False
 
 async def verify_session_authenticated(page):
-    """Check if current storage state is authenticated using multiple verification methods."""
+    """Check if current storage state is authenticated using multiple verification methods.
+    
+    Navigates to business earnings page (host-specific) to verify authentication.
+    This ensures we're checking a host account page, not the main public site.
+    """
     try:
-        await page.goto("https://turo.com/ca/en/trips/booked", wait_until="domcontentloaded")
-        await page.wait_for_timeout(DELAY_VERY_LONG) 
+        # Navigate to business earnings page (host-specific) to verify auth
+        # This is better than going to main site or trips page
+        await page.goto("https://turo.com/us/en/business/earnings", wait_until="domcontentloaded")
+        await page.wait_for_timeout(DELAY_VERY_LONG)
         current_url = page.url
         
-        if "login" in current_url or "signin" in current_url:
+        # Check if we're on a login page (redirected due to invalid session)
+        if "login" in current_url.lower() or "signin" in current_url.lower():
             return False
         
-        if "trips" not in current_url:
-            return False
+        # Check if we're on the business earnings page (indicates authenticated host account)
+        if "business/earnings" in current_url or "business" in current_url:
+            # Check for authentication indicators
+            auth_selectors = [
+                '[data-testid="user-menu"]', '.user-menu', '.account-menu',
+                '[aria-label*="Account"]', '[aria-label*="Profile"]',
+                '.avatar', '.user-avatar', '.host-dashboard-title',
+                '[data-testid="host-dashboard"]', '.host-dashboard',
+                '[data-testid="earningsFilterSummary"]', '.earnings',
+                '[data-testid="earnings"]', '.business-earnings'
+            ]
+            
+            for selector in auth_selectors:
+                if await _element_exists(page, selector, 2000):
+                    return True
         
-        auth_selectors = [
-            '[data-testid="user-menu"]', '.user-menu', '.account-menu',
-            '[aria-label*="Account"]', '[aria-label*="Profile"]',
-            '.avatar', '.user-avatar', '.host-dashboard-title',
-            '[data-testid="host-dashboard"]', '.host-dashboard',
-            '[data-testid="trips-page"]', '.trips-container'
-        ]
-        
-        for selector in auth_selectors:
-            if await _element_exists(page, selector, 3000):
-                return True
-        
+        # Check for login form elements (indicates not authenticated)
         login_selectors = [
             'input[type="email"]', 'input[name="email"]', '#email',
             '.login-form', '[data-testid="login-form"]',
@@ -57,16 +66,11 @@ async def verify_session_authenticated(page):
             if await _element_exists(page, selector, 1000):
                 return False
         
-        user_content_selectors = [
-            '.user-name', '.account-name', '.profile-name',
-            '[data-testid="user-info"]', '.host-info'
-        ]
+        # If we're on a business/host page and not on login, assume authenticated
+        if "business" in current_url or "host" in current_url:
+            return True
         
-        for selector in user_content_selectors:
-            if await _element_exists(page, selector, 1000):
-                return True
-        
-        return True
+        return False
 
     except Exception as e:
         logger.warning(f"Session verification failed: {e}")

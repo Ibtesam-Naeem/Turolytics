@@ -19,7 +19,7 @@ def trip_to_dict(trip: Trip) -> Dict[str, Any]:
         "end_time": trip.end_time,
         "kilometers_driven": trip.kilometers_driven,
         "status": trip.status,
-        "scraped_at": trip.scraped_at.isoformat() if trip.scraped_at else None,
+        "updated_at": trip.updated_at.isoformat() if trip.updated_at else None,
     }
 
 def get_account_or_raise(db: Session, account_id: int = None, user_id: int = None) -> Account:

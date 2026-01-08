@@ -33,6 +33,7 @@ class Account(Base):
     # Password reset
     password_reset_token = Column(String, nullable=True, comment="Token for password reset")
     password_reset_expires = Column(DateTime(timezone=True), nullable=True, comment="Password reset token expiration")
+    password_changed_at = Column(DateTime(timezone=True), nullable=True, comment="Timestamp when password was last changed")
     
     # Email verification
     email_verification_token = Column(String, nullable=True, comment="Token for email verification")
@@ -46,6 +47,8 @@ class Account(Base):
     reviews = relationship("Review", back_populates="account", cascade="all, delete-orphan")
     earnings_breakdowns = relationship("EarningsBreakdown", back_populates="account", cascade="all, delete-orphan")
     vehicle_earnings = relationship("VehicleEarnings", back_populates="account", cascade="all, delete-orphan")
+    vehicle_utilization_history = relationship("VehicleUtilizationHistory", back_populates="account", cascade="all, delete-orphan")
+    vehicle_odometer_history = relationship("VehicleOdometerHistory", back_populates="account", cascade="all, delete-orphan")
     session_storage = relationship("SessionStorage", back_populates="account", uselist=False, cascade="all, delete-orphan")
     bouncie_integration = relationship("BouncieIntegration", back_populates="account", uselist=False, cascade="all, delete-orphan")
     turo_integration = relationship("TuroIntegration", back_populates="account", uselist=False, cascade="all, delete-orphan")
@@ -54,6 +57,7 @@ class Account(Base):
     bouncie_dtc_codes = relationship("BouncieDTCCode", back_populates="account", cascade="all, delete-orphan")
     bouncie_webhook_logs = relationship("BouncieWebhookLog", back_populates="account", cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="account", cascade="all, delete-orphan")
+    user_sessions = relationship("UserSession", back_populates="account", cascade="all, delete-orphan")
     
     @staticmethod
     def get_user_id(email: str) -> int:

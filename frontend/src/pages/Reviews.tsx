@@ -93,10 +93,6 @@ const Reviews = () => {
     filteredReviews = reviews.filter(r => !r.has_host_response && r.rating != null);
   } else if (activeTab === "responded") {
     filteredReviews = reviews.filter(r => r.has_host_response);
-  } else if (activeTab === "5star") {
-    filteredReviews = reviews.filter(r => r.rating === 5);
-  } else if (activeTab === "low") {
-    filteredReviews = reviews.filter(r => r.rating != null && r.rating <= 2);
   }
 
   // Apply rating filter
@@ -143,28 +139,115 @@ const Reviews = () => {
     }
   };
 
-  const formatReviewDate = (dateString?: string) => {
+  const cleanDateString = (dateString: string | null | undefined, customerName: string | null | undefined): string | null => {
+    if (!dateString) return null;
+    
+    // Convert to string if it's not already
+    let cleaned = String(dateString).trim();
+    
+    // Strategy 1: ALWAYS find month name first and extract from there (most reliable)
+    // This works regardless of what comes before the date
+    const monthPattern = /(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i;
+    const dateMatch = cleaned.match(monthPattern);
+    
+    if (dateMatch && dateMatch.index !== undefined) {
+      // Extract from the month name onwards - this removes everything before it
+      cleaned = cleaned.substring(dateMatch.index).trim();
+      // Remove any leading separators (bullet, dash, spaces, etc.)
+      cleaned = cleaned.replace(/^[•\-\s]+/, '').trim();
+      // Return early if we successfully found and extracted the date
+      return cleaned || null;
+    }
+    
+    // Strategy 2: If no month found, try to remove customer name (fallback)
+    if (!customerName) return cleaned;
+    
+    const nameToRemove = customerName.trim();
+    const nameEscaped = nameToRemove.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const nameLower = nameToRemove.toLowerCase();
+    const cleanedLower = cleaned.toLowerCase();
+    
+    // Check if name appears at the start and remove it
+    if (cleanedLower.startsWith(nameLower)) {
+      cleaned = cleaned.substring(nameToRemove.length).trim();
+      cleaned = cleaned.replace(/^[•\-\s]+/, '').trim();
+    } else {
+      // Try regex patterns to remove name
+      // Pattern 1: "Name • Date" or "Name•Date"
+      cleaned = cleaned.replace(new RegExp(`^${nameEscaped}\\s*[•\\-]\\s*`, 'i'), '');
+      
+      // Pattern 2: "Name Date" (space-separated)
+      if (cleaned === String(dateString).trim()) {
+        cleaned = cleaned.replace(new RegExp(`^${nameEscaped}\\s+`, 'i'), '');
+      }
+    }
+    
+    // Final cleanup - ensure no name remnants at start
+    if (cleaned.toLowerCase().startsWith(nameLower)) {
+      cleaned = cleaned.substring(nameToRemove.length).trim();
+      cleaned = cleaned.replace(/^[•\-\s]+/, '').trim();
+    }
+    
+    return cleaned || null;
+  };
+
+  const formatReviewDate = (dateString?: string, customerName?: string) => {
     if (!dateString) return "Date unknown";
+    const cleanedDate = cleanDateString(dateString, customerName);
+    if (!cleanedDate) return "Date unknown";
     try {
-      const date = new Date(dateString);
+      const date = new Date(cleanedDate);
       return formatDistanceToNow(date, { addSuffix: true });
     } catch {
-      return dateString;
+      return cleanedDate;
     }
   };
 
-  const formatFullDate = (dateString?: string) => {
+  const formatFullDate = (dateString?: string, customerName?: string) => {
     if (!dateString) return "";
+    
+    const dateStr = String(dateString).trim();
+    
+    // Check if it's already a valid ISO date string (doesn't need cleaning)
+    const isoDatePattern = /^\d{4}-\d{2}-\d{2}/;
+    if (isoDatePattern.test(dateStr)) {
+      // It's already a clean ISO date, just format it
+      try {
+        const date = new Date(dateStr);
+        return format(date, "MMM d, yyyy");
+      } catch {
+        return "";
+      }
+    }
+    
+    // Always clean the date string to remove customer name (defensive)
+    // This handles cases where the date string might contain the name
+    const cleanedDate = cleanDateString(dateStr, customerName);
+    if (!cleanedDate) return "";
+    
     try {
-      const date = new Date(dateString);
+      const date = new Date(cleanedDate);
+      // Check if date is valid
+      if (isNaN(date.getTime())) {
+        // If date parsing failed, return cleaned string (might be just text like "July 24, 2025")
+        return cleanedDate;
+      }
       return format(date, "MMM d, yyyy");
     } catch {
-      return dateString;
+      // If parsing fails, return the cleaned string (should be just the date part)
+      return cleanedDate;
     }
   };
 
   const handleReplyClick = () => {
     window.open('https://turo.com', '_blank');
+  };
+
+  const cleanHostResponse = (response: string | null | undefined): string | null => {
+    if (!response) return null;
+    // Remove 'Your response' or 'Your Response' from the beginning (case-insensitive)
+    const cleaned = response.replace(/^Your\s+response\s*/i, '').trim();
+    return cleaned || null;
   };
 
   const getRatingColor = (rating: number) => {
@@ -428,11 +511,7 @@ const Reviews = () => {
                           ? "Pending Replies"
                           : activeTab === "responded"
                             ? "Responded Reviews"
-                            : activeTab === "5star"
-                              ? "5-Star Reviews"
-                              : activeTab === "low"
-                                ? "Low Ratings"
-                                : "All Reviews"}
+                            : "All Reviews"}
                     </CardTitle>
                     <CardDescription>
                       {filteredReviews.length} {filteredReviews.length === 1 ? 'review' : 'reviews'}
@@ -463,7 +542,7 @@ const Reviews = () => {
 
                 {/* Tabs */}
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-4">
-                  <TabsList className="grid w-full grid-cols-5">
+                  <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="all">All</TabsTrigger>
                     <TabsTrigger value="pending" className="relative">
                       Pending
@@ -474,8 +553,6 @@ const Reviews = () => {
                       )}
                     </TabsTrigger>
                     <TabsTrigger value="responded">Responded</TabsTrigger>
-                    <TabsTrigger value="5star">5 Stars</TabsTrigger>
-                    <TabsTrigger value="low">Low</TabsTrigger>
                   </TabsList>
                 </Tabs>
               </CardHeader>
@@ -580,11 +657,9 @@ const Reviews = () => {
                                           </div>
                                         )}
                                         {review.date && (
-                                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                            <span>{formatReviewDate(review.date)}</span>
-                                            <span>•</span>
-                                            <span>{formatFullDate(review.date)}</span>
-                                          </div>
+                                          <Badge variant="outline" className="text-xs">
+                                            {formatFullDate(review.date, review.customer_name)}
+                                          </Badge>
                                         )}
                                       </div>
                                     </div>
@@ -616,17 +691,20 @@ const Reviews = () => {
                                   )}
                                   
                                   {/* Host Response */}
-                                  {review.host_response && (
-                                    <div className="pt-1 p-3 rounded-lg bg-primary/5 border-l-2 border-primary">
-                                      <div className="flex items-center gap-1.5 mb-1">
-                                        <MessageSquare className="h-3.5 w-3.5 text-primary" />
-                                        <p className="text-xs font-semibold text-primary">Your Response</p>
+                                  {review.host_response && (() => {
+                                    const cleanedResponse = cleanHostResponse(review.host_response);
+                                    return cleanedResponse ? (
+                                      <div className="pt-1 p-3 rounded-lg bg-primary/5 border-l-2 border-primary">
+                                        <div className="flex items-center gap-1.5 mb-1">
+                                          <MessageSquare className="h-3.5 w-3.5 text-primary" />
+                                          <p className="text-xs font-semibold text-primary">Your Response</p>
+                                        </div>
+                                        <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+                                          {cleanedResponse}
+                                        </p>
                                       </div>
-                                      <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
-                                        {review.host_response}
-                                      </p>
-                                    </div>
-                                  )}
+                                    ) : null;
+                                  })()}
                                   
                                   {/* Reply Button */}
                                   {!hasResponse && rating > 0 && (

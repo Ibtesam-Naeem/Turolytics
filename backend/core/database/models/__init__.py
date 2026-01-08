@@ -9,6 +9,7 @@ from .bouncie_webhook_log import BouncieWebhookLog
 from .turo_integration import TuroIntegration
 from .turo import (
     Vehicle,
+    VehicleUtilizationHistory,
     Trip,
     Review,
     EarningsBreakdown,
@@ -16,6 +17,8 @@ from .turo import (
     SessionStorage,
 )
 from .s3 import Document
+from .user_session import UserSession
+from .vehicle_odometer_history import VehicleOdometerHistory
 
 __all__ = [
     "Account",
@@ -27,10 +30,13 @@ __all__ = [
     "BouncieWebhookLog",
     "TuroIntegration",
     "Vehicle",
+    "VehicleUtilizationHistory",
+    "VehicleOdometerHistory",
     "Trip",
     "Review",
     "EarningsBreakdown",
     "VehicleEarnings",
     "SessionStorage",
     "Document",
+    "UserSession",
 ]

@@ -16,7 +16,6 @@ class Trip(Base):
     vehicle_id = Column(Integer, ForeignKey("turo_vehicles.id"), nullable=True, index=True)
     
     trip_id = Column(String, nullable=False, index=True, comment="Turo trip ID")
-    trip_url = Column(String, nullable=True, comment="Trip URL on Turo")
     
     customer_name = Column(String, nullable=True, comment="Customer name")
     status = Column(String, nullable=False, index=True, comment="Trip status (COMPLETED, CANCELLED, etc.)")
@@ -32,7 +31,7 @@ class Trip(Base):
     end_time = Column(String, nullable=True, comment="End time (e.g., '5:30 a.m.')")
     
     location_type = Column(String, nullable=True, comment="Location type (Delivery, Location)")
-    address = Column(String, nullable=True, comment="Full address")
+    location = Column(String, nullable=True, comment="Full location/address")
     
     kilometers_included = Column(Integer, nullable=True, comment="Kilometers included in trip")
     kilometers_driven = Column(Integer, nullable=True, comment="Kilometers actually driven")
@@ -45,7 +44,6 @@ class Trip(Base):
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    scraped_at = Column(DateTime(timezone=True), nullable=True, comment="Last scraping timestamp")
     
     account = relationship("Account", back_populates="trips")
     vehicle = relationship("Vehicle", back_populates="trips")

@@ -30,7 +30,6 @@ class Review(Base):
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    scraped_at = Column(DateTime(timezone=True), nullable=True, comment="Last scraping timestamp")
     
     account = relationship("Account", back_populates="reviews")
     vehicle = relationship("Vehicle", back_populates="reviews")

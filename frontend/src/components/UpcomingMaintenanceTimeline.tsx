@@ -91,8 +91,8 @@ export const UpcomingMaintenanceTimeline = () => {
 
   return (
     <>
-      <Card className="rounded-xl shadow-sm">
-        <CardHeader>
+      <Card className="rounded-2xl shadow-sm border-border/50">
+        <CardHeader className="pb-4">
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg font-semibold">Upcoming Maintenance</CardTitle>
             {completedItems.length > 0 && (
@@ -102,7 +102,7 @@ export const UpcomingMaintenanceTimeline = () => {
             )}
           </div>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent>
           {loading ? (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <p className="text-sm text-muted-foreground">Loading...</p>
@@ -112,7 +112,7 @@ export const UpcomingMaintenanceTimeline = () => {
               <Wrench className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
               <p className="text-lg font-semibold text-foreground mb-2">Connect Bouncie to View Maintenance</p>
               <p className="text-sm text-muted-foreground max-w-sm mb-4">
-                Connect your Bouncie account to track scheduled maintenance, service reminders, and vehicle health alerts.
+                Connect your Bouncie account to monitor vehicle health, fuel levels, engine alerts, and maintenance needs in real-time.
               </p>
               <Button 
                 onClick={() => navigate('/settings?tab=integrations')}
@@ -131,7 +131,7 @@ export const UpcomingMaintenanceTimeline = () => {
               </p>
             </div>
           ) : (
-            <>
+            <div className="space-y-3">
               {pendingItems.map((item) => {
             const Icon = item.icon;
             return (
@@ -165,7 +165,7 @@ export const UpcomingMaintenanceTimeline = () => {
               </div>
             );
           })}
-            </>
+            </div>
           )}
 
           {/* Completed Items */}

@@ -21,7 +21,6 @@ class EarningsBreakdown(Base):
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    scraped_at = Column(DateTime(timezone=True), nullable=True, comment="Last scraping timestamp")
     
     account = relationship("Account", back_populates="earnings_breakdowns")
     
@@ -39,6 +38,7 @@ class VehicleEarnings(Base):
     id = Column(Integer, primary_key=True, index=True)
     
     account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
+    vehicle_id = Column(Integer, ForeignKey("turo_vehicles.id"), nullable=True, index=True, comment="Foreign key to Vehicle table")
     
     vehicle_name = Column(String, nullable=False, comment="Vehicle name (e.g., 'Hyundai Elantra 2017')")
     license_plate = Column(String, nullable=True, index=True, comment="License plate number")
@@ -46,12 +46,13 @@ class VehicleEarnings(Base):
     
     earnings_amount = Column(String, nullable=True, comment="Earnings amount as string (e.g., '$1,738.78')")
     earnings_amount_numeric = Column(Float, nullable=True, comment="Earnings amount as numeric")
+    year = Column(String, nullable=True, comment="Year for earnings")
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    scraped_at = Column(DateTime(timezone=True), nullable=True, comment="Last scraping timestamp")
     
     account = relationship("Account", back_populates="vehicle_earnings")
+    vehicle = relationship("Vehicle", backref="vehicle_earnings")
     
     def __repr__(self):
         return f"<VehicleEarnings(id={self.id}, vehicle_name={self.vehicle_name}, earnings={self.earnings_amount})>"

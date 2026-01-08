@@ -9,6 +9,7 @@ from .service import BouncieService
 from .data_fetcher import fetch_trips_in_date_range
 from .matching import match_all_trips
 from .utils import trip_to_dict, get_account_or_raise
+from .data_fetcher import fetch_trips_in_date_range
 from core.database.models import (
     Account, Vehicle, Trip, BouncieIntegration,
     BouncieVehicleMapping, BouncieTripMatch
@@ -135,13 +136,40 @@ async def process_bouncie_link(
             
             if not existing:
                 turo_vehicle = None
-                for tv in turo_vehicles:
-                    existing_mapping = db.query(BouncieVehicleMapping).filter(
-                        BouncieVehicleMapping.vehicle_id == tv.id
-                    ).first()
-                    if not existing_mapping:
-                        turo_vehicle = tv
-                        break
+                
+                # Try to match by name similarity
+                bouncie_nickname = (bv.get("nickName") or "").lower().strip()
+                if bouncie_nickname:
+                    for tv in turo_vehicles:
+                        existing_mapping = db.query(BouncieVehicleMapping).filter(
+                            BouncieVehicleMapping.vehicle_id == tv.id
+                        ).first()
+                        if not existing_mapping and tv.name:
+                            turo_name_lower = tv.name.lower()
+                            # Check if Bouncie nickname appears in Turo vehicle name
+                            # e.g., "Elantra" should match "Hyundai Elantra 2017"
+                            if bouncie_nickname in turo_name_lower:
+                                turo_vehicle = tv
+                                logger.info(f"Matched Bouncie '{bv.get('nickName')}' to Turo vehicle '{tv.name}' by name similarity")
+                                break
+                            
+                            # Also try matching individual words (for cases like "Genesis G70" matching "Genesis G70")
+                            bouncie_words = [w for w in bouncie_nickname.split() if len(w) > 2]
+                            if bouncie_words and all(word in turo_name_lower for word in bouncie_words):
+                                turo_vehicle = tv
+                                logger.info(f"Matched Bouncie '{bv.get('nickName')}' to Turo vehicle '{tv.name}' by word matching")
+                                break
+                
+                # Fallback: pick first available vehicle if no name match found
+                if not turo_vehicle:
+                    for tv in turo_vehicles:
+                        existing_mapping = db.query(BouncieVehicleMapping).filter(
+                            BouncieVehicleMapping.vehicle_id == tv.id
+                        ).first()
+                        if not existing_mapping:
+                            turo_vehicle = tv
+                            logger.warning(f"No name match found for Bouncie '{bv.get('nickName')}', assigning to first available vehicle '{tv.name}'")
+                            break
                 
                 if turo_vehicle:
                     mapping = BouncieVehicleMapping(
@@ -153,7 +181,7 @@ async def process_bouncie_link(
                     )
                     db.add(mapping)
                     results["vehicles_mapped"] += 1
-                    logger.info(f"Mapped Bouncie IMEI {imei} to Turo vehicle {turo_vehicle.id}")
+                    logger.info(f"Mapped Bouncie IMEI {imei} to Turo vehicle {turo_vehicle.id} ({turo_vehicle.name})")
         
         db.commit()
         
@@ -222,6 +250,58 @@ async def process_bouncie_link(
         
         logger.info(f"Matching {len(turo_trips_dict)} Turo trips with {len(all_bouncie_trips)} Bouncie trips")
         matches = match_all_trips(turo_trips_dict, all_bouncie_trips, vehicle_imei_map)
+        
+        # Check for unmatched trips and try to fill gaps by re-fetching
+        unmatched_trips = [m for m in matches if not m.get("matched_bouncie_trip")]
+        if unmatched_trips and len(unmatched_trips) <= 5:  # Only re-fetch if reasonable number
+            logger.info(f"Found {len(unmatched_trips)} unmatched trips, attempting to fill gaps...")
+            from turo.parsing import parse_turo_trip_datetime_from_dict
+            
+            gap_trips = []
+            for match in unmatched_trips:
+                turo_trip = match.get("turo_trip")
+                if not turo_trip:
+                    continue
+                
+                turo_start = parse_turo_trip_datetime_from_dict(turo_trip, is_start=True)
+                turo_end = parse_turo_trip_datetime_from_dict(turo_trip, is_start=False)
+                
+                if turo_start and turo_end:
+                    # Add buffer to the date range (1 day before/after)
+                    gap_start = turo_start - timedelta(days=1)
+                    gap_end = turo_end + timedelta(days=1)
+                    
+                    # Fetch trips for this specific gap
+                    gap_bouncie_trips = await fetch_trips_in_date_range(
+                        service=service,
+                        start_date=gap_start,
+                        end_date=gap_end,
+                        vehicles=bouncie_vehicles
+                    )
+                    
+                    if gap_bouncie_trips:
+                        gap_trips.extend(gap_bouncie_trips)
+                        logger.info(
+                            f"Found {len(gap_bouncie_trips)} additional Bouncie trips for gap "
+                            f"{gap_start.date()} to {gap_end.date()}"
+                        )
+            
+            # Re-match with additional trips
+            if gap_trips:
+                # Deduplicate trips (by trip ID if available, or by start/end time)
+                existing_trip_keys = {
+                    (t.get("startTime"), t.get("endTime"), t.get("imei"))
+                    for t in all_bouncie_trips
+                }
+                new_trips = [
+                    t for t in gap_trips
+                    if (t.get("startTime"), t.get("endTime"), t.get("imei")) not in existing_trip_keys
+                ]
+                
+                if new_trips:
+                    all_bouncie_trips.extend(new_trips)
+                    logger.info(f"Added {len(new_trips)} new Bouncie trips, re-matching...")
+                    matches = match_all_trips(turo_trips_dict, all_bouncie_trips, vehicle_imei_map)
         
         results["trips_matched"] = len([m for m in matches if m.get("matched_bouncie_trip")])
         

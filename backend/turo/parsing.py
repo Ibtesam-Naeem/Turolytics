@@ -64,12 +64,38 @@ def parse_turo_trip_datetime_from_dict(
     if not date_str:
         return None
     
-    scraped_at = turo_trip.get('scraped_at')
-    reference_year = (
-        datetime.fromisoformat(str(scraped_at).replace('Z', '+00:00')).year
-        if scraped_at
-        else datetime.now().year
-    )
+    # Use updated_at instead of scraped_at (since scraped_at was removed)
+    updated_at = turo_trip.get('updated_at')
+    if updated_at:
+        try:
+            updated_datetime = datetime.fromisoformat(str(updated_at).replace('Z', '+00:00'))
+            reference_year = updated_datetime.year
+            
+            # Parse the date to get the month
+            parsed_date = _parse_turo_date(date_str, reference_year)
+            if parsed_date:
+                updated_month = updated_datetime.month
+                parsed_month = parsed_date.month
+                
+                # Handle year rollover: if the parsed date would be in the future relative to updated date,
+                # it's likely from the previous year (for completed trips)
+                # This handles cases like:
+                # - Jan 2026 scraping Sep-Nov 2025 trips (parsed month > updated month by significant margin)
+                # - Jan 2026 scraping Dec 2025 trips
+                if updated_month <= 3:
+                    # Early year (Jan-Mar): if trip month is >= April, it's likely from previous year
+                    # (e.g., Jan 2026 scraping Sep 2025 -> Sep is month 9, which is > 3)
+                    if parsed_month >= 4:
+                        reference_year = reference_year - 1
+                elif updated_month >= 10:
+                    # Late year (Oct-Dec): if trip month is early (Jan-Mar), it could be next year
+                    # but for completed trips, it's more likely current year
+                    # Keep current year for this case
+                    pass
+        except Exception:
+            reference_year = datetime.now().year
+    else:
+        reference_year = datetime.now().year
     
     return _parse_turo_trip_datetime(date_str, time_str, reference_year)
 

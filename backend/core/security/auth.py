@@ -102,7 +102,8 @@ def create_user(
         last_name=last_name,
         phone_number=phone,
         country=country,
-        state=state
+        state=state,
+        password_changed_at=datetime.now(timezone.utc)
     )
     
     db.add(account)

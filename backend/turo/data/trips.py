@@ -137,14 +137,14 @@ async def enrich_trips_with_details(page: Page, trips_list: List[Dict[str, Any]]
                         pass
         
         for trip in batch:
-            trip_url = trip.get('trip_url')
-            if not trip_url:
-                logger.warning(f"Trip {trip.get('trip_id', 'unknown')} missing trip_url, skipping")
+            trip_id = trip.get('trip_id')
+            if not trip_id:
+                logger.warning(f"Trip missing trip_id, skipping")
                 enriched_trips.append(trip)
                 continue
             
-            if trip_url.startswith('/'):
-                trip_url = f"https://turo.com{trip_url}"
+            # Generate trip URL from trip_id
+            trip_url = f"https://turo.com/us/en/reservation/{trip_id}"
             
             valid_trips.append(trip)
             batch_tasks.append(process_trip_with_page(trip_url, trip))

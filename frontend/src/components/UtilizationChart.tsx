@@ -8,11 +8,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { vehiclesService, MonthlyUtilization } from "@/services/vehicles-service";
 
 export const UtilizationChart = () => {
+  const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState<number>(2025); // Default to 2025 where data exists
   const [selectedMonth, setSelectedMonth] = useState<MonthlyUtilization | null>(null);
   const [data, setData] = useState<MonthlyUtilization[]>([]);
   const [loading, setLoading] = useState(true);
@@ -21,7 +30,7 @@ export const UtilizationChart = () => {
     const loadUtilizationData = async () => {
       try {
         setLoading(true);
-        const response = await vehiclesService.getMonthlyUtilization();
+        const response = await vehiclesService.getMonthlyUtilization(selectedYear);
         setData(response.months);
       } catch (error) {
         console.error('Failed to load utilization data:', error);
@@ -31,10 +40,13 @@ export const UtilizationChart = () => {
       }
     };
     loadUtilizationData();
-  }, []);
+  }, [selectedYear]);
   
-  const avgUtilization = data.length > 0 
-    ? (data.reduce((acc, curr) => acc + curr.utilization, 0) / data.length).toFixed(0)
+  // Calculate average only from months where vehicles were active
+  // Filter out months with 0 utilization if no vehicles were active (but include 0% if vehicles were active)
+  const activeMonths = data.filter(month => month.utilization > 0 || month.vehicles.length > 0);
+  const avgUtilization = activeMonths.length > 0 
+    ? (activeMonths.reduce((acc, curr) => acc + curr.utilization, 0) / activeMonths.length).toFixed(0)
     : "0";
   
   const getBarColor = (value: number) => {
@@ -90,14 +102,28 @@ export const UtilizationChart = () => {
     <>
       <Card className="rounded-2xl shadow-lg border-border/50 overflow-hidden animate-fade-in hover-scale group">
         <CardHeader className="bg-gradient-to-br from-success/10 via-chart-2/5 to-transparent border-b border-border/50">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-3">
             <CardTitle className="text-lg font-bold flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-success animate-pulse" />
               Vehicle Utilization
             </CardTitle>
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground bg-muted/50 px-2.5 py-1 rounded-full">
-              <Activity className="h-3 w-3" />
-              {avgUtilization}% avg
+            <div className="flex items-center gap-2">
+              <Select value={selectedYear.toString()} onValueChange={(value) => setSelectedYear(parseInt(value))}>
+                <SelectTrigger className="w-[100px] h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[2024, 2025, 2026, 2027].map((year) => (
+                    <SelectItem key={year} value={year.toString()}>
+                      {year}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground bg-muted/50 px-2.5 py-1 rounded-full">
+                <Activity className="h-3 w-3" />
+                {avgUtilization}% avg
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -169,7 +195,7 @@ export const UtilizationChart = () => {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Activity className="h-5 w-5 text-primary" />
-              {selectedMonth?.month} Utilization Details
+              {selectedMonth?.month} {selectedYear} Utilization Details
             </DialogTitle>
           </DialogHeader>
           

@@ -25,7 +25,16 @@ export const RevenueChart = () => {
   }, []);
   
   const hasData = data.length > 0;
-  const growth = hasData && data.length > 1 ? ((data[data.length - 1].revenue - data[0].revenue) / data[0].revenue * 100).toFixed(1) : "0";
+  const calculateGrowth = () => {
+    if (!hasData || data.length < 2) return null;
+    const firstRevenue = data[0].revenue;
+    const lastRevenue = data[data.length - 1].revenue;
+    if (firstRevenue === 0 || !isFinite(firstRevenue) || !isFinite(lastRevenue)) return null;
+    const growthValue = ((lastRevenue - firstRevenue) / firstRevenue * 100);
+    if (!isFinite(growthValue) || isNaN(growthValue)) return null;
+    return growthValue.toFixed(1);
+  };
+  const growth = calculateGrowth();
   
   return (
     <Card className="rounded-2xl shadow-lg border-border/50 overflow-hidden animate-fade-in hover-scale group">
@@ -35,12 +44,16 @@ export const RevenueChart = () => {
             <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
             Revenue Trend
           </CardTitle>
-          {hasData && (
+          {hasData && growth !== null ? (
             <div className="flex items-center gap-1.5 text-xs font-semibold text-success bg-success/10 px-2.5 py-1 rounded-full">
               <TrendingUp className="h-3 w-3" />
               +{growth}%
             </div>
-          )}
+          ) : hasData ? (
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground bg-muted/10 px-2.5 py-1 rounded-full">
+              -
+            </div>
+          ) : null}
         </div>
       </CardHeader>
       <CardContent className="pt-6">

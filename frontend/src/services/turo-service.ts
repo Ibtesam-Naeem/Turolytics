@@ -48,6 +48,10 @@ class TuroService {
     await apiClient.delete('/api/turo/auth/disconnect');
   }
 
+  async deleteAllData(): Promise<void> {
+    await apiClient.delete('/api/turo/auth/delete-all-data');
+  }
+
   // Scraping
   async scrape(scraperType: 'all' | 'vehicles' | 'trips' | 'reviews' | 'earnings', email?: string, password?: string): Promise<{ task_id: string; account_id: number; scraper_type: string }> {
     const response = await apiClient.post<{ task_id: string; account_id: number; scraper_type: string }>(

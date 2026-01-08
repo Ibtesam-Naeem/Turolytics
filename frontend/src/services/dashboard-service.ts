@@ -60,50 +60,94 @@ class DashboardService {
       }
       
       // Count vehicles by status (case-insensitive matching)
+      // Active vehicles: "Listed" (scraped from Turo) or "Available" (legacy/seed data)
       const activeVehicles = vehicles.filter(v => {
-        const status = (v.status || '').trim();
-        return status === 'Listed' || status.toLowerCase() === 'listed';
+        const status = (v.status || '').trim().toLowerCase();
+        return status === 'listed' || status === 'available';
       }).length;
       
       const snoozedVehicles = vehicles.filter(v => {
-        const status = (v.status || '').trim();
-        return status === 'Snoozed' || status.toLowerCase() === 'snoozed';
+        const status = (v.status || '').trim().toLowerCase();
+        return status === 'snoozed';
       }).length;
       
       const maintenanceVehicles = vehicles.filter(v => {
-        const status = (v.status || '').trim();
-        return status === 'Maintenance' || status.toLowerCase() === 'maintenance';
+        const status = (v.status || '').trim().toLowerCase();
+        return status === 'maintenance';
       }).length;
       
+      // Inactive vehicles: empty status, "Unlisted", or any other status that's not active/snoozed/maintenance
       const inactiveVehicles = vehicles.filter(v => {
-        const status = (v.status || '').trim();
-        return !status || (
-          status !== 'Listed' && 
-          status !== 'Snoozed' && 
-          status !== 'Maintenance' &&
-          status.toLowerCase() !== 'listed' &&
-          status.toLowerCase() !== 'snoozed' &&
-          status.toLowerCase() !== 'maintenance'
-        );
+        const status = (v.status || '').trim().toLowerCase();
+        return !status || 
+          status === 'unlisted' ||
+          (
+            status !== 'listed' && 
+            status !== 'available' &&
+            status !== 'snoozed' && 
+            status !== 'maintenance'
+          );
       }).length;
+      
+      console.log('Dashboard: Vehicle status counts:', {
+        total: vehicles.length,
+        active: activeVehicles,
+        snoozed: snoozedVehicles,
+        maintenance: maintenanceVehicles,
+        inactive: inactiveVehicles,
+        statuses: vehicles.map(v => v.status)
+      });
 
-      // Calculate total revenue from earnings breakdown (Total earnings)
+      // Calculate total revenue from earnings breakdown
+      // Total revenue = Trip earnings + Incentives ONLY
       let totalRevenue = 0;
       try {
         const earningsResponse = await this.getEarnings();
-        const totalEarnings = earningsResponse.breakdown.find(
-          item => item.type === 'Total earnings'
-        );
-        if (totalEarnings && totalEarnings.amount_numeric !== undefined) {
-          totalRevenue = totalEarnings.amount_numeric;
-        } else if (totalEarnings && totalEarnings.amount) {
-          // Fallback: parse the amount string if amount_numeric is not available
-          const parsed = parseFloat(totalEarnings.amount.replace(/[^0-9.-]+/g, ''));
-          if (!isNaN(parsed)) {
-            totalRevenue = parsed;
-          }
+        const breakdown = earningsResponse.breakdown || [];
+        
+        console.log('Dashboard: Earnings breakdown items:', breakdown.map(item => ({
+          type: item.type,
+          amount_numeric: item.amount_numeric,
+          amount: item.amount
+        })));
+        
+        // Only include Trip earnings and Incentives
+        const includedTypes = ['Trip earnings', 'Incentives'];
+        
+        if (breakdown.length > 0) {
+          totalRevenue = breakdown.reduce((sum, item) => {
+            const itemType = item.type || '';
+            const itemTypeLower = itemType.toLowerCase();
+            
+            // Only include Trip earnings and Incentives (case-insensitive)
+            const isIncluded = includedTypes.some(included => included.toLowerCase() === itemTypeLower);
+            if (!isIncluded) {
+              return sum;
+            }
+            
+            // Get the numeric value
+            let amount = 0;
+            if (item.amount_numeric !== undefined && item.amount_numeric !== null) {
+              amount = item.amount_numeric;
+            } else if (item.amount) {
+              const parsed = parseFloat(item.amount.replace(/[^0-9.-]+/g, ''));
+              amount = isNaN(parsed) ? 0 : parsed;
+            }
+            
+            console.log(`Dashboard: Adding ${itemType}: ${amount}`);
+            return sum + amount;
+          }, 0);
+          console.log('Dashboard: Total revenue calculated (Trip earnings + Incentives):', totalRevenue);
         }
-        console.log('Dashboard: Total revenue from earnings breakdown:', totalRevenue);
+        
+        // If earnings breakdown didn't yield revenue, fall back to vehicle revenue
+        if (totalRevenue === 0) {
+          totalRevenue = vehicles.reduce((sum, v) => {
+            const revenue = v.total_revenue || 0;
+            return sum + (typeof revenue === 'number' ? revenue : 0);
+          }, 0);
+          console.log('Dashboard: Fallback - Total revenue calculated from vehicles:', totalRevenue);
+        }
       } catch (error) {
         console.error('Error fetching earnings breakdown:', error);
         // Fallback to vehicle revenue calculation if earnings endpoint fails

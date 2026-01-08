@@ -12,11 +12,13 @@ export interface User {
   state?: string;
   created_at: string;
   updated_at: string;
+  password_changed_at?: string;
 }
 
 export interface LoginRequest {
   email: string;
   password: string;
+  rememberMe?: boolean;
 }
 
 export interface RegisterRequest {
@@ -38,6 +40,21 @@ export interface DeleteAccountRequest {
   reason?: string;
 }
 
+export interface UserSession {
+  id: number;
+  user_agent?: string;
+  ip_address?: string;
+  device_type?: string;
+  browser?: string;
+  os?: string;
+  location?: string;
+  created_at: string;
+  last_used_at: string;
+  expires_at?: string;
+  is_active: number;
+  is_current: boolean;
+}
+
 class AuthService {
   async register(data: RegisterRequest): Promise<User> {
     // Map frontend field names to backend field names
@@ -54,7 +71,11 @@ class AuthService {
   }
 
   async login(data: LoginRequest): Promise<AuthResponse> {
-    return apiClient.post<AuthResponse>('/api/auth/login/json', data);
+    return apiClient.post<AuthResponse>('/api/auth/login/json', {
+      email: data.email,
+      password: data.password,
+      rememberMe: data.rememberMe ?? true,
+    });
   }
 
   async getCurrentUser(): Promise<User> {
@@ -69,6 +90,16 @@ class AuthService {
     state?: string;
   }): Promise<User> {
     return apiClient.put<User>('/api/auth/profile', data);
+  }
+
+  async changePassword(data: {
+    currentPassword: string;
+    newPassword: string;
+  }): Promise<{ message: string }> {
+    return apiClient.post<{ message: string }>('/api/auth/password/change', {
+      current_password: data.currentPassword,
+      new_password: data.newPassword,
+    });
   }
 
   setToken(token: string, rememberMe: boolean = true): void {
@@ -162,6 +193,14 @@ class AuthService {
 
   async deleteAccount(request: DeleteAccountRequest): Promise<void> {
     await apiClient.post('/api/auth/account/delete', request);
+  }
+
+  async getSessions(): Promise<UserSession[]> {
+    return apiClient.get<UserSession[]>('/api/auth/sessions');
+  }
+
+  async revokeSession(sessionId: number): Promise<void> {
+    await apiClient.delete(`/api/auth/sessions/${sessionId}`);
   }
 }
 

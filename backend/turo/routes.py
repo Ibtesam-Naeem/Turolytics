@@ -8,6 +8,7 @@ import logging
 from .scraping_service import ScrapingService
 from core.database.models.account import Account
 from core.database.models.turo_integration import TuroIntegration
+from core.database.models.turo import Trip, Vehicle, Review, EarningsBreakdown, VehicleEarnings, SessionStorage
 from core.database import get_db
 from core.database.db_service import DatabaseService
 from core.security.auth import get_current_active_user
@@ -23,6 +24,7 @@ from .schemas import (
     ReviewOut,
     EarningsBreakdownOut,
     VehicleEarningsOut,
+    VehicleUpdateRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -315,6 +317,104 @@ async def disconnect_turo(
         }
     )
 
+@router.delete("/auth/delete-all-data", response_model=APIResponse, tags=["Authentication"])
+@handle_route_errors("deleting all Turo data", rollback_db=True)
+async def delete_all_turo_data(
+    current_user: Account = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete ALL Turo-related data for authenticated user.
+    
+    This is a comprehensive deletion endpoint for data privacy/GDPR compliance.
+    Deletes:
+    - All trips (Trip)
+    - All vehicles (Vehicle)
+    - All reviews (Review)
+    - All earnings data (EarningsBreakdown, VehicleEarnings)
+    - Session storage (SessionStorage)
+    - Integration/OAuth credentials (TuroIntegration)
+    """
+    deletion_summary = {
+        "trips_deleted": 0,
+        "vehicles_deleted": 0,
+        "reviews_deleted": 0,
+        "earnings_breakdowns_deleted": 0,
+        "vehicle_earnings_deleted": 0,
+        "session_storage_deleted": 0,
+        "integration_deleted": False
+    }
+    
+    # Delete trips
+    trips = db.query(Trip).filter(Trip.account_id == current_user.id).all()
+    deletion_summary["trips_deleted"] = len(trips)
+    for trip in trips:
+        db.delete(trip)
+    
+    # Delete vehicles (cascade will handle related trips/reviews)
+    vehicles = db.query(Vehicle).filter(Vehicle.account_id == current_user.id).all()
+    deletion_summary["vehicles_deleted"] = len(vehicles)
+    for vehicle in vehicles:
+        db.delete(vehicle)
+    
+    # Delete reviews
+    reviews = db.query(Review).filter(Review.account_id == current_user.id).all()
+    deletion_summary["reviews_deleted"] = len(reviews)
+    for review in reviews:
+        db.delete(review)
+    
+    # Delete earnings breakdowns
+    earnings_breakdowns = db.query(EarningsBreakdown).filter(
+        EarningsBreakdown.account_id == current_user.id
+    ).all()
+    deletion_summary["earnings_breakdowns_deleted"] = len(earnings_breakdowns)
+    for breakdown in earnings_breakdowns:
+        db.delete(breakdown)
+    
+    # Delete vehicle earnings
+    vehicle_earnings = db.query(VehicleEarnings).filter(
+        VehicleEarnings.account_id == current_user.id
+    ).all()
+    deletion_summary["vehicle_earnings_deleted"] = len(vehicle_earnings)
+    for earnings in vehicle_earnings:
+        db.delete(earnings)
+    
+    # Delete session storage
+    session_storage = db.query(SessionStorage).filter(
+        SessionStorage.account_id == current_user.id
+    ).all()
+    deletion_summary["session_storage_deleted"] = len(session_storage)
+    for session in session_storage:
+        db.delete(session)
+    
+    # Delete integration
+    integration = get_turo_integration(db, current_user.id)
+    if integration:
+        db.delete(integration)
+        deletion_summary["integration_deleted"] = True
+    
+    db.commit()
+    
+    logger.info(
+        f"Deleted all Turo data for account {current_user.id}: "
+        f"{deletion_summary['trips_deleted']} trips, "
+        f"{deletion_summary['vehicles_deleted']} vehicles, "
+        f"{deletion_summary['reviews_deleted']} reviews, "
+        f"{deletion_summary['earnings_breakdowns_deleted']} earnings breakdowns, "
+        f"{deletion_summary['vehicle_earnings_deleted']} vehicle earnings, "
+        f"{deletion_summary['session_storage_deleted']} session storage records, "
+        f"integration: {deletion_summary['integration_deleted']}"
+    )
+    
+    return APIResponse(
+        success=True,
+        data={
+            "message": "All Turo data deleted successfully",
+            "account_id": current_user.id,
+            "deletion_summary": deletion_summary
+        }
+    )
+
 # ------------------------------ SCRAPING ENDPOINTS ------------------------------
 
 @router.get("/scrape/{task_id}/status", response_model=APIResponse, tags=["Scraping"])
@@ -339,23 +439,35 @@ async def scrape_data(
     current_user: Account = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ) -> ScrapeResponse:
-    """Scrape data of specified type on demand. Uses authenticated user's account."""
+    """Scrape data of specified type on demand. Uses authenticated user's account.
+    
+    Will try to use existing session first. If session fails, will fall back to stored credentials.
+    """
     # Get credentials from request or stored integration
     email = request.email
     password = request.password
     
+    # If not provided in request, try to get from stored integration
     if not email or not password:
-        # Try to get from stored integration
         integration = get_turo_integration(db, current_user.id)
         
         if integration:
             email = integration.turo_email
-            password = decrypt_password(integration.turo_password_encrypted)
+            try:
+                password = decrypt_password(integration.turo_password_encrypted)
+            except Exception as e:
+                # If decryption fails (e.g., encryption key changed), log warning but continue
+                # complete_turo_login will try to use session first, which might work
+                logger.warning(f"Could not decrypt stored credentials for account {current_user.id}: {e}. Will attempt to use existing session.")
+                password = None  # Will rely on session restore
         else:
             raise HTTPException(
                 status_code=400,
                 detail="Turo credentials required. Either provide email/password in request or connect Turo account first."
             )
+    
+    # Note: complete_turo_login will try to restore session first before using credentials
+    # So even if we have credentials, it will prefer the session if available
     
     if scraper_type not in SCRAPER_MAP:
         raise HTTPException(status_code=400, detail=f"Invalid scraper type: {scraper_type}")
@@ -394,7 +506,7 @@ async def seed_turo_integration(
     )
 
 @router.post("/seed", response_model=APIResponse, tags=["Development"])
-@handle_route_errors("seeding data")
+@handle_route_errors("seeding data", rollback_db=True)
 async def seed_data(
     request: SeedDataRequest,
     current_user: Account = Depends(get_current_active_user),
@@ -403,12 +515,22 @@ async def seed_data(
     """
     Seed database with sample data for development/testing.
     Uses the same data structure as scraped data.
+    Automatically creates Turo integration if it doesn't exist (for seed data compatibility).
     """
     if not any([request.vehicles, request.trips, request.reviews, request.earnings]):
         raise HTTPException(
             status_code=400,
             detail="No seed data provided. Include at least one of: vehicles, trips, reviews, earnings"
         )
+    
+    # Automatically create Turo integration if it doesn't exist (for seed data)
+    integration = get_turo_integration(db, current_user.id)
+    if not integration:
+        integration = _get_or_create_integration(
+            db, current_user.id, current_user.email, encrypt_password("seed_password"), has_active_session=True
+        )
+        db.commit()
+        logger.info(f"Auto-created Turo integration for seed data: account {current_user.id}")
     
     # Save data using DatabaseService (handles overwriting automatically)
     counts = {}
@@ -432,7 +554,8 @@ async def seed_data(
         success=True,
         data={
             "message": "Seed data saved successfully",
-            "counts": counts
+            "counts": counts,
+            "integration_created": integration is not None
         }
     )
 
@@ -501,7 +624,7 @@ async def get_vehicles(
 ) -> APIResponse:
     """Get vehicles with filtering and pagination. Optionally includes aggregated statistics."""
     if include_stats:
-        vehicles_data, total = service.get_vehicles_with_stats(
+        vehicles_data, total = await service.get_vehicles_with_stats(
             account=current_user,
             vehicle_id=vehicle_id,
             license_plate=license_plate,
@@ -509,8 +632,18 @@ async def get_vehicles(
             limit=limit,
             offset=offset
         )
+        # Debug: Log odometer values before conversion
+        import logging
+        logger = logging.getLogger(__name__)
+        for v in vehicles_data:
+            logger.info(f"Vehicle {v.get('id')} ({v.get('name')}): total_odometer = {v.get('total_odometer')} km")
+        
         # Convert dict to VehicleOut models
         vehicles = [VehicleOut(**v) for v in vehicles_data]
+        
+        # Debug: Log odometer values after conversion
+        for v in vehicles:
+            logger.info(f"VehicleOut {v.id} ({v.name}): total_odometer = {v.total_odometer} km")
     else:
         vehicles, total = service.get_vehicles(
             account=current_user,
@@ -522,13 +655,80 @@ async def get_vehicles(
         )
         vehicles = [VehicleOut.model_validate(v, from_attributes=True) for v in vehicles]
     
+    # Debug: Log final odometer values before sending
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Serialize vehicles and ensure total_odometer is always included
+    serialized_vehicles = []
+    for v in vehicles:
+        dumped = v.model_dump(exclude_none=True)
+        # Ensure total_odometer is always included (even if 0)
+        if 'total_odometer' not in dumped or dumped['total_odometer'] is None:
+            dumped['total_odometer'] = 0
+        logger.info(f"Final API response - Vehicle {v.id} ({v.name}): total_odometer = {dumped.get('total_odometer')} km (type: {type(dumped.get('total_odometer'))})")
+        serialized_vehicles.append(dumped)
+    
     return APIResponse(
         success=True,
         data={
-            "vehicles": [v.model_dump(exclude_none=True) for v in vehicles],
+            "vehicles": serialized_vehicles,
             "total": total,
             "limit": limit,
             "offset": offset
+        }
+    )
+
+@router.patch("/data/vehicles/{vehicle_id}", response_model=APIResponse, response_model_exclude_none=True, tags=["Vehicles"])
+@handle_route_errors("updating vehicle")
+async def update_vehicle(
+    vehicle_id: int = Path(..., description="Vehicle ID to update"),
+    request: VehicleUpdateRequest = ...,
+    current_user: Account = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+) -> APIResponse:
+    """Update vehicle configuration (e.g., listed_on_turo_date)."""
+    # Get vehicle and verify ownership
+    vehicle = db.query(Vehicle).filter(
+        Vehicle.id == vehicle_id,
+        Vehicle.account_id == current_user.id
+    ).first()
+    
+    if not vehicle:
+        raise HTTPException(
+            status_code=404,
+            detail="Vehicle not found"
+        )
+    
+    # Update listed_on_turo_date if provided
+    if request.listed_on_turo_date is not None:
+        vehicle.listed_on_turo_date = request.listed_on_turo_date
+        logger.info(f"Updated listed_on_turo_date for vehicle {vehicle_id} to {request.listed_on_turo_date}")
+    
+    # Update removed_from_turo_date if provided
+    if request.removed_from_turo_date is not None:
+        vehicle.removed_from_turo_date = request.removed_from_turo_date
+        logger.info(f"Updated removed_from_turo_date for vehicle {vehicle_id} to {request.removed_from_turo_date}")
+    
+    # Update utilization_goal if provided
+    if request.utilization_goal is not None:
+        # Validate goal is between 0 and 100
+        if request.utilization_goal < 0 or request.utilization_goal > 100:
+            raise HTTPException(
+                status_code=400,
+                detail="Utilization goal must be between 0 and 100"
+            )
+        vehicle.utilization_goal = request.utilization_goal
+        logger.info(f"Updated utilization_goal for vehicle {vehicle_id} to {request.utilization_goal}")
+    
+    if request.listed_on_turo_date is not None or request.removed_from_turo_date is not None or request.utilization_goal is not None:
+        db.commit()
+        db.refresh(vehicle)
+    
+    return APIResponse(
+        success=True,
+        data={
+            "vehicle": VehicleOut.model_validate(vehicle, from_attributes=True).model_dump(exclude_none=True)
         }
     )
 
@@ -593,7 +793,7 @@ async def get_top_performing_vehicles(
     service: TuroDataService = Depends(get_turo_data_service)
 ) -> APIResponse:
     """Get top performing vehicles ranked by revenue."""
-    top_vehicles = service.get_top_performing_vehicles(account=current_user, limit=limit)
+    top_vehicles = await service.get_top_performing_vehicles(account=current_user, limit=limit)
     return _list_response(top_vehicles, "vehicles")
 
 @router.get("/data/trips/today", response_model=APIResponse, response_model_exclude_none=True, tags=["Trips"])

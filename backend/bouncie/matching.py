@@ -63,19 +63,36 @@ def _find_matching_trips(
     )
     
     if not matching_trips:
+        # Find Bouncie trips closest to the Turo trip date range for better debugging
+        from .helpers import parse_bouncie_datetime
+        
         bouncie_dates = []
-        for bt in bouncie_trips[:5]:
+        closest_trips = []
+        
+        for bt in bouncie_trips:
             start = bt.get('startTime')
             end = bt.get('endTime')
             if start and end:
-                bouncie_dates.append(f"{start[:10]} to {end[:10]}")
+                trip_start = parse_bouncie_datetime(start)
+                trip_end = parse_bouncie_datetime(end)
+                if trip_start and trip_end:
+                    # Calculate how close this trip is to the Turo trip window
+                    # Use the midpoint of each trip for comparison
+                    turo_midpoint = turo_start + (turo_end - turo_start) / 2
+                    bouncie_midpoint = trip_start + (trip_end - trip_start) / 2
+                    distance_days = abs((turo_midpoint - bouncie_midpoint).days)
+                    closest_trips.append((distance_days, f"{start[:10]} to {end[:10]}"))
+        
+        # Sort by distance and take the 3 closest
+        closest_trips.sort(key=lambda x: x[0])
+        bouncie_dates = [date for _, date in closest_trips[:3]]
         
         logger.warning(
             f"[Trip {trip_id}] No Bouncie trips found in time window. "
             f"Turo window: {turo_start.strftime('%Y-%m-%d %H:%M')} to {turo_end.strftime('%Y-%m-%d %H:%M')} "
             f"(buffer: {time_buffer_hours}h). "
             f"Available Bouncie trips: {len(bouncie_trips)}. "
-            f"Sample Bouncie dates: {', '.join(bouncie_dates[:3]) if bouncie_dates else 'N/A'}"
+            f"Closest Bouncie dates: {', '.join(bouncie_dates) if bouncie_dates else 'N/A'}"
         )
         return None
     

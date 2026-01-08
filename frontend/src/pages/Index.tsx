@@ -13,6 +13,8 @@ import { LiveOperationsStrip } from "@/components/LiveOperationsStrip";
 
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
@@ -21,6 +23,7 @@ import { tripsService, UpcomingTrip, CurrentTrip } from "@/services/trips-servic
 import { turoService } from "@/services/turo-service";
 import { useBouncieLiveData } from "@/hooks/useBouncieLiveData";
 import { bouncieService } from "@/services/bouncie-service";
+import { vehiclesService, Vehicle } from "@/services/vehicles-service";
 
 const Index = () => {
   const navigate = useNavigate();
@@ -64,21 +67,57 @@ const Index = () => {
     setIsRefreshing(true);
     toast({
       title: "Refreshing data...",
-      description: "Fetching latest dashboard information",
+      description: "Scraping latest Turo data and updating dashboard",
     });
     
-    await Promise.all([
-      checkTuroConnection(),
-      loadDashboardStats(),
-      loadUpcomingTrips(),
-      loadCurrentTrips(),
-    ]);
-    
-    setIsRefreshing(false);
-    toast({
-      title: "Data refreshed",
-      description: "Dashboard has been updated with latest data",
-    });
+    try {
+      // Check Turo connection first
+      await checkTuroConnection();
+      
+      // Trigger a full data scrape (endpoint will use stored credentials if Turo is connected)
+      try {
+        const scrapeResult = await turoService.scrape('all');
+        console.log('Scraping task started:', scrapeResult);
+        toast({
+          title: "Scraping started",
+          description: `Scraping all Turo data (Task: ${scrapeResult.task_id.substring(0, 8)}...)`,
+        });
+      } catch (scrapeError: any) {
+        console.error('Failed to start scraping:', scrapeError);
+        // If scraping fails (e.g., Turo not connected), just refresh existing data
+        const errorMessage = scrapeError?.message || 'Turo not connected or credentials missing';
+        if (turoConnected) {
+          toast({
+            title: "Scraping failed",
+            description: errorMessage,
+            variant: "destructive",
+          });
+        }
+      }
+      
+      // Refresh dashboard data (this will show the latest scraped data)
+      await Promise.all([
+        loadDashboardStats(),
+        loadUpcomingTrips(),
+        loadCurrentTrips(),
+      ]);
+      
+      toast({
+        title: "Data refreshed",
+        description: turoConnected 
+          ? "Scraping in progress. Dashboard will update when scraping completes."
+          : "Dashboard has been updated with latest data",
+      });
+    } catch (error) {
+      console.error('Error during refresh:', error);
+      toast({
+        title: "Refresh error",
+        description: "Failed to refresh some data. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   // Format currency
@@ -127,6 +166,9 @@ const Index = () => {
     };
   }>>([]);
   const [currentTripsLoading, setCurrentTripsLoading] = useState(true);
+  const [showActiveVehiclesDialog, setShowActiveVehiclesDialog] = useState(false);
+  const [activeVehicles, setActiveVehicles] = useState<Vehicle[]>([]);
+  const [activeVehiclesLoading, setActiveVehiclesLoading] = useState(false);
 
   const loadUpcomingTrips = async () => {
     try {
@@ -241,6 +283,47 @@ const Index = () => {
     }
   };
 
+  const loadActiveVehicles = async () => {
+    try {
+      setActiveVehiclesLoading(true);
+      const response = await vehiclesService.getVehicles({
+        include_stats: true,
+        limit: 1000,
+      });
+      
+      // Show all vehicles, sorted by status (active first)
+      const allVehicles = response.vehicles.sort((a, b) => {
+        const aStatus = (a.status || '').trim().toLowerCase();
+        const bStatus = (b.status || '').trim().toLowerCase();
+        const aIsActive = aStatus === 'listed' || aStatus === 'available';
+        const bIsActive = bStatus === 'listed' || bStatus === 'available';
+        
+        if (aIsActive && !bIsActive) return -1;
+        if (!aIsActive && bIsActive) return 1;
+        return 0;
+      });
+      
+      setActiveVehicles(allVehicles);
+    } catch (error) {
+      console.error('Failed to load vehicles:', error);
+      setActiveVehicles([]);
+      toast({
+        title: "Error loading vehicles",
+        description: "Failed to fetch vehicles. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setActiveVehiclesLoading(false);
+    }
+  };
+
+  const handleActiveVehiclesClick = () => {
+    setShowActiveVehiclesDialog(true);
+    if (activeVehicles.length === 0) {
+      loadActiveVehicles();
+    }
+  };
+
   useEffect(() => {
     checkTuroConnection();
     loadUpcomingTrips();
@@ -289,19 +372,21 @@ const Index = () => {
               trendPositive={true} 
               icon={DollarSign} 
             />
-            <KPICard 
-              title="Active Vehicles" 
-              value={isLoading ? "..." : stats.activeVehicles.toString()} 
-              trend={isLoading ? "" : (() => {
-                const parts = [];
-                if (stats.snoozedVehicles > 0) parts.push(`${stats.snoozedVehicles} snoozed`);
-                if (stats.maintenanceVehicles > 0) parts.push(`${stats.maintenanceVehicles} in maintenance`);
-                if (stats.inactiveVehicles > 0) parts.push(`${stats.inactiveVehicles} inactive`);
-                return parts.length > 0 ? parts.join(', ') : "All vehicles active";
-              })()} 
-              trendPositive={stats.snoozedVehicles === 0 && stats.maintenanceVehicles === 0 && stats.inactiveVehicles === 0} 
-              icon={Car} 
-            />
+            <div onClick={handleActiveVehiclesClick} className="cursor-pointer">
+              <KPICard 
+                title="Active Vehicles" 
+                value={isLoading ? "..." : stats.activeVehicles.toString()} 
+                trend={isLoading ? "" : (() => {
+                  const parts = [];
+                  if (stats.snoozedVehicles > 0) parts.push(`${stats.snoozedVehicles} snoozed`);
+                  if (stats.maintenanceVehicles > 0) parts.push(`${stats.maintenanceVehicles} in maintenance`);
+                  if (stats.inactiveVehicles > 0) parts.push(`${stats.inactiveVehicles} inactive`);
+                  return parts.length > 0 ? parts.join(', ') : "All vehicles active";
+                })()} 
+                trendPositive={stats.snoozedVehicles === 0 && stats.maintenanceVehicles === 0 && stats.inactiveVehicles === 0} 
+                icon={Car} 
+              />
+            </div>
             <KPICard 
               title="Upcoming Trips" 
               value={isLoading ? "..." : stats.upcomingTrips.toString()} 
@@ -336,7 +421,7 @@ const Index = () => {
           />
 
           {/* Current Trips Section */}
-          <div className="rounded-lg border bg-card shadow-sm p-3 lg:p-4">
+          <div className="rounded-lg border bg-card shadow-sm p-3 lg:p-4 h-[450px]">
             <h2 className="mb-3 text-base font-bold text-foreground flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-success animate-pulse" />
               Current Trips
@@ -398,6 +483,60 @@ const Index = () => {
         {/* Spacer for fixed sidebar */}
         <div className="hidden xl:block w-[280px] 2xl:w-[320px] shrink-0" />
       </div>
+
+      {/* Active Vehicles Dialog */}
+      <Dialog open={showActiveVehiclesDialog} onOpenChange={setShowActiveVehiclesDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Car className="h-5 w-5 text-primary" />
+              All Vehicles
+            </DialogTitle>
+          </DialogHeader>
+          <div className="mt-2">
+            {activeVehiclesLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <p className="text-sm text-muted-foreground">Loading vehicles...</p>
+              </div>
+            ) : activeVehicles.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No vehicles found</p>
+            ) : (
+              <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                {activeVehicles.map((vehicle) => {
+                  const status = (vehicle.status || '').trim().toLowerCase();
+                  const isActive = status === 'listed' || status === 'available';
+                  const isSnoozed = status === 'snoozed';
+                  const isMaintenance = status === 'maintenance';
+                  
+                  let badgeVariant: "default" | "secondary" | "outline" = "default";
+                  if (isActive) badgeVariant = "default";
+                  else if (isSnoozed) badgeVariant = "secondary";
+                  else if (isMaintenance) badgeVariant = "outline";
+                  else badgeVariant = "secondary";
+                  
+                  return (
+                    <div 
+                      key={vehicle.id} 
+                      className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border border-border hover:bg-muted/70 transition-colors cursor-pointer"
+                      onClick={() => navigate(`/vehicles/${vehicle.id}`)}
+                    >
+                      <div className="flex-1">
+                        <p className="font-medium text-foreground">{vehicle.name}</p>
+                        {vehicle.year && (
+                          <p className="text-sm text-muted-foreground mt-1">{vehicle.year}</p>
+                        )}
+                      </div>
+                      <Badge variant={badgeVariant} className="ml-2 capitalize">
+                        {vehicle.status || 'Unknown'}
+                      </Badge>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

@@ -157,7 +157,6 @@ class DatabaseService:
             return []
         
         saved_vehicles = []
-        scraped_at = datetime.fromisoformat(vehicles_data.get("scraped_at", datetime.utcnow().isoformat()))
         
         for vehicle_data in vehicles_data.get("vehicles", []):
             vehicle = None
@@ -179,7 +178,6 @@ class DatabaseService:
             vehicle.trip_info = vehicle_data.get("trip_info")
             vehicle.rating = vehicle_data.get("rating")
             vehicle.trip_count = vehicle_data.get("trip_count")
-            vehicle.scraped_at = scraped_at
             
             if DatabaseService._save_entity(db, vehicle, f"vehicle {vehicle_data.get('license_plate', 'unknown')}"):
                 saved_vehicles.append(vehicle)
@@ -237,7 +235,6 @@ class DatabaseService:
                     trip.vehicle_id = vehicle.id
             
             trip.trip_id = trip_id_str
-            trip.trip_url = trip_data.get("trip_url")
             trip.customer_name = trip_data.get("customer_name")
             trip.status = trip_data.get("status")
             trip.trip_type = trip_data.get("trip_type")
@@ -253,7 +250,7 @@ class DatabaseService:
             
             location_data = trip_data.get("location", {})
             trip.location_type = location_data.get("location_type")
-            trip.address = location_data.get("address")
+            trip.location = location_data.get("address")
             
             kilometers_data = trip_data.get("kilometers", {})
             trip.kilometers_included = kilometers_data.get("kilometers_included")
@@ -267,14 +264,21 @@ class DatabaseService:
             trip.protection_plan = protection_data.get("protection_plan")
             trip.deductible = protection_data.get("deductible")
             
-            if trip_data.get("scraped_at"):
-                trip.scraped_at = trip_data["scraped_at"]
-            
             if DatabaseService._save_entity(db, trip, f"trip {trip_id_str}"):
                 saved_trips.append(trip)
         
         logger.info(f"Saved {len(saved_trips)} trips for account {account.user_id}")
         return saved_trips
+    
+    @staticmethod
+    def _clean_host_response(response_text: Optional[str]) -> Optional[str]:
+        """Remove 'Your response' prefix from host response text (case-insensitive)."""
+        if not response_text:
+            return None
+        
+        # Remove 'Your response' or 'Your Response' from the beginning (case-insensitive)
+        cleaned = re.sub(r'^Your\s+response\s*', '', response_text, flags=re.IGNORECASE)
+        return cleaned.strip() if cleaned.strip() else None
     
     @staticmethod
     def save_reviews(db: Session, account: Account, reviews_data: Dict[str, Any]) -> List[Review]:
@@ -283,7 +287,6 @@ class DatabaseService:
             return []
         
         saved_reviews = []
-        scraped_at = datetime.fromisoformat(reviews_data.get("summary", {}).get("scraped_at", datetime.utcnow().isoformat()))
         
         for review_data in reviews_data.get("reviews", []):
             customer_id = review_data.get("customer_id")
@@ -305,8 +308,10 @@ class DatabaseService:
             review.vehicle_info = review_data.get("vehicle_info")
             review.review_text = review_data.get("review_text")
             review.areas_of_improvement = review_data.get("areas_of_improvement", [])
-            review.host_response = review_data.get("host_response")
-            review.has_host_response = review_data.get("has_host_response", False)
+            # Clean the host_response to remove "Your response" prefix
+            raw_response = review_data.get("host_response")
+            review.host_response = DatabaseService._clean_host_response(raw_response)
+            review.has_host_response = bool(review.host_response)
             
             # Link review to vehicle by extracting license plate from vehicle_info
             vehicle_info = review_data.get("vehicle_info")
@@ -344,7 +349,6 @@ class DatabaseService:
                 except (ValueError, AttributeError):
                     logger.warning(f"Could not parse review date: {date_str}")
             
-            review.scraped_at = scraped_at
             
             if DatabaseService._save_entity(db, review, f"review for customer {customer_id or 'unknown'}"):
                 saved_reviews.append(review)
@@ -357,7 +361,6 @@ class DatabaseService:
         """Save earnings data."""
         saved_breakdowns = []
         saved_vehicle_earnings = []
-        scraped_at = datetime.utcnow()
         
         if earnings_data.get("earnings_breakdown"):
             for breakdown_data in earnings_data["earnings_breakdown"]:
@@ -373,14 +376,12 @@ class DatabaseService:
                         type=breakdown_data.get("type"),
                         amount=breakdown_data.get("amount"),
                         amount_numeric=parse_amount(breakdown_data.get("amount")),
-                        year=breakdown_data.get("year"),
-                        scraped_at=scraped_at
+                        year=breakdown_data.get("year")
                     )
                     db.add(breakdown)
                 else:
                     breakdown.amount = breakdown_data.get("amount")
                     breakdown.amount_numeric = parse_amount(breakdown_data.get("amount"))
-                    breakdown.scraped_at = scraped_at
                 
                 if DatabaseService._save_entity(db, breakdown, f"earnings breakdown {breakdown_data.get('type', 'unknown')}"):
                     saved_breakdowns.append(breakdown)
@@ -388,17 +389,22 @@ class DatabaseService:
         if earnings_data.get("vehicle_earnings"):
             for vehicle_earnings_data in earnings_data["vehicle_earnings"]:
                 vehicle_earnings = None
+                year = vehicle_earnings_data.get("year")
+                
+                # Lookup should include year to find the correct record for each year
                 if vehicle_earnings_data.get("license_plate"):
                     vehicle_earnings = db.query(VehicleEarnings).filter(
                         VehicleEarnings.account_id == account.id,
-                        VehicleEarnings.license_plate == vehicle_earnings_data.get("license_plate")
+                        VehicleEarnings.license_plate == vehicle_earnings_data.get("license_plate"),
+                        VehicleEarnings.year == year
                     ).first()
                 
                 if not vehicle_earnings and vehicle_earnings_data.get("vehicle_name"):
                     vehicle_earnings = db.query(VehicleEarnings).filter(
                         VehicleEarnings.account_id == account.id,
                         VehicleEarnings.vehicle_name == vehicle_earnings_data.get("vehicle_name"),
-                        VehicleEarnings.trim == vehicle_earnings_data.get("trim")
+                        VehicleEarnings.trim == vehicle_earnings_data.get("trim"),
+                        VehicleEarnings.year == year
                     ).first()
                 
                 if not vehicle_earnings:
@@ -409,7 +415,7 @@ class DatabaseService:
                         trim=vehicle_earnings_data.get("trim"),
                         earnings_amount=vehicle_earnings_data.get("earnings_amount"),
                         earnings_amount_numeric=parse_amount(vehicle_earnings_data.get("earnings_amount")),
-                        scraped_at=scraped_at
+                        year=year
                     )
                     db.add(vehicle_earnings)
                 else:
@@ -418,7 +424,7 @@ class DatabaseService:
                     vehicle_earnings.trim = vehicle_earnings_data.get("trim")
                     vehicle_earnings.earnings_amount = vehicle_earnings_data.get("earnings_amount")
                     vehicle_earnings.earnings_amount_numeric = parse_amount(vehicle_earnings_data.get("earnings_amount"))
-                    vehicle_earnings.scraped_at = scraped_at
+                    vehicle_earnings.year = year
                 
                 if DatabaseService._save_entity(db, vehicle_earnings, f"vehicle earnings {vehicle_earnings_data.get('vehicle_name', 'unknown')}"):
                     saved_vehicle_earnings.append(vehicle_earnings)
