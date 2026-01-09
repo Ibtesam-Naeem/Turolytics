@@ -15,6 +15,10 @@ def get_trip_url(trip_id: str) -> str:
     """Generate Turo trip URL from trip_id."""
     return f"https://turo.com/us/en/reservation/{trip_id}"
 
+def get_receipt_url(trip_id: str) -> str:
+    """Generate Turo receipt URL from trip_id."""
+    return f"https://turo.com/us/en/reservation/{trip_id}/receipt"
+
 # Month names constant
 MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']

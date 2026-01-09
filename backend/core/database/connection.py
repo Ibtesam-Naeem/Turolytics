@@ -53,6 +53,7 @@ def init_db() -> None:
             BouncieTripMatch,
             UserSession,
             VehicleOdometerHistory,
+            Receipt,
         )
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created successfully")

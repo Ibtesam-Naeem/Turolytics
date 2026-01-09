@@ -52,12 +52,13 @@ def parse_amount(amount_str: Optional[str]) -> Optional[float]:
     """
     Parse amount string like '$100.00', 'CA$1,234.56', or '$1,234.56' into a float.
     Handles None, empty strings, and various formats including CA$ prefix.
+    Also handles negative values like '- CA$12.60'.
     """
     if not amount_str:
         return None
     try:
-        # Remove currency symbols (including CA$ prefix), commas, and whitespace
-        cleaned = str(amount_str).replace("CA$", "").replace("$", "").replace(",", "").strip()
+        # Remove currency symbols (including CA$ prefix), commas, and ALL whitespace
+        cleaned = str(amount_str).replace("CA$", "").replace("$", "").replace(",", "").replace(" ", "")
         # Handle empty string after cleaning (e.g., "CA$0" -> "0")
         if not cleaned:
             return 0.0

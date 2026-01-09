@@ -43,6 +43,7 @@ SCRAPER_MAP = {
     "reviews": scraping_service.scrape_reviews,
     "earnings": scraping_service.scrape_earnings,
     "transactions": scraping_service.scrape_transactions,
+    "receipts": scraping_service.scrape_receipts,
 }
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
@@ -436,7 +437,7 @@ async def get_scrape_status(task_id: str = Path(..., description="Task ID from s
 @handle_route_errors("scraping data")
 async def scrape_data(
     request: ScrapeRequest,
-    scraper_type: str = Path(..., pattern="^(all|vehicles|trips|reviews|earnings|transactions)$", description="Type of data to scrape"),
+    scraper_type: str = Path(..., pattern="^(all|vehicles|trips|reviews|earnings|transactions|receipts)$", description="Type of data to scrape"),
     current_user: Account = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ) -> ScrapeResponse:

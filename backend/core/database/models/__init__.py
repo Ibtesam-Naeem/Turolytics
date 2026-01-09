@@ -16,6 +16,7 @@ from .turo import (
     VehicleEarnings,
     Transaction,
     SessionStorage,
+    Receipt,
 )
 from .s3 import Document
 from .user_session import UserSession
@@ -39,6 +40,7 @@ __all__ = [
     "VehicleEarnings",
     "Transaction",
     "SessionStorage",
+    "Receipt",
     "Document",
     "UserSession",
 ]

@@ -18,7 +18,6 @@ class Transaction(Base):
     id = Column(Integer, primary_key=True, index=True)
     
     account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
-    trip_id = Column(Integer, ForeignKey("turo_trips.id"), nullable=True, index=True, comment="Foreign key to Trip table (if transaction is linked to a trip)")
     vehicle_id = Column(Integer, ForeignKey("turo_vehicles.id"), nullable=True, index=True, comment="Foreign key to Vehicle table")
     
     # Transaction type and details
@@ -43,7 +42,6 @@ class Transaction(Base):
     
     # Relationships
     account = relationship("Account", back_populates="transactions")
-    trip = relationship("Trip", backref="transactions")
     vehicle = relationship("Vehicle", backref="transactions")
     
     def __repr__(self):

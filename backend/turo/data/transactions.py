@@ -226,29 +226,47 @@ async def extract_transaction_row(row, row_index: int) -> Optional[Dict[str, Any
             logger.debug(f"Row {row_index}: Missing both date and type, skipping")
             return None
         
-        # Extract earnings amount
+        # Extract earnings amount - get text directly from cell
         earnings_cell = await row.query_selector(TRANSACTION_EARNINGS_CELL)
         earnings_amount = None
         earnings_amount_numeric = None
         if earnings_cell:
-            earnings_span = await earnings_cell.query_selector(TRANSACTION_EARNINGS_AMOUNT)
-            if earnings_span:
-                earnings_text = (await earnings_span.text_content() or '').strip()
-                if earnings_text:
-                    earnings_amount = earnings_text
-                    earnings_amount_numeric = parse_amount(earnings_text)
+            # Try to get text directly from the cell first
+            earnings_text = (await earnings_cell.text_content() or '').strip()
+            
+            # If cell is empty, try looking for a span inside
+            if not earnings_text:
+                earnings_span = await earnings_cell.query_selector(TRANSACTION_EARNINGS_AMOUNT)
+                if earnings_span:
+                    earnings_text = (await earnings_span.text_content() or '').strip()
+            
+            if earnings_text:
+                earnings_amount = earnings_text
+                earnings_amount_numeric = parse_amount(earnings_text)
+                logger.debug(f"Extracted earnings amount: {earnings_amount} (numeric: {earnings_amount_numeric})")
+            else:
+                logger.debug(f"Row {row_index}: No earnings amount found in earnings cell")
         
-        # Extract payment amount
+        # Extract payment amount - get text directly from cell
         payment_cell = await row.query_selector(TRANSACTION_PAYMENT_CELL)
         payment_amount = None
         payment_amount_numeric = None
         if payment_cell:
-            payment_span = await payment_cell.query_selector(TRANSACTION_PAYMENT_AMOUNT)
-            if payment_span:
-                payment_text = (await payment_span.text_content() or '').strip()
-                if payment_text:
-                    payment_amount = payment_text
-                    payment_amount_numeric = parse_amount(payment_text)
+            # Try to get text directly from the cell first
+            payment_text = (await payment_cell.text_content() or '').strip()
+            
+            # If cell is empty, try looking for a span inside
+            if not payment_text:
+                payment_span = await payment_cell.query_selector(TRANSACTION_PAYMENT_AMOUNT)
+                if payment_span:
+                    payment_text = (await payment_span.text_content() or '').strip()
+            
+            if payment_text:
+                payment_amount = payment_text
+                payment_amount_numeric = parse_amount(payment_text)
+                logger.debug(f"Extracted payment amount: {payment_amount} (numeric: {payment_amount_numeric})")
+            else:
+                logger.debug(f"Row {row_index}: No payment amount found in payment cell")
         
         result = {
             'type': type_info.get('type') or 'unknown',
@@ -262,6 +280,15 @@ async def extract_transaction_row(row, row_index: int) -> Optional[Dict[str, Any
             'payment_amount': payment_amount,
             'payment_amount_numeric': payment_amount_numeric
         }
+        
+        # Log extracted transaction for debugging
+        logger.debug(
+            f"Row {row_index}: Extracted transaction - "
+            f"Type: {result['type']}, Date: {result['date']}, "
+            f"Reservation: {result['reservation_id'] or 'N/A'}, "
+            f"Earnings: {result['earnings_amount'] or 'N/A'}, "
+            f"Payment: {result['payment_amount'] or 'N/A'}"
+        )
         
         return result
     except Exception as e:

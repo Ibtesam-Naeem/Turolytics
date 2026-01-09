@@ -5,6 +5,7 @@ from .review import Review
 from .earnings import EarningsBreakdown, VehicleEarnings
 from .transaction import Transaction
 from .session_storage import SessionStorage
+from .receipt import Receipt
 
 __all__ = [
     "Vehicle",
@@ -15,5 +16,6 @@ __all__ = [
     "VehicleEarnings",
     "Transaction",
     "SessionStorage",
+    "Receipt",
 ]
 

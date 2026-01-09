@@ -12,6 +12,7 @@ from core.database.models import (
     EarningsBreakdown,
     VehicleEarnings,
     Transaction,
+    Receipt,
 )
 from core.utils.route_helpers import parse_amount
 
@@ -265,11 +266,161 @@ class DatabaseService:
             trip.protection_plan = protection_data.get("protection_plan")
             trip.deductible = protection_data.get("deductible")
             
+            # Save receipt data if present
+            
             if DatabaseService._save_entity(db, trip, f"trip {trip_id_str}"):
                 saved_trips.append(trip)
         
         logger.info(f"Saved {len(saved_trips)} trips for account {account.user_id}")
         return saved_trips
+    
+    
+    @staticmethod
+    def save_receipts(db: Session, account: Account, receipts_data: Dict[str, Any]) -> int:
+        """Save receipt data for trips.
+        
+        Args:
+            db: Database session
+            account: Account object
+            receipts_data: Dictionary with 'receipts' key containing dict of trip_id -> receipt_data or list of receipt data dicts
+        
+        Returns:
+            Number of receipts saved
+        """
+        if not receipts_data or "receipts" not in receipts_data:
+            return 0
+        
+        receipts_raw = receipts_data.get("receipts", {})
+        
+        # Handle both dict (trip_id -> receipt_data) and list formats
+        if isinstance(receipts_raw, dict):
+            receipts_list = [dict(receipt_data, reservation_id=trip_id) for trip_id, receipt_data in receipts_raw.items()]
+        else:
+            receipts_list = receipts_raw
+        saved_count = 0
+        
+        for receipt_data in receipts_list:
+            if not receipt_data:
+                continue
+            
+            reservation_id = receipt_data.get("reservation_id")
+            if not reservation_id:
+                logger.warning("Receipt data missing reservation_id, skipping.")
+                continue
+            
+            # Check if receipt already exists (by reservation_id)
+            receipt = db.query(Receipt).filter(
+                Receipt.account_id == account.id,
+                Receipt.reservation_id == reservation_id
+            ).first()
+            
+            # Parse amounts from strings to floats
+            def parse_float(value):
+                if value is None:
+                    return None
+                if isinstance(value, (int, float)):
+                    return float(value)
+                if isinstance(value, str):
+                    return parse_amount(value)
+                return None
+            
+            # Helper to replace '-' with None
+            def clean_string_value(value: Optional[str]) -> Optional[str]:
+                """Replace '-' with None for string fields."""
+                if value is None:
+                    return None
+                if isinstance(value, str) and value.strip() == '-':
+                    return None
+                return value if value else None
+            
+            # Clean vehicle_name - remove year if present (e.g., "Hyundai Elantra2017" -> "Hyundai Elantra")
+            def clean_vehicle_name(vehicle_name: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+                """Extract year from vehicle name and return cleaned name and year separately."""
+                if not vehicle_name:
+                    return None, None
+                
+                import re
+                # Look for 4-digit year at the end, but only valid years (1900-2099)
+                # This prevents matching invalid years like "7020" from "Genesis G70"
+                year_match = re.search(r'(19\d{2}|20\d{2})$', vehicle_name.strip())
+                if year_match:
+                    year = year_match.group(1)
+                    # Validate year is in reasonable range
+                    year_int = int(year)
+                    if 1900 <= year_int <= 2099:
+                        cleaned_name = vehicle_name[:year_match.start()].strip()
+                        return cleaned_name, year
+                
+                return vehicle_name, None
+            
+            # Extract trip_price and delivery_fee from receipt_data
+            trip_price = parse_float(receipt_data.get("trip_price"))
+            delivery_fee = parse_float(receipt_data.get("delivery_fee"))
+            turo_fees = parse_float(receipt_data.get("turo_fees"))
+            sales_tax = parse_float(receipt_data.get("sales_tax"))
+            
+            # Clean vehicle_name
+            vehicle_name_raw = receipt_data.get("vehicle_name")
+            vehicle_name_cleaned, extracted_year = clean_vehicle_name(vehicle_name_raw)
+            # Use extracted year if vehicle_year not already set
+            vehicle_year = receipt_data.get("vehicle_year") or extracted_year
+            
+            # Clean string values (replace '-' with None)
+            booked_date_clean = clean_string_value(receipt_data.get("booked_date") or receipt_data.get("booked_at"))
+            trip_start_clean = clean_string_value(receipt_data.get("trip_start") or receipt_data.get("trip_start_date"))
+            trip_end_clean = clean_string_value(receipt_data.get("trip_end") or receipt_data.get("trip_end_date"))
+            pickup_location_clean = clean_string_value(receipt_data.get("pickup_location"))
+            return_location_clean = clean_string_value(receipt_data.get("return_location"))
+            guest_name_clean = clean_string_value(receipt_data.get("guest_name"))
+            
+            if not receipt:
+                # Create new receipt
+                receipt = Receipt(
+                    account_id=account.id,
+                    reservation_id=reservation_id,
+                    vehicle_name=vehicle_name_cleaned,
+                    vehicle_year=vehicle_year,
+                    booked_date=booked_date_clean,
+                    trip_start=trip_start_clean,
+                    trip_end=trip_end_clean,
+                    pickup_location=pickup_location_clean,
+                    return_location=return_location_clean,
+                    guest_name=guest_name_clean,
+                    distance_included=receipt_data.get("distance_included"),
+                    overage_rate=parse_float(receipt_data.get("overage_rate") or receipt_data.get("overage_fee_per_km")),
+                    trip_price=trip_price,
+                    delivery_fee=delivery_fee,
+                    trip_total=parse_float(receipt_data.get("trip_total")),
+                    turo_fees=parse_float(receipt_data.get("turo_fees")) or turo_fees,
+                    sales_tax=parse_float(receipt_data.get("sales_tax")) or sales_tax,
+                    you_earned=parse_float(receipt_data.get("you_earned"))
+                )
+                db.add(receipt)  # Add to session before saving
+            else:
+                # Update existing receipt
+                receipt.vehicle_name = vehicle_name_cleaned or receipt.vehicle_name
+                receipt.vehicle_year = vehicle_year or receipt.vehicle_year
+                receipt.booked_date = booked_date_clean or receipt.booked_date
+                receipt.trip_start = trip_start_clean or receipt.trip_start
+                receipt.trip_end = trip_end_clean or receipt.trip_end
+                receipt.pickup_location = pickup_location_clean or receipt.pickup_location
+                receipt.return_location = return_location_clean or receipt.return_location
+                receipt.guest_name = guest_name_clean or receipt.guest_name
+                receipt.distance_included = receipt_data.get("distance_included") or receipt.distance_included
+                receipt.overage_rate = parse_float(receipt_data.get("overage_rate") or receipt_data.get("overage_fee_per_km")) or receipt.overage_rate
+                receipt.trip_price = trip_price or receipt.trip_price
+                receipt.delivery_fee = delivery_fee or receipt.delivery_fee
+                receipt.trip_total = parse_float(receipt_data.get("trip_total")) or receipt.trip_total
+                receipt.turo_fees = turo_fees or receipt.turo_fees
+                receipt.sales_tax = sales_tax or receipt.sales_tax
+                receipt.you_earned = parse_float(receipt_data.get("you_earned")) or receipt.you_earned
+            
+            if DatabaseService._save_entity(db, receipt, f"receipt for trip {reservation_id}"):
+                saved_count += 1
+                logger.debug(f"Saved receipt data for trip {reservation_id}")
+        
+        logger.info(f"Saved {saved_count} receipts for account {account.user_id}")
+        return saved_count
     
     @staticmethod
     def _clean_host_response(response_text: Optional[str]) -> Optional[str]:
@@ -484,18 +635,16 @@ class DatabaseService:
             
             existing_transaction = None
             
-            # If we have a reservation_id, try to link to a trip
-            trip_id = None
+            # If we have a reservation_id, try to link to a vehicle via trip
             vehicle_id = None
             
             if reservation_id:
-                # Try to find trip by reservation_id (trip_id in Trip model)
+                # Try to find trip by reservation_id (trip_id in Trip model) to get vehicle_id
                 trip = db.query(Trip).filter(
                     Trip.account_id == account.id,
                     Trip.trip_id == reservation_id
                 ).first()
                 if trip:
-                    trip_id = trip.id
                     vehicle_id = trip.vehicle_id
             
             # If we have vehicle_name but no vehicle_id, try to find vehicle
@@ -529,7 +678,6 @@ class DatabaseService:
             if not existing_transaction:
                 existing_transaction = Transaction(
                     account_id=account.id,
-                    trip_id=trip_id,
                     vehicle_id=vehicle_id,
                     type=transaction_type,
                     trip_name=transaction_data.get("trip_name"),
@@ -547,7 +695,6 @@ class DatabaseService:
                 logger.info(f"  [{idx}] NEW transaction: {transaction_type} | {transaction_data.get('trip_name') or transaction_data.get('payment_details')} | {date} | {reservation_id or 'N/A'}")
             else:
                 # Update existing transaction
-                existing_transaction.trip_id = trip_id or existing_transaction.trip_id
                 existing_transaction.vehicle_id = vehicle_id or existing_transaction.vehicle_id
                 existing_transaction.trip_name = transaction_data.get("trip_name") or existing_transaction.trip_name
                 existing_transaction.vehicle_name = transaction_data.get("vehicle_name") or existing_transaction.vehicle_name
@@ -587,6 +734,9 @@ class DatabaseService:
             
             if "transactions" in scraped_data:
                 DatabaseService.save_transactions(db, account, scraped_data["transactions"])
+            
+            if "receipts" in scraped_data:
+                DatabaseService.save_receipts(db, account, scraped_data["receipts"])
             
             logger.info(f"Successfully saved all scraped data for user {user_id}")
             return True

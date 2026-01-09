@@ -1,4 +1,4 @@
-import { User as UserIcon, Bell, Shield, CreditCard, Car, Globe, DollarSign, Key, Trash2, Monitor, Link as LinkIcon, Building2, Check, Lock, Sparkles, Search, Loader2, RefreshCw, AlertCircle, Phone, MapPin, Route, Activity, Wifi, WifiOff, CheckCircle2, XCircle, Clock, Radio, Zap, TrendingUp } from "lucide-react";
+import { User as UserIcon, Bell, Shield, CreditCard, Car, Globe, DollarSign, Key, Trash2, Monitor, Link as LinkIcon, Building2, Check, Lock, Sparkles, Search, Loader2, RefreshCw, AlertCircle, Phone, MapPin, Route, Activity, Wifi, WifiOff, CheckCircle2, XCircle, Clock, Radio, Zap, TrendingUp, Receipt } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -492,7 +492,7 @@ const Settings = () => {
     }
   };
 
-  const handleScrapeTuro = async (scraperType: 'trips' | 'earnings' | 'vehicles' | 'transactions') => {
+  const handleScrapeTuro = async (scraperType: 'trips' | 'earnings' | 'vehicles' | 'transactions' | 'receipts') => {
     if (!turoStatus?.connected) {
       toast({
         title: "Not Connected",
@@ -1287,6 +1287,25 @@ const Settings = () => {
                                   <>
                                     <DollarSign className="mr-2 h-4 w-4" />
                                     Scrape Transactions
+                                  </>
+                                )}
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleScrapeTuro('receipts')}
+                                disabled={!!turoScraping.taskId}
+                                className="w-full justify-start"
+                              >
+                                {turoScraping.type === 'receipts' && turoScraping.taskId ? (
+                                  <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Scraping Receipts...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Receipt className="mr-2 h-4 w-4" />
+                                    Scrape Receipts
                                   </>
                                 )}
                               </Button>

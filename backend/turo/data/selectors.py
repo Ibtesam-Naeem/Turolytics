@@ -107,6 +107,26 @@ PROTECTION_DEDUCTIBLE_SELECTOR = '.reservationDetails-protection .css-1hf155s-St
 
 RESERVATION_NUMBER_SELECTOR = '.css-1exfdxm-StyledText'
 
+# ------------------------------ RECEIPT SELECTORS ------------------------------
+
+RECEIPT_HEADER_SELECTOR = '.css-zz02v-StyledSpaceBetweenContainer'
+RECEIPT_RESERVATION_ID_SELECTOR = '.css-1p4xxr5-StyledText-styledHeaderContentStyles'
+RECEIPT_TRIP_DETAILS_SECTION = '[data-testid="trip-details-section"]'
+RECEIPT_HOST_NAME_SELECTOR = '.css-foqw77-StyledText'
+RECEIPT_VEHICLE_NAME_SELECTOR = '.css-1u5b2lp-StyledText'
+RECEIPT_BOOKED_DATE_SELECTOR = '.css-1uqof5-StyledText-styledSectionTitleStyles'
+RECEIPT_GUEST_SECTION = '[data-testid="guest-section"]'
+RECEIPT_MILEAGE_SECTION = '[data-testid="mileage-section"]'
+RECEIPT_COST_DETAILS_SECTION = '[data-testid="cost-details-section"]'
+RECEIPT_EARNINGS_SECTION = '[data-testid="earnings-section"]'
+RECEIPT_ROW_SELECTOR = '.css-14zgme1-StyledSpaceBetweenContainer-styledDottedLineStyles'
+RECEIPT_ROW_LABEL_SELECTOR = '.css-1uqof5-StyledText-styledSectionTitleStyles'
+RECEIPT_ROW_VALUE_SELECTOR = '.css-foqw77-StyledText'
+RECEIPT_ROW_VALUE_NEGATIVE_SELECTOR = '.css-qj1xw-StyledText-printItems'
+RECEIPT_ROW_VALUE_TOTAL_SELECTOR = '.css-5xs0wm-StyledText'
+RECEIPT_ROW_VALUE_EARNED_SELECTOR = '.css-135u615-StyledText'
+RECEIPT_ROW_DETAILS_SELECTOR = '.css-1ockuyw-StyledText-printItems, .css-1vaws8n-StyledText'
+
 # ------------------------------ VEHICLE CARD SELECTORS ------------------------------
 
 VEHICLE_STATUS_SELECTORS = [
