@@ -24,7 +24,7 @@ def get_waitlist_service(db: Session = Depends(get_db)) -> WaitlistService:
 
 @router.post("/waitlist", response_model=APIResponse, status_code=status.HTTP_201_CREATED)
 @handle_route_errors("joining waitlist")
-def join_waitlist(
+async def join_waitlist(
     request: WaitlistRequest,
     service: WaitlistService = Depends(get_waitlist_service)
 ):
