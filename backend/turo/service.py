@@ -5,9 +5,12 @@ from sqlalchemy import desc, case, func, or_, and_
 from datetime import datetime, timezone, timedelta
 from calendar import monthrange
 import re
+import logging
 
-from core.database.models import Trip, Vehicle, Review, EarningsBreakdown, VehicleEarnings, VehicleUtilizationHistory, Account, BouncieVehicleMapping, VehicleOdometerHistory
+from core.database.models import Trip, Vehicle, Review, EarningsBreakdown, VehicleEarnings, VehicleUtilizationHistory, Account, BouncieVehicleMapping, VehicleOdometerHistory, Receipt
 from . import parsing
+
+logger = logging.getLogger(__name__)
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
 
@@ -58,13 +61,9 @@ class TuroDataService:
         if not date_str:
             return None
         
-        parsed_date = parsing._parse_turo_date(date_str, year)
-        if not parsed_date:
-            return None
-        
-        # Use updated_at year if available for better accuracy
+        # Use updated_at year if available and year is None (for better accuracy)
         reference_date = None
-        if updated_at and not year:
+        if updated_at and year is None:
             try:
                 updated_year = updated_at.year
                 parsed_date = parsing._parse_turo_date(date_str, updated_year)
@@ -74,7 +73,13 @@ class TuroDataService:
                 else:
                     reference_date = updated_at.replace(tzinfo=timezone.utc)
             except:
-                pass
+                # Fallback to current year if updated_at parsing fails
+                parsed_date = parsing._parse_turo_date(date_str, year)
+        else:
+            parsed_date = parsing._parse_turo_date(date_str, year)
+        
+        if not parsed_date:
+            return None
         
         # Handle year rollover for upcoming trips
         # If parsed date is in the past but updated_at is recent, try next year
@@ -380,6 +385,9 @@ class TuroDataService:
             if vehicle.listed_on_turo_date > month_end:
                 # Vehicle wasn't listed yet, return 0 with 0 total days
                 return (0.0, 0, 0)
+            # If vehicle was listed during this month, adjust month_start
+            if vehicle.listed_on_turo_date > month_start:
+                month_start = vehicle.listed_on_turo_date
         
         # Check if vehicle was removed before or during this month
         if vehicle and vehicle.removed_from_turo_date:
@@ -419,13 +427,12 @@ class TuroDataService:
         if year is None:
             year = datetime.now(timezone.utc).year
         
-        # Get stored utilization history for this year
-        history_records = self.db.query(VehicleUtilizationHistory).filter(
-            VehicleUtilizationHistory.account_id == account.id,
-            VehicleUtilizationHistory.year == year
-        ).all()
+        # Get current date to determine if we should include future months
+        now = datetime.now(timezone.utc)
+        current_year = now.year
+        current_month = now.month
         
-        # Get all vehicles for trip counting
+        # Get all vehicles for this account
         vehicles = self.db.query(Vehicle).filter(
             Vehicle.account_id == account.id
         ).all()
@@ -437,10 +444,73 @@ class TuroDataService:
             ~Trip.status.in_(['CANCELLED', 'CANCELED'])
         ).all()
         
-        # Get current date to determine if we should include future months
-        now = datetime.now(timezone.utc)
-        current_year = now.year
-        current_month = now.month
+        # Ensure utilization history exists for all months with active vehicles
+        # Calculate and store missing months on the fly
+        for month in range(1, 13):
+            # Skip future months (beyond current month if current year)
+            if year == current_year and month > current_month:
+                continue
+            
+            month_start = datetime(year, month, 1, tzinfo=timezone.utc)
+            _, last_day = monthrange(year, month)
+            month_end = datetime(year, month, last_day, 23, 59, 59, tzinfo=timezone.utc)
+            
+            # Check which vehicles need utilization calculated for this month
+            for vehicle in vehicles:
+                # Check if vehicle was active during this month
+                if vehicle.listed_on_turo_date and vehicle.listed_on_turo_date > month_end:
+                    continue  # Vehicle wasn't listed yet
+                if vehicle.removed_from_turo_date and vehicle.removed_from_turo_date < month_start:
+                    continue  # Vehicle was already removed
+                
+                # Check if history record exists for this vehicle/month
+                existing_record = self.db.query(VehicleUtilizationHistory).filter(
+                    VehicleUtilizationHistory.vehicle_id == vehicle.id,
+                    VehicleUtilizationHistory.account_id == account.id,
+                    VehicleUtilizationHistory.year == year,
+                    VehicleUtilizationHistory.month == month
+                ).first()
+                
+                if not existing_record:
+                    # Calculate and store utilization for this month
+                    try:
+                        utilization_value, booked_days, total_days = self._calculate_monthly_utilization(
+                            vehicle_id=vehicle.id,
+                            account=account,
+                            year=year,
+                            month=month
+                        )
+                        
+                        # Only create history record if vehicle was active during this month
+                        # (total_days > 0 means vehicle was active for at least part of the month)
+                        if total_days > 0:
+                            history_record = VehicleUtilizationHistory(
+                                vehicle_id=vehicle.id,
+                                account_id=account.id,
+                                year=year,
+                                month=month,
+                                booked_days=booked_days,
+                                total_days=total_days,
+                                calculated_at=now
+                            )
+                            self.db.add(history_record)
+                        # If total_days == 0, vehicle wasn't active during this month, so skip creating record
+                    except Exception as e:
+                        logger.warning(f"Failed to calculate utilization for vehicle {vehicle.id}, month {month}/{year}: {e}")
+                        continue
+        
+        # Commit any newly created history records
+        try:
+            self.db.commit()
+        except Exception as e:
+            logger.error(f"Error committing utilization history: {e}")
+            self.db.rollback()
+        
+        # Get stored utilization history for this year (now includes newly created records)
+        history_records = self.db.query(VehicleUtilizationHistory).filter(
+            VehicleUtilizationHistory.account_id == account.id,
+            VehicleUtilizationHistory.year == year
+        ).all()
         
         # Group history records by month
         monthly_data = {}
@@ -464,6 +534,10 @@ class TuroDataService:
             # Build vehicle breakdown from stored data
             vehicle_utilizations = []
             for record in month_records:
+                # Skip records where vehicle wasn't active (total_days == 0)
+                if record.total_days == 0:
+                    continue
+                
                 vehicle = vehicle_map.get(record.vehicle_id)
                 if not vehicle:
                     continue
@@ -880,44 +954,50 @@ class TuroDataService:
             # Use vehicle's rating if no reviews, or average of reviews if available
             final_rating = avg_rating if avg_rating else vehicle.rating
             
-            # Get utilization from monthly history - use most recent month with data
-            now = datetime.now(timezone.utc)
-            current_year = now.year
-            current_month = now.month
-            
-            # Try to get current month's utilization from history
-            current_month_history = self.db.query(VehicleUtilizationHistory).filter(
+            # Get overall utilization from existing VehicleUtilizationHistory records
+            # Aggregate all months to get total utilization since vehicle was listed
+            all_history = self.db.query(VehicleUtilizationHistory).filter(
                 VehicleUtilizationHistory.vehicle_id == vehicle.id,
                 VehicleUtilizationHistory.account_id == account.id,
-                VehicleUtilizationHistory.year == current_year,
-                VehicleUtilizationHistory.month == current_month
-            ).first()
+                VehicleUtilizationHistory.total_days > 0  # Only count months where vehicle was active
+            ).all()
             
-            if current_month_history:
-                # Use current month's stored utilization
-                utilization_value = current_month_history.utilization
-                booked_days = current_month_history.booked_days
-                total_days = current_month_history.total_days
-            else:
-                # No history for current month - calculate it on the fly
-                utilization_value, booked_days, total_days = self._calculate_monthly_utilization(
-                    vehicle_id=vehicle.id,
-                    account=account,
-                    year=current_year,
-                    month=current_month
-                )
+            if all_history:
+                # Sum up all booked_days and total_days from history records
+                total_booked_days = sum(record.booked_days for record in all_history)
+                total_total_days = sum(record.total_days for record in all_history)
                 
-                # Create history record for current month (will be committed by caller)
-                history_record = VehicleUtilizationHistory(
-                    vehicle_id=vehicle.id,
-                    account_id=account.id,
-                    year=current_year,
-                    month=current_month,
-                    booked_days=booked_days,
-                    total_days=total_days,
-                    calculated_at=now
-                )
-                self.db.add(history_record)
+                if total_total_days > 0:
+                    utilization_value = (total_booked_days / total_total_days) * 100
+                    utilization_value = min(100.0, max(0.0, utilization_value))
+                    booked_days = total_booked_days
+                    total_days = total_total_days
+                else:
+                    utilization_value = 0.0
+                    booked_days = 0
+                    total_days = 0
+            else:
+                # No history records yet - calculate on the fly if vehicle has listed_on_turo_date
+                if vehicle.listed_on_turo_date:
+                    period_start = vehicle.listed_on_turo_date
+                    if vehicle.removed_from_turo_date:
+                        period_end = vehicle.removed_from_turo_date
+                    else:
+                        period_end = datetime.now(timezone.utc)
+                    
+                    utilization_value, booked_days, total_days = self._calculate_vehicle_utilization(
+                        vehicle_id=vehicle.id,
+                        account=account,
+                        period_start=period_start,
+                        period_end=period_end
+                    )
+                else:
+                    # No listed_on_turo_date - fallback to last 30 days
+                    utilization_value, booked_days, total_days = self._calculate_vehicle_utilization(
+                        vehicle_id=vehicle.id,
+                        account=account,
+                        period_days=30
+                    )
             
             # Map status to frontend format
             status_mapped = self._map_vehicle_status(vehicle.status)
@@ -1043,7 +1123,7 @@ class TuroDataService:
         year: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
-        Get monthly revenue data from completed trips.
+        Get monthly revenue data from receipts (you_earned column) or trip earnings (fallback).
         Returns revenue per month for the specified year.
         
         Args:
@@ -1056,40 +1136,123 @@ class TuroDataService:
         if year is None:
             year = datetime.now(timezone.utc).year
         
-        # Get all completed trips for the account
-        trips = self.db.query(Trip).filter(
-            Trip.account_id == account.id,
-            Trip.status.in_(['COMPLETED'])
-        ).all()
-        
         # Group revenue by month
         monthly_data = {}
         
+        # Initialize all months with 0 revenue
         for month in range(1, 13):
             month_key = MONTH_NAMES[month - 1]
-            month_start = datetime(year, month, 1, tzinfo=timezone.utc)
-            _, last_day = monthrange(year, month)
-            month_end = datetime(year, month, last_day, 23, 59, 59, tzinfo=timezone.utc)
-            
-            # Calculate revenue for this month from trips
-            month_revenue = 0.0
-            for trip in trips:
-                # Check if trip end_date falls in this month
-                if trip.end_date:
-                    parsed_end = self._parse_date_with_timezone(trip.end_date, year=year)
-                    if parsed_end and month_start <= parsed_end <= month_end:
-                        month_revenue += float(trip.total_earnings or 0)
-                # Also check start_date if end_date is not available
-                elif trip.start_date:
-                    parsed_start = self._parse_date_with_timezone(trip.start_date, year=year)
-                    if parsed_start and month_start <= parsed_start <= month_end:
-                        month_revenue += float(trip.total_earnings or 0)
-            
-            # Always include all months, even if revenue is 0
             monthly_data[month_key] = {
                 'month': month_key,
-                'revenue': round(month_revenue, 2),
+                'revenue': 0.0,
             }
+        
+        # Try to get revenue from receipts first (most accurate)
+        receipts_with_trips = self.db.query(Receipt, Trip).join(
+            Trip,
+            Receipt.reservation_id == Trip.trip_id
+        ).filter(
+            Receipt.account_id == account.id,
+            Trip.account_id == account.id,
+            Receipt.you_earned.isnot(None),
+            Trip.status.in_(['COMPLETED'])
+        ).all()
+        
+        logger.info(f"Found {len(receipts_with_trips)} receipts with trips for account {account.id}, year {year}")
+        
+        # If we have receipts, use them
+        if receipts_with_trips:
+            for month in range(1, 13):
+                month_key = MONTH_NAMES[month - 1]
+                month_start = datetime(year, month, 1, tzinfo=timezone.utc)
+                _, last_day = monthrange(year, month)
+                month_end = datetime(year, month, last_day, 23, 59, 59, tzinfo=timezone.utc)
+                
+                month_revenue = 0.0
+                for receipt, trip in receipts_with_trips:
+                    # Use trip's end_date for reliable date parsing
+                    # Parse with updated_at as reference, then check if year matches requested year
+                    if trip.end_date:
+                        parsed_end = self._parse_date_with_timezone(trip.end_date, year=None, updated_at=trip.updated_at)
+                        # For completed trips, handle year rollover: if parsed date is far in the future
+                        # relative to updated_at, it's likely from the previous year
+                        if parsed_end and trip.updated_at:
+                            updated_at_tz = trip.updated_at if trip.updated_at.tzinfo else trip.updated_at.replace(tzinfo=timezone.utc)
+                            parsed_end_tz = parsed_end if parsed_end.tzinfo else parsed_end.replace(tzinfo=timezone.utc)
+                            # If parsed date is more than 3 months in the future relative to updated_at,
+                            # it's likely from the previous year (e.g., Jan 2026 scraping Nov 2025 trip)
+                            if parsed_end_tz > updated_at_tz:
+                                months_diff = (parsed_end_tz.year - updated_at_tz.year) * 12 + (parsed_end_tz.month - updated_at_tz.month)
+                                if months_diff > 3:
+                                    parsed_end = parsed_end.replace(year=parsed_end.year - 1)
+                        if parsed_end and parsed_end.year == year and month_start <= parsed_end <= month_end:
+                            month_revenue += float(receipt.you_earned or 0)
+                    # Also check start_date if end_date is not available
+                    elif trip.start_date:
+                        parsed_start = self._parse_date_with_timezone(trip.start_date, year=None, updated_at=trip.updated_at)
+                        # For completed trips, handle year rollover
+                        if parsed_start and trip.updated_at:
+                            updated_at_tz = trip.updated_at if trip.updated_at.tzinfo else trip.updated_at.replace(tzinfo=timezone.utc)
+                            parsed_start_tz = parsed_start if parsed_start.tzinfo else parsed_start.replace(tzinfo=timezone.utc)
+                            if parsed_start_tz > updated_at_tz:
+                                months_diff = (parsed_start_tz.year - updated_at_tz.year) * 12 + (parsed_start_tz.month - updated_at_tz.month)
+                                if months_diff > 3:
+                                    parsed_start = parsed_start.replace(year=parsed_start.year - 1)
+                        if parsed_start and parsed_start.year == year and month_start <= parsed_start <= month_end:
+                            month_revenue += float(receipt.you_earned or 0)
+                
+                monthly_data[month_key]['revenue'] = round(month_revenue, 2)
+        else:
+            # Fallback: Use trip.total_earnings if receipts aren't available
+            logger.info(f"No receipts found, falling back to trip.total_earnings for account {account.id}, year {year}")
+            completed_trips = self.db.query(Trip).filter(
+                Trip.account_id == account.id,
+                Trip.status.in_(['COMPLETED']),
+                Trip.total_earnings.isnot(None)
+            ).all()
+            
+            logger.info(f"Found {len(completed_trips)} completed trips with earnings for account {account.id}")
+            
+            for month in range(1, 13):
+                month_key = MONTH_NAMES[month - 1]
+                month_start = datetime(year, month, 1, tzinfo=timezone.utc)
+                _, last_day = monthrange(year, month)
+                month_end = datetime(year, month, last_day, 23, 59, 59, tzinfo=timezone.utc)
+                
+                month_revenue = 0.0
+                for trip in completed_trips:
+                    # Use trip's end_date for reliable date parsing
+                    # Parse with updated_at as reference, then check if year matches requested year
+                    if trip.end_date:
+                        parsed_end = self._parse_date_with_timezone(trip.end_date, year=None, updated_at=trip.updated_at)
+                        # For completed trips, handle year rollover: if parsed date is far in the future
+                        # relative to updated_at, it's likely from the previous year
+                        if parsed_end and trip.updated_at:
+                            updated_at_tz = trip.updated_at if trip.updated_at.tzinfo else trip.updated_at.replace(tzinfo=timezone.utc)
+                            parsed_end_tz = parsed_end if parsed_end.tzinfo else parsed_end.replace(tzinfo=timezone.utc)
+                            # If parsed date is more than 3 months in the future relative to updated_at,
+                            # it's likely from the previous year (e.g., Jan 2026 scraping Nov 2025 trip)
+                            if parsed_end_tz > updated_at_tz:
+                                months_diff = (parsed_end_tz.year - updated_at_tz.year) * 12 + (parsed_end_tz.month - updated_at_tz.month)
+                                if months_diff > 3:
+                                    parsed_end = parsed_end.replace(year=parsed_end.year - 1)
+                        if parsed_end and parsed_end.year == year and month_start <= parsed_end <= month_end:
+                            month_revenue += float(trip.total_earnings or 0)
+                    # Also check start_date if end_date is not available
+                    elif trip.start_date:
+                        parsed_start = self._parse_date_with_timezone(trip.start_date, year=None, updated_at=trip.updated_at)
+                        # For completed trips, handle year rollover
+                        if parsed_start and trip.updated_at:
+                            updated_at_tz = trip.updated_at if trip.updated_at.tzinfo else trip.updated_at.replace(tzinfo=timezone.utc)
+                            parsed_start_tz = parsed_start if parsed_start.tzinfo else parsed_start.replace(tzinfo=timezone.utc)
+                            if parsed_start_tz > updated_at_tz:
+                                months_diff = (parsed_start_tz.year - updated_at_tz.year) * 12 + (parsed_start_tz.month - updated_at_tz.month)
+                                if months_diff > 3:
+                                    parsed_start = parsed_start.replace(year=parsed_start.year - 1)
+                        if parsed_start and parsed_start.year == year and month_start <= parsed_start <= month_end:
+                            month_revenue += float(trip.total_earnings or 0)
+                
+                monthly_data[month_key]['revenue'] = round(month_revenue, 2)
         
         # Return as list ordered by month, including all 12 months
         return [monthly_data[month] for month in MONTH_NAMES]

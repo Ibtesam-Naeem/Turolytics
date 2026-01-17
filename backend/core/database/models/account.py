@@ -60,6 +60,7 @@ class Account(Base):
     documents = relationship("Document", back_populates="account", cascade="all, delete-orphan")
     user_sessions = relationship("UserSession", back_populates="account", cascade="all, delete-orphan")
     receipts = relationship("Receipt", back_populates="account", cascade="all, delete-orphan")
+    roi_calculations = relationship("ROICalculation", back_populates="account", cascade="all, delete-orphan")
     
     @staticmethod
     def get_user_id(email: str) -> int:

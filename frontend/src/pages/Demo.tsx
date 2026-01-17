@@ -68,15 +68,15 @@ const Demo = () => {
                 <AlertDescription className="flex items-center justify-between w-full">
                   <span className="text-sm">
                     <strong>Demo Mode:</strong> You're viewing sample data.{" "}
-                    <Link to="/auth?mode=signup" className="underline hover:no-underline font-medium">
-                      Sign up for free
+                    <Link to="/waitlist" className="underline hover:no-underline font-medium">
+                      Join the waitlist
                     </Link>{" "}
-                    to access your real fleet data.
+                    to get early access to Turolytics.
                   </span>
                   <div className="flex items-center gap-2">
-                    <Link to="/auth?mode=signup">
+                    <Link to="/waitlist">
                       <Button size="sm" className="gap-2">
-                        Get Started
+                        Join Waitlist
                         <ArrowRight className="w-3.5 h-3.5" />
                       </Button>
                     </Link>
@@ -101,10 +101,10 @@ const Demo = () => {
                   <span className="text-primary-foreground">
                     <strong>Demo Mode</strong> •{" "}
                     <Link 
-                      to="/auth?mode=signup" 
+                      to="/waitlist" 
                       className="underline hover:no-underline font-medium"
                     >
-                      Sign up free
+                      Join waitlist
                     </Link>
                   </span>
                 </div>

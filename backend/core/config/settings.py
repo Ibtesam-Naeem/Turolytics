@@ -84,6 +84,16 @@ class S3Config:
     endpoint_url: Optional[str] = os.getenv("S3_ENDPOINT_URL", None)
     max_file_size_mb: int = int(os.getenv("S3_MAX_FILE_SIZE_MB", "50"))
 
+@dataclass
+class EmailConfig:
+    """Email configuration."""
+    provider: str = os.getenv("EMAIL_PROVIDER", "sendgrid")  # sendgrid, smtp, lambda
+    sendgrid_api_key: str = os.getenv("SENDGRID_API_KEY", "")
+    from_email: str = os.getenv("EMAIL_FROM", "noreply@turolytics.com")
+    from_name: str = os.getenv("EMAIL_FROM_NAME", "Turolytics")
+    use_lambda: bool = os.getenv("EMAIL_USE_LAMBDA", "false").lower() == "true"
+    lambda_function_name: Optional[str] = os.getenv("EMAIL_LAMBDA_FUNCTION", None)
+
 # ------------------------------ MAIN SETTINGS CLASS ------------------------------
 
 class Settings:
@@ -96,6 +106,7 @@ class Settings:
         self.api = APIConfig()
         self.database = DatabaseConfig()
         self.s3 = S3Config()
+        self.email = EmailConfig()
         
         self._setup_logging()
     

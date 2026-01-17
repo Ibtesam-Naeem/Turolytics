@@ -2,9 +2,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from "recharts";
 import { TrendingUp, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { dashboardService, MonthlyRevenue } from "@/services/dashboard-service";
 
 export const RevenueChart = () => {
+  const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState<number>(currentYear);
   const [data, setData] = useState<MonthlyRevenue[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -12,7 +21,7 @@ export const RevenueChart = () => {
     const loadRevenueData = async () => {
       try {
         setLoading(true);
-        const response = await dashboardService.getMonthlyRevenue();
+        const response = await dashboardService.getMonthlyRevenue(selectedYear);
         setData(response.months);
       } catch (error) {
         console.error('Failed to load revenue data:', error);
@@ -22,7 +31,7 @@ export const RevenueChart = () => {
       }
     };
     loadRevenueData();
-  }, []);
+  }, [selectedYear]);
   
   const hasData = data.length > 0;
   const calculateGrowth = () => {
@@ -39,21 +48,35 @@ export const RevenueChart = () => {
   return (
     <Card className="rounded-2xl shadow-lg border-border/50 overflow-hidden animate-fade-in hover-scale group">
       <CardHeader className="bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border-b border-border/50">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-3">
           <CardTitle className="text-lg font-bold flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
             Revenue Trend
           </CardTitle>
-          {hasData && growth !== null ? (
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-success bg-success/10 px-2.5 py-1 rounded-full">
-              <TrendingUp className="h-3 w-3" />
-              +{growth}%
-            </div>
-          ) : hasData ? (
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground bg-muted/10 px-2.5 py-1 rounded-full">
-              -
-            </div>
-          ) : null}
+          <div className="flex items-center gap-2">
+            <Select value={selectedYear.toString()} onValueChange={(value) => setSelectedYear(parseInt(value))}>
+              <SelectTrigger className="w-[100px] h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[2025, 2026].map((year) => (
+                  <SelectItem key={year} value={year.toString()}>
+                    {year}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {hasData && growth !== null ? (
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-success bg-success/10 px-2.5 py-1 rounded-full">
+                <TrendingUp className="h-3 w-3" />
+                +{growth}%
+              </div>
+            ) : hasData ? (
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground bg-muted/10 px-2.5 py-1 rounded-full">
+                -
+              </div>
+            ) : null}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="pt-6">

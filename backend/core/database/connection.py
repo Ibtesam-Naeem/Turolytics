@@ -54,6 +54,7 @@ def init_db() -> None:
             UserSession,
             VehicleOdometerHistory,
             Receipt,
+            Waitlist,
         )
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created successfully")

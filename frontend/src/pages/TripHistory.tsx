@@ -29,9 +29,10 @@ import { useState, useEffect, useRef } from "react";
 import { tripsService, Trip } from "@/services/trips-service";
 import { vehiclesService, Vehicle } from "@/services/vehicles-service";
 import { bouncieService, BouncieTripMatch } from "@/services/bouncie-service";
+import { dashboardService } from "@/services/dashboard-service";
 import { format, parseISO } from "date-fns";
 import { useRegionalSettings } from "@/contexts/RegionalSettingsContext";
-import { formatDistance, formatCurrency, formatCurrencyDecimal, formatTimeString } from "@/lib/regional-utils";
+import { formatDistance, formatCurrency, formatCurrencyDecimal, formatTimeString, formatTime } from "@/lib/regional-utils";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 
@@ -39,8 +40,10 @@ const TripHistory = () => {
   const { distanceUnit, currency, timeFormat } = useRegionalSettings();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [sortBy, setSortBy] = useState("recent");
+  const [sortBy, setSortBy] = useState("newest");
   const [vehicleFilter, setVehicleFilter] = useState<string>("all");
+  // Default to "all" to show all trips, user can filter by year if needed
+  const [yearFilter, setYearFilter] = useState<number | "all">("all");
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
   const [trips, setTrips] = useState<Trip[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -55,6 +58,8 @@ const TripHistory = () => {
   const [individualTrips, setIndividualTrips] = useState<any[]>([]);
   const [currentTripIndex, setCurrentTripIndex] = useState(0);
   const [mapError, setMapError] = useState<string | null>(null);
+  const [totalEarningsFromAPI, setTotalEarningsFromAPI] = useState<number>(0);
+  const [isLoadingEarnings, setIsLoadingEarnings] = useState(false);
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
@@ -63,6 +68,7 @@ const TripHistory = () => {
   const touchStartY = useRef<number | null>(null);
   const touchEndX = useRef<number | null>(null);
   const touchEndY = useRef<number | null>(null);
+  const isUpdatingMap = useRef<boolean>(false);
 
   // Fetch trips and vehicles from API
   useEffect(() => {
@@ -73,12 +79,18 @@ const TripHistory = () => {
         const [tripsResponse, vehiclesResponse] = await Promise.all([
           tripsService.getTrips({
             status: statusFilter !== "all" ? statusFilter.toUpperCase() : undefined,
-            trip_type: "trip_history", // Filter for trip history
+            // Removed trip_type filter to show all trips from database
             limit,
             offset: 0, // Reset to 0 when filters change
           }),
           vehiclesService.getVehicles({ limit: 1000 }), // Get all vehicles
         ]);
+
+        console.log("TripHistory: Loaded trips response:", {
+          tripsCount: tripsResponse?.trips?.length || 0,
+          total: tripsResponse?.total || 0,
+          trips: tripsResponse?.trips?.slice(0, 3) // First 3 trips for debugging
+        });
 
         setTrips(tripsResponse?.trips || []);
         setTotalTrips(tripsResponse?.total || 0);
@@ -106,6 +118,46 @@ const TripHistory = () => {
     loadData();
   }, [statusFilter, limit]);
 
+  // Fetch earnings data for selected year
+  useEffect(() => {
+    const loadEarnings = async () => {
+      setIsLoadingEarnings(true);
+      try {
+        const earningsResponse = await dashboardService.getEarnings(yearFilter === "all" ? undefined : yearFilter);
+        const breakdown = earningsResponse.breakdown || [];
+        
+        // Calculate total earnings: Trip earnings + Incentives (same as dashboard)
+        const includedTypes = ['Trip earnings', 'Incentives'];
+        const totalRevenue = breakdown.reduce((sum, item) => {
+          const itemType = item.type || '';
+          const itemTypeLower = itemType.toLowerCase();
+          
+          // Only include Trip earnings and Incentives (case-insensitive)
+          const isIncluded = includedTypes.some(included => included.toLowerCase() === itemTypeLower);
+          if (!isIncluded) {
+            return sum;
+          }
+          
+          // Get the numeric value
+          const amount = item.amount_numeric !== undefined && item.amount_numeric !== null
+            ? item.amount_numeric
+            : (item.amount ? parseFloat(item.amount.replace(/[^0-9.-]+/g, '')) || 0 : 0);
+          
+          return sum + amount;
+        }, 0);
+        
+        setTotalEarningsFromAPI(totalRevenue);
+      } catch (err) {
+        console.error("Error loading earnings:", err);
+        setTotalEarningsFromAPI(0);
+      } finally {
+        setIsLoadingEarnings(false);
+      }
+    };
+
+    loadEarnings();
+  }, [yearFilter]);
+
   // Filter and sort trips
   const filteredTrips = trips
     .filter(trip => {
@@ -116,7 +168,58 @@ const TripHistory = () => {
       const matchesVehicle = vehicleFilter === "all" || 
         (trip.vehicle_id && vehicleFilter === trip.vehicle_id.toString());
       
-      return matchesSearch && matchesVehicle;
+      // Filter by year based on start_date or end_date (more flexible)
+      const matchesYear = (() => {
+        // If "all" is selected, show all trips
+        if (yearFilter === "all") return true;
+        
+        // If no date fields, include the trip
+        if (!trip.start_date && !trip.end_date) return true;
+        
+        // Try to parse start_date first
+        let tripYear: number | null = null;
+        if (trip.start_date) {
+          try {
+            const tripDate = parseISO(trip.start_date);
+            if (!isNaN(tripDate.getTime())) {
+              tripYear = tripDate.getFullYear();
+            } else {
+              // Try parsing as regular date string
+              const parsed = new Date(trip.start_date);
+              if (!isNaN(parsed.getTime())) {
+                tripYear = parsed.getFullYear();
+              }
+            }
+          } catch {
+            // Parsing failed, try end_date
+          }
+        }
+        
+        // If start_date didn't work, try end_date
+        if (tripYear === null && trip.end_date) {
+          try {
+            const tripDate = parseISO(trip.end_date);
+            if (!isNaN(tripDate.getTime())) {
+              tripYear = tripDate.getFullYear();
+            } else {
+              const parsed = new Date(trip.end_date);
+              if (!isNaN(parsed.getTime())) {
+                tripYear = parsed.getFullYear();
+              }
+            }
+          } catch {
+            // Both parsing failed
+          }
+        }
+        
+        // If we couldn't determine the year, include the trip
+        if (tripYear === null) return true;
+        
+        // Check if year matches
+        return tripYear === yearFilter;
+      })();
+      
+      return matchesSearch && matchesVehicle && matchesYear;
     })
     .sort((a, b) => {
       if (sortBy === "earnings") {
@@ -131,9 +234,13 @@ const TripHistory = () => {
       if (sortBy === "distance-lowest") {
         return (a.kilometers_driven || 0) - (b.kilometers_driven || 0);
       }
-      // Most recent by start_date or created_at
+      // Sort by date: newest to oldest or oldest to newest
       const dateA = a.start_date ? new Date(a.start_date).getTime() : (a.created_at ? new Date(a.created_at).getTime() : 0);
       const dateB = b.start_date ? new Date(b.start_date).getTime() : (b.created_at ? new Date(b.created_at).getTime() : 0);
+      if (sortBy === "oldest") {
+        return dateA - dateB; // Oldest first
+      }
+      // Default: newest to oldest
       return dateB - dateA;
     });
 
@@ -142,7 +249,7 @@ const TripHistory = () => {
       const newOffset = offset + limit;
       const response = await tripsService.getTrips({
         status: statusFilter !== "all" ? statusFilter.toUpperCase() : undefined,
-        trip_type: "trip_history",
+        // Removed trip_type filter to show all trips from database
         limit,
         offset: newOffset,
       });
@@ -440,18 +547,409 @@ const TripHistory = () => {
 
     // Clean up existing map layers and markers
     const cleanup = () => {
-      if (map.current) {
-        markersRef.current.forEach(marker => marker.remove());
-        markersRef.current = [];
-        layersRef.current.forEach(layerId => {
+      if (!map.current) return;
+      
+      // Remove all markers
+      markersRef.current.forEach(marker => {
+        try {
+          marker.remove();
+        } catch (e) {
+          console.warn("Error removing marker:", e);
+        }
+      });
+      markersRef.current = [];
+      
+      // Remove all tracked layers and sources
+      layersRef.current.forEach(layerId => {
+        try {
           if (map.current?.getLayer(layerId)) {
             map.current.removeLayer(layerId);
           }
           if (map.current?.getSource(layerId)) {
             map.current.removeSource(layerId);
           }
-        });
-        layersRef.current = [];
+        } catch (e) {
+          console.warn(`Error removing layer/source ${layerId}:`, e);
+        }
+      });
+      
+      // Also try to remove any route-* layers that might exist (cleanup any orphaned layers)
+      try {
+        const style = map.current.getStyle();
+        if (style && style.layers) {
+          style.layers.forEach((layer: any) => {
+            if (layer.id && (layer.id.startsWith('route-') || layer.id.includes('route-'))) {
+              try {
+                if (map.current?.getLayer(layer.id)) {
+                  map.current.removeLayer(layer.id);
+                }
+              } catch (e) {
+                // Layer might already be removed
+              }
+            }
+          });
+        }
+        
+        // Also clean up sources
+        if (style && style.sources) {
+          Object.keys(style.sources).forEach((sourceId: string) => {
+            if (sourceId.startsWith('route-') || sourceId.includes('route-')) {
+              try {
+                if (map.current?.getSource(sourceId)) {
+                  map.current.removeSource(sourceId);
+                }
+              } catch (e) {
+                // Source might already be removed
+              }
+            }
+          });
+        }
+      } catch (e) {
+        console.warn("Error during comprehensive cleanup:", e);
+      }
+      
+      layersRef.current = [];
+    };
+
+    // Update map with current trip data - defined first so it can be called from initializeMap
+    const updateMap = () => {
+      // Prevent concurrent updates
+      if (isUpdatingMap.current) {
+        console.log("Map update already in progress, skipping...");
+        return;
+      }
+      
+      isUpdatingMap.current = true;
+      
+      try {
+        // Get current trip again in case it changed
+        const trip = individualTrips[currentTripIndex];
+        
+        if (!map.current || !trip) {
+          console.warn("Cannot update map - map or trip not available", {
+            hasMap: !!map.current,
+            hasTrip: !!trip,
+            currentTripIndex,
+            individualTripsLength: individualTrips.length
+          });
+          isUpdatingMap.current = false;
+          return;
+        }
+
+        // Validate trip has coordinates
+        if (!trip.coordinates || !Array.isArray(trip.coordinates) || trip.coordinates.length === 0) {
+          console.warn("No coordinates available for trip, skipping map update", {
+            hasCoordinates: !!trip.coordinates,
+            coordinatesLength: trip.coordinates?.length,
+            currentTripIndex
+          });
+          isUpdatingMap.current = false;
+          return;
+        }
+
+        // Clean up ALL existing layers and sources first
+        cleanup();
+
+        // Get coordinates - prefer coordinates array, fallback to polyline if needed
+        let validCoords: number[][] = [];
+        
+        if (trip.coordinates && Array.isArray(trip.coordinates) && trip.coordinates.length > 0) {
+          // Use coordinates array directly
+          validCoords = trip.coordinates
+            .map((coord: number[]) => {
+              if (!Array.isArray(coord) || coord.length < 2) {
+                return null;
+              }
+              
+              const lat = coord[0];
+              const lng = coord[1];
+              
+              // Validate coordinate ranges
+              if (typeof lat !== 'number' || typeof lng !== 'number') {
+                return null;
+              }
+              
+              // Check if coordinates are valid (lat: -90 to 90, lng: -180 to 180)
+              // Backend stores as [lat, lng], convert to [lng, lat] for Mapbox
+              if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+                return [lng, lat];
+              }
+              
+              // If coordinates seem reversed (lng in lat position), try swapping
+              if (lng >= -90 && lng <= 90 && lat >= -180 && lat <= 180) {
+                return [lat, lng];
+              }
+              
+              return null;
+            })
+            .filter((coord: any) => coord !== null && coord[0] !== null && coord[1] !== null && 
+                    !isNaN(coord[0]) && !isNaN(coord[1]));
+        } else if (trip.polyline && typeof trip.polyline === 'string') {
+          // Try to decode polyline if coordinates aren't available
+          // Note: Would need @mapbox/polyline package for this
+          console.warn("Polyline string available but decoding not implemented. Using coordinates instead.");
+        }
+
+        if (validCoords.length === 0) {
+          console.warn("No valid coordinates available for route", {
+            hasCoordinates: !!trip.coordinates,
+            coordinatesLength: trip.coordinates?.length,
+            hasPolyline: !!trip.polyline,
+            rawFirstCoord: trip.coordinates?.[0],
+            rawLastCoord: trip.coordinates?.[trip.coordinates?.length - 1]
+          });
+          isUpdatingMap.current = false;
+          return;
+        }
+
+        console.log(`Drawing route with ${validCoords.length} GPS points for trip ${currentTripIndex + 1}`);
+        console.log("First few coordinates:", validCoords.slice(0, 3));
+        console.log("Last few coordinates:", validCoords.slice(-3));
+
+        const routeId = `route-${currentTripIndex}`;
+
+        try {
+          // Ensure map is loaded and style is loaded
+          if (!map.current.loaded() || !map.current.isStyleLoaded()) {
+            console.warn("Map not ready yet, waiting...", {
+              loaded: map.current.loaded(),
+              styleLoaded: map.current.isStyleLoaded()
+            });
+            const onLoad = () => {
+              console.log("Map ready, retrying route update");
+              isUpdatingMap.current = false; // Reset before retry
+              updateMap();
+            };
+            if (!map.current.loaded()) {
+              map.current.once("load", onLoad);
+            } else {
+              map.current.once("styledata", onLoad);
+            }
+            isUpdatingMap.current = false; // Reset since we're waiting
+            return;
+          }
+
+          // Remove any existing layers and sources with this routeId (should already be cleaned, but double-check)
+          try {
+            if (map.current.getLayer(routeId)) {
+              map.current.removeLayer(routeId);
+            }
+            if (map.current.getLayer(`${routeId}-outline`)) {
+              map.current.removeLayer(`${routeId}-outline`);
+            }
+            if (map.current.getSource(routeId)) {
+              map.current.removeSource(routeId);
+            }
+          } catch (e) {
+            console.warn("Error removing existing layers (may not exist):", e);
+          }
+
+          // Create GeoJSON feature
+          const routeFeature = {
+            type: "Feature" as const,
+            properties: {},
+            geometry: {
+              type: "LineString" as const,
+              coordinates: validCoords,
+            },
+          };
+
+          console.log("Adding route source with feature:", {
+            type: routeFeature.type,
+            coordinatesCount: routeFeature.geometry.coordinates.length,
+            firstCoord: routeFeature.geometry.coordinates[0],
+            lastCoord: routeFeature.geometry.coordinates[routeFeature.geometry.coordinates.length - 1]
+          });
+
+          // Add route source with error handling
+          try {
+            // Double-check source doesn't exist
+            if (map.current.getSource(routeId)) {
+              console.log("Source already exists, updating data");
+              const existingSource = map.current.getSource(routeId) as mapboxgl.GeoJSONSource;
+              existingSource.setData(routeFeature);
+            } else {
+              map.current.addSource(routeId, {
+                type: "geojson",
+                data: routeFeature,
+              });
+              console.log("Route source added successfully");
+            }
+          } catch (sourceError: any) {
+            console.error("Error adding route source:", sourceError);
+            // If source already exists, try to update it
+            if (sourceError.message?.includes("already exists") || sourceError.message?.includes("duplicate")) {
+              try {
+                const source = map.current.getSource(routeId) as mapboxgl.GeoJSONSource;
+                if (source) {
+                  source.setData(routeFeature);
+                  console.log("Updated existing route source");
+                }
+              } catch (updateError) {
+                console.error("Error updating source:", updateError);
+                // Try removing and re-adding
+                try {
+                  map.current.removeSource(routeId);
+                  map.current.addSource(routeId, {
+                    type: "geojson",
+                    data: routeFeature,
+                  });
+                  console.log("Re-added route source after error");
+                } catch (retryError) {
+                  console.error("Failed to re-add source:", retryError);
+                  isUpdatingMap.current = false;
+                  return; // Can't proceed without source
+                }
+              }
+            } else {
+              console.error("Unexpected error adding source:", sourceError);
+              isUpdatingMap.current = false;
+              return; // Can't proceed without source
+            }
+          }
+
+          // Add outline layer first (will appear behind main route)
+          try {
+            if (map.current.getLayer(`${routeId}-outline`)) {
+              map.current.removeLayer(`${routeId}-outline`);
+            }
+            map.current.addLayer({
+              id: `${routeId}-outline`,
+              type: "line",
+              source: routeId,
+              layout: {
+                "line-join": "round",
+                "line-cap": "round",
+              },
+              paint: {
+                "line-color": "#ffffff",
+                "line-width": 6,
+                "line-opacity": 0.4,
+              },
+            });
+            layersRef.current.push(`${routeId}-outline`);
+            console.log("Outline layer added");
+          } catch (layerError: any) {
+            console.error("Error adding outline layer:", layerError);
+            // Continue anyway - main layer might still work
+          }
+          
+          // Add main route layer (will appear on top of outline)
+          try {
+            if (map.current.getLayer(routeId)) {
+              map.current.removeLayer(routeId);
+            }
+            map.current.addLayer({
+              id: routeId,
+              type: "line",
+              source: routeId,
+              layout: {
+                "line-join": "round",
+                "line-cap": "round",
+              },
+              paint: {
+                "line-color": "#3b82f6", // Use explicit blue color instead of CSS variable
+                "line-width": 4,
+                "line-opacity": 1.0,
+              },
+            });
+            layersRef.current.push(routeId);
+            console.log("Main route layer added successfully");
+          } catch (layerError: any) {
+            console.error("Error adding main route layer:", layerError);
+            // This is critical - if we can't add the main layer, the route won't show
+            if (layerError.message?.includes("already exists") || layerError.message?.includes("duplicate")) {
+              // Layer exists, try to update the source data instead
+              try {
+                const source = map.current.getSource(routeId) as mapboxgl.GeoJSONSource;
+                if (source) {
+                  source.setData(routeFeature);
+                  console.log("Updated source data for existing layer");
+                }
+              } catch (updateError) {
+                console.error("Failed to update existing layer:", updateError);
+              }
+            }
+          }
+
+          console.log("Route layers added successfully");
+          
+          // Verify layers were added
+          const outlineLayerExists = map.current.getLayer(`${routeId}-outline`);
+          const mainLayerExists = map.current.getLayer(routeId);
+          const sourceExists = map.current.getSource(routeId);
+          
+          console.log("Layer verification:", {
+            outlineLayer: !!outlineLayerExists,
+            mainLayer: !!mainLayerExists,
+            source: !!sourceExists,
+            coordinateCount: validCoords.length
+          });
+          
+          if (!mainLayerExists || !sourceExists) {
+            console.error("Critical: Main layer or source was not added properly!");
+            isUpdatingMap.current = false;
+            return;
+          }
+
+          // Add start marker
+          const startCoord = trip.coordinates[0];
+          if (Array.isArray(startCoord) && startCoord.length >= 2) {
+            const startMarker = new mapboxgl.Marker({ color: "#10b981" })
+              .setLngLat([startCoord[1], startCoord[0]])
+              .setPopup(new mapboxgl.Popup().setHTML("<div style='padding: 8px;'><strong>Start</strong></div>"))
+              .addTo(map.current);
+            markersRef.current.push(startMarker);
+          }
+
+          // Add end marker
+          const endCoord = trip.coordinates[trip.coordinates.length - 1];
+          if (Array.isArray(endCoord) && endCoord.length >= 2) {
+            const endMarker = new mapboxgl.Marker({ color: "#ef4444" })
+              .setLngLat([endCoord[1], endCoord[0]])
+              .setPopup(new mapboxgl.Popup().setHTML("<div style='padding: 8px;'><strong>End</strong></div>"))
+              .addTo(map.current);
+            markersRef.current.push(endMarker);
+          }
+
+          // Fit bounds to show entire route
+          const bounds = new mapboxgl.LngLatBounds();
+          trip.coordinates.forEach((coord: number[]) => {
+            if (Array.isArray(coord) && coord.length >= 2) {
+              bounds.extend([coord[1], coord[0]]);
+            }
+          });
+          
+          if (bounds.isEmpty()) {
+            console.warn("Bounds are empty, cannot fit bounds");
+          } else {
+            map.current.fitBounds(bounds, { padding: 80, duration: 500 });
+          }
+          
+          // Force map to refresh/render after a brief delay to ensure layers are visible
+          setTimeout(() => {
+            if (map.current) {
+              try {
+                map.current.triggerRepaint();
+                // Also try resizing to force a render
+                if (mapContainer.current) {
+                  const rect = mapContainer.current.getBoundingClientRect();
+                  if (rect.width > 0 && rect.height > 0) {
+                    map.current.resize();
+                  }
+                }
+              } catch (e) {
+                console.warn("Error refreshing map:", e);
+              }
+            }
+          }, 100);
+        } catch (error) {
+          console.error("Error updating map:", error);
+        }
+      } catch (error) {
+        console.error("Error in updateMap:", error);
+      } finally {
+        isUpdatingMap.current = false;
       }
     };
 
@@ -466,7 +964,8 @@ const TripHistory = () => {
         // Map exists, check if it's still attached to the container
         const mapContainerElement = map.current.getContainer();
         if (mapContainerElement && mapContainerElement.parentElement) {
-          // Map is still attached, just update it
+          // Map is still attached, just update it with current trip
+          console.log("Map exists, updating with current trip");
           updateMap();
           return;
         } else {
@@ -560,59 +1059,17 @@ const TripHistory = () => {
       }
     };
 
-    // Update map with current trip data
-    const updateMap = () => {
-      if (!map.current || !currentTrip) {
-        console.warn("Cannot update map - map or trip not available");
-        return;
-      }
-
-      cleanup();
-
-      // Get coordinates - prefer coordinates array, fallback to polyline if needed
-      let validCoords: number[][] = [];
-      
-      if (currentTrip.coordinates && Array.isArray(currentTrip.coordinates) && currentTrip.coordinates.length > 0) {
-        // Use coordinates array directly
-        validCoords = currentTrip.coordinates
-          .map((coord: number[]) => {
-            if (!Array.isArray(coord) || coord.length < 2) {
-              return null;
-            }
-            // Backend stores as [lat, lng], convert to [lng, lat] for Mapbox
-            return [coord[1], coord[0]];
-          })
-          .filter((coord: any) => coord !== null && coord[0] !== null && coord[1] !== null);
-      } else if (currentTrip.polyline && typeof currentTrip.polyline === 'string') {
-        // Try to decode polyline if coordinates aren't available
-        // Note: Would need @mapbox/polyline package for this
-        console.warn("Polyline string available but decoding not implemented. Using coordinates instead.");
-      }
-
-      if (validCoords.length === 0) {
-        console.warn("No valid coordinates available for route", {
-          hasCoordinates: !!currentTrip.coordinates,
-          coordinatesLength: currentTrip.coordinates?.length,
-          hasPolyline: !!currentTrip.polyline
-        });
-        return;
-      }
-
-      console.log(`Drawing route with ${validCoords.length} GPS points`);
-      console.log("First few coordinates:", validCoords.slice(0, 3));
-      console.log("Last few coordinates:", validCoords.slice(-3));
-
-      const routeId = `route-${currentTripIndex}`;
-
-      try {
-        // Ensure map is loaded and style is loaded
+    // Check if map already exists and is ready - if so, just update it
+    if (map.current) {
+      const mapContainerElement = map.current.getContainer();
+      if (mapContainerElement && mapContainerElement.parentElement) {
+        // Map exists and is attached, just update it directly
+        console.log("Map exists, updating with current trip index:", currentTripIndex);
+        
+        // If map is not ready yet, wait for it
         if (!map.current.loaded() || !map.current.isStyleLoaded()) {
-          console.warn("Map not ready yet, waiting...", {
-            loaded: map.current.loaded(),
-            styleLoaded: map.current.isStyleLoaded()
-          });
           const onLoad = () => {
-            console.log("Map ready, retrying route update");
+            console.log("Map ready, updating with trip");
             updateMap();
           };
           if (!map.current.loaded()) {
@@ -620,133 +1077,17 @@ const TripHistory = () => {
           } else {
             map.current.once("styledata", onLoad);
           }
-          return;
-        }
-
-        // Remove existing layers and sources
-        if (map.current.getLayer(routeId)) {
-          map.current.removeLayer(routeId);
-        }
-        if (map.current.getLayer(`${routeId}-outline`)) {
-          map.current.removeLayer(`${routeId}-outline`);
-        }
-        if (map.current.getSource(routeId)) {
-          map.current.removeSource(routeId);
-        }
-
-        // Create GeoJSON feature
-        const routeFeature = {
-          type: "Feature" as const,
-          properties: {},
-          geometry: {
-            type: "LineString" as const,
-            coordinates: validCoords,
-          },
-        };
-
-        console.log("Adding route source with feature:", {
-          type: routeFeature.type,
-          coordinatesCount: routeFeature.geometry.coordinates.length,
-          firstCoord: routeFeature.geometry.coordinates[0],
-          lastCoord: routeFeature.geometry.coordinates[routeFeature.geometry.coordinates.length - 1]
-        });
-
-        // Add route source with error handling
-        try {
-          map.current.addSource(routeId, {
-            type: "geojson",
-            data: routeFeature,
-          });
-          console.log("Route source added successfully");
-        } catch (sourceError: any) {
-          console.error("Error adding route source:", sourceError);
-          // If source already exists, try to update it
-          if (sourceError.message?.includes("already exists")) {
-            const source = map.current.getSource(routeId) as mapboxgl.GeoJSONSource;
-            if (source) {
-              source.setData(routeFeature);
-              console.log("Updated existing route source");
-            }
-          } else {
-            throw sourceError;
-          }
-        }
-
-        // Add outline layer first (will appear behind main route)
-        map.current.addLayer({
-          id: `${routeId}-outline`,
-          type: "line",
-          source: routeId,
-          layout: {
-            "line-join": "round",
-            "line-cap": "round",
-          },
-          paint: {
-            "line-color": "#ffffff",
-            "line-width": 6,
-            "line-opacity": 0.4,
-          },
-        });
-        
-        layersRef.current.push(`${routeId}-outline`);
-        
-        // Add main route layer (will appear on top of outline)
-        map.current.addLayer({
-          id: routeId,
-          type: "line",
-          source: routeId,
-          layout: {
-            "line-join": "round",
-            "line-cap": "round",
-          },
-          paint: {
-            "line-color": "#3b82f6", // Use explicit blue color instead of CSS variable
-            "line-width": 4,
-            "line-opacity": 1.0,
-          },
-        });
-        
-        layersRef.current.push(routeId);
-
-        console.log("Route layers added successfully");
-
-        // Add start marker
-        const startCoord = currentTrip.coordinates[0];
-        if (Array.isArray(startCoord) && startCoord.length >= 2) {
-          const startMarker = new mapboxgl.Marker({ color: "#10b981" })
-            .setLngLat([startCoord[1], startCoord[0]])
-            .setPopup(new mapboxgl.Popup().setHTML("<div style='padding: 8px;'><strong>Start</strong></div>"))
-            .addTo(map.current);
-          markersRef.current.push(startMarker);
-        }
-
-        // Add end marker
-        const endCoord = currentTrip.coordinates[currentTrip.coordinates.length - 1];
-        if (Array.isArray(endCoord) && endCoord.length >= 2) {
-          const endMarker = new mapboxgl.Marker({ color: "#ef4444" })
-            .setLngLat([endCoord[1], endCoord[0]])
-            .setPopup(new mapboxgl.Popup().setHTML("<div style='padding: 8px;'><strong>End</strong></div>"))
-            .addTo(map.current);
-          markersRef.current.push(endMarker);
-        }
-
-        // Fit bounds to show entire route
-        const bounds = new mapboxgl.LngLatBounds();
-        currentTrip.coordinates.forEach((coord: number[]) => {
-          if (Array.isArray(coord) && coord.length >= 2) {
-            bounds.extend([coord[1], coord[0]]);
-          }
-        });
-        
-        if (bounds.isEmpty()) {
-          console.warn("Bounds are empty, cannot fit bounds");
         } else {
-          map.current.fitBounds(bounds, { padding: 80, duration: 500 });
+          // Map is ready, update immediately with a small delay to ensure state is settled
+          setTimeout(() => {
+            updateMap();
+          }, 50);
         }
-      } catch (error) {
-        console.error("Error updating map:", error);
+        
+        // Return cleanup function - no timeouts to clean up in this path
+        return;
       }
-    };
+    }
 
     // Use a more robust initialization with retry logic
     // The map container might not be rendered yet, so we need to wait for it
@@ -827,7 +1168,8 @@ const TripHistory = () => {
     return <Badge variant="secondary">{status}</Badge>;
   };
 
-  const totalEarnings = filteredTrips.reduce((sum, t) => sum + (t.total_earnings || 0), 0);
+  // Use earnings from API (Trip earnings + Incentives) for the selected year
+  const totalEarnings = totalEarningsFromAPI;
   const totalDistance = filteredTrips.reduce((sum, t) => sum + (t.kilometers_driven || 0), 0);
   const completedTrips = filteredTrips.filter(t => t.status?.toUpperCase().includes("COMPLETED")).length;
 
@@ -873,7 +1215,9 @@ const TripHistory = () => {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Total Earnings</p>
-                <p className="text-xl font-bold">${totalEarnings.toLocaleString()}</p>
+                <p className="text-xl font-bold">
+                  {isLoadingEarnings ? "..." : formatCurrency(totalEarnings)}
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -948,12 +1292,24 @@ const TripHistory = () => {
                   ))}
                 </SelectContent>
               </Select>
+              <Select value={yearFilter.toString()} onValueChange={(value) => setYearFilter(value === "all" ? "all" : parseInt(value))}>
+                <SelectTrigger className="w-[120px]">
+                  <SelectValue placeholder="Year" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Years</SelectItem>
+                  <SelectItem value="2024">2024</SelectItem>
+                  <SelectItem value="2025">2025</SelectItem>
+                  <SelectItem value="2026">2026</SelectItem>
+                </SelectContent>
+              </Select>
               <Select value={sortBy} onValueChange={setSortBy}>
                 <SelectTrigger className="w-[160px]">
                   <SelectValue placeholder="Sort by" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="recent">Most Recent</SelectItem>
+                  <SelectItem value="newest">Newest to Oldest</SelectItem>
+                  <SelectItem value="oldest">Oldest to Newest</SelectItem>
                   <SelectItem value="earnings">Highest Earnings</SelectItem>
                   <SelectItem value="earnings-lowest">Lowest Earnings</SelectItem>
                   <SelectItem value="distance">Highest Distance</SelectItem>
@@ -1354,7 +1710,8 @@ const TripHistory = () => {
                                     <span className="font-medium">Start:</span>{" "}
                                     {(() => {
                                       try {
-                                        return format(parseISO(individualTrips[currentTripIndex].startTime), "MMM d, h:mm a");
+                                        const date = parseISO(individualTrips[currentTripIndex].startTime);
+                                        return `${format(date, "MMM d")} ${formatTime(date, timeFormat)}`;
                                       } catch {
                                         return individualTrips[currentTripIndex].startTime;
                                       }
@@ -1366,7 +1723,8 @@ const TripHistory = () => {
                                     <span className="font-medium">End:</span>{" "}
                                     {(() => {
                                       try {
-                                        return format(parseISO(individualTrips[currentTripIndex].endTime), "MMM d, h:mm a");
+                                        const date = parseISO(individualTrips[currentTripIndex].endTime);
+                                        return `${format(date, "MMM d")} ${formatTime(date, timeFormat)}`;
                                       } catch {
                                         return individualTrips[currentTripIndex].endTime;
                                       }
@@ -1426,7 +1784,9 @@ const TripHistory = () => {
                                 <span className="font-medium">Overall tracked period:</span>{" "}
                                 {(() => {
                                   try {
-                                    return `${format(parseISO(tripMatch.bouncie_earliest_start!), "MMM d, yyyy h:mm a")} - ${format(parseISO(tripMatch.bouncie_latest_end!), "MMM d, yyyy h:mm a")}`;
+                                    const startDate = parseISO(tripMatch.bouncie_earliest_start!);
+                                    const endDate = parseISO(tripMatch.bouncie_latest_end!);
+                                    return `${format(startDate, "MMM d, yyyy")} ${formatTime(startDate, timeFormat)} - ${format(endDate, "MMM d, yyyy")} ${formatTime(endDate, timeFormat)}`;
                                   } catch {
                                     return `${tripMatch.bouncie_earliest_start} - ${tripMatch.bouncie_latest_end}`;
                                   }

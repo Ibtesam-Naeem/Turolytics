@@ -139,13 +139,13 @@ class ScrapingService:
                                 try:
                                     account = DatabaseService.get_account_by_user_id(db_receipts, user_id)
                                     if account:
-                                        trips_with_receipts_subq = db_receipts.query(Receipt.trip_id).filter(
+                                        trips_with_receipts_subq = db_receipts.query(Receipt.reservation_id).filter(
                                             Receipt.account_id == account.id
                                         ).subquery()
                                         
                                         trips = db_receipts.query(Trip).filter(
                                             Trip.account_id == account.id,
-                                            ~Trip.id.in_(db_receipts.query(trips_with_receipts_subq.c.trip_id))
+                                            ~Trip.trip_id.in_(db_receipts.query(trips_with_receipts_subq.c.reservation_id))
                                         ).all()
                                         
                                         trip_ids_from_db = [trip.trip_id for trip in trips if trip.trip_id]

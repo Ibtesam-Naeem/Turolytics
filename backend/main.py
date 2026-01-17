@@ -16,6 +16,8 @@ from bouncie.routes import router as bouncie_router
 from bouncie.service import BouncieService
 from bouncie.auto_match import handle_bouncie_auto_processing
 from s3.routes import router as s3_router
+from roi.routes import router as roi_router
+from waitlist.routes import router as waitlist_router
 from sqlalchemy.orm import Session
 
 # ------------------------------ SETUP ------------------------------
@@ -58,6 +60,8 @@ app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(turo_router, prefix="/api/turo")
 app.include_router(bouncie_router, prefix="/api/bouncie")
 app.include_router(s3_router, prefix="/api/documents")
+app.include_router(roi_router, prefix="/api/roi")
+app.include_router(waitlist_router, prefix="/api", tags=["Waitlist"])
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
 

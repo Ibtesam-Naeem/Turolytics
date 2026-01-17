@@ -84,9 +84,9 @@ const Landing = () => {
             <Link to="/auth">
               <Button variant="ghost" size="sm" className="text-sm">Sign In</Button>
             </Link>
-            <Link to="/auth?mode=signup">
+            <Link to="/waitlist">
               <Button size="sm" className="text-sm gap-1.5 group">
-                Get Started
+                Join Waitlist
                 <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
               </Button>
             </Link>
@@ -107,9 +107,9 @@ const Landing = () => {
             The command center for serious Turo hosts. Track, analyze, and scale your rental business.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-8 sm:mb-12">
-            <Link to="/auth?mode=signup" className="w-full sm:w-auto">
+            <Link to="/waitlist" className="w-full sm:w-auto">
               <Button size="lg" className="w-full sm:w-auto gap-2 h-11 sm:h-12 px-6 sm:px-8 text-sm sm:text-base group">
-                Start Free Trial
+                Join Waitlist
                 <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
               </Button>
             </Link>
@@ -179,14 +179,14 @@ const Landing = () => {
             <p className="text-muted-foreground text-sm sm:text-base mb-5">
               Join hosts who are maximizing their earnings
             </p>
-            <Link to="/auth?mode=signup">
+            <Link to="/waitlist">
               <Button size="lg" className="gap-2 h-11 px-6 group">
-                Get Started Free
+                Join Waitlist
                 <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
               </Button>
             </Link>
             <p className="text-xs text-muted-foreground mt-3">
-              No credit card required
+              Be among the first to get access
             </p>
           </div>
         </div>
