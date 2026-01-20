@@ -22,6 +22,8 @@ ENV/
 *key*
 *credential*
 *password*
+!**/ForgotPassword.tsx
+!**/ChangePasswordDialog.tsx
 *token*
 
 # IDE
