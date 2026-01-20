@@ -14,14 +14,14 @@ const THEME_STORAGE_KEY = "turolytics-theme";
 
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   const [theme, setThemeState] = useState<Theme>(() => {
-    // Get theme from localStorage or default to system
+    // Get theme from localStorage or default to light
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem(THEME_STORAGE_KEY) as Theme | null;
       if (stored && ["light", "dark", "system"].includes(stored)) {
         return stored;
       }
     }
-    return "system";
+    return "light";
   });
 
   const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">(() => {

@@ -3,6 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Ensure light mode by default - remove dark class if present
+      if (document.documentElement.classList.contains('dark')) {
+        document.documentElement.classList.remove('dark');
+      }
+      // Check localStorage and apply theme immediately to prevent flash
+      const storedTheme = localStorage.getItem('turolytics-theme');
+      if (storedTheme === 'dark') {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    </script>
     <title>Turolytics - Fleet Management Dashboard</title>
     <meta name="description" content="Professional Turo fleet management dashboard with real-time trip tracking, revenue analytics, and vehicle utilization metrics" />
     <meta name="author" content="Turolytics" />
