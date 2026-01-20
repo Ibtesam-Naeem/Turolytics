@@ -47,6 +47,7 @@ backend/data/
 !tsconfig.node.json
 !vercel.json
 !frontend/vercel.json
+!railway.json
 *.swo
 *~
 
