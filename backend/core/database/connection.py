@@ -39,7 +39,6 @@ def init_db() -> None:
     """Initialize database - create only waitlist table for demo."""
     try:
         from core.database.models.waitlist import Waitlist
-        # Only create waitlist table
         Waitlist.__table__.create(bind=engine, checkfirst=True)
         logger.info("Database initialized - waitlist table created")
    

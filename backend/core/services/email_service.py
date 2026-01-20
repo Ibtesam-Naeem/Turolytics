@@ -91,7 +91,6 @@ class SendGridEmailService(EmailServiceInterface):
                 html_content=html_content
             )
             
-            # Add plain text content if provided
             if text_content:
                 message.add_content(self.Content("text/plain", text_content))
             

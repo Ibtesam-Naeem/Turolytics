@@ -1,65 +1,13 @@
 # ------------------------------ IMPORTS ------------------------------
 import os
 import logging
-from typing import List, Optional
+from typing import Optional
 from dataclasses import dataclass
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# ------------------------------ TIMEOUT CONSTANTS ------------------------------
-# Timeout values
-TIMEOUT_SELECTOR_WAIT = 10000  # Standard selector wait timeout
-TIMEOUT_PAGE_LOAD = 30000  # Page load timeout
-TIMEOUT_IFRAME = 8000  # Iframe content wait timeout
-TIMEOUT_QUICK_CHECK = 5000  # Quick element check timeout
-TIMEOUT_SHORT_CHECK = 2000  # Short element check timeout
-
-# Delay values
-DELAY_SHORT = 300  # Short delay between actions
-DELAY_MEDIUM = 800  # Medium delay between actions
-DELAY_LONG = 1500  # Long delay between actions
-DELAY_VERY_LONG = 2000  # Very long delay between actions
-DELAY_PAGE_LOAD = 1200  # Delay after page load
-DELAY_FORM_SUBMIT = 1000  # Delay after form submission
-
 # ------------------------------ CONFIGURATION CLASSES ------------------------------
-@dataclass
-class ScrapingConfig:
-    """Scraping configuration."""
-    timeout: int = int(os.getenv("SCRAPING_TIMEOUT", "300")) 
-    max_concurrent_tasks: int = int(os.getenv("MAX_CONCURRENT_TASKS", "5"))
-    headless: bool = os.getenv("SCRAPING_HEADLESS", "false").lower() == "true"
-    user_agent: str = os.getenv("SCRAPING_USER_AGENT", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-    retry_attempts: int = int(os.getenv("SCRAPING_RETRY_ATTEMPTS", "3"))
-    session_expiry_hours: int = int(os.getenv("SESSION_EXPIRY_HOURS", "24"))
-
-@dataclass
-class CORSConfig:
-    """CORS configuration."""
-    origins: str = os.getenv("CORS_ORIGINS", "*")
-    credentials: bool = os.getenv("CORS_CREDENTIALS", "true").lower() == "true"
-    
-    def get_origins_list(self) -> List[str]:
-        """Get CORS origins as a list."""
-        if self.origins == "*":
-            return ["*"]
-        return [origin.strip() for origin in self.origins.split(",")]
-
-@dataclass
-class SecurityConfig:
-    """Security configuration."""
-    secret_key: str = os.getenv("SECRET_KEY", "")
-    algorithm: str = os.getenv("ALGORITHM", "HS256")
-    access_token_expire_minutes: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "43200"))  # 30 days default
-
-@dataclass
-class APIConfig:
-    """API configuration."""
-    host: str = os.getenv("API_HOST", "0.0.0.0")
-    port: int = int(os.getenv("API_PORT", "8000"))
-    debug: bool = os.getenv("API_DEBUG", "false").lower() == "true"
-
 @dataclass
 class DatabaseConfig:
     """Database configuration."""
@@ -75,19 +23,9 @@ class DatabaseConfig:
         return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
 
 @dataclass
-class S3Config:
-    """S3 configuration."""
-    bucket_name: str = os.getenv("S3_BUCKET_NAME", "")
-    region: str = os.getenv("S3_REGION", "us-east-1")
-    access_key_id: str = os.getenv("AWS_ACCESS_KEY_ID", "")
-    secret_access_key: str = os.getenv("AWS_SECRET_ACCESS_KEY", "")
-    endpoint_url: Optional[str] = os.getenv("S3_ENDPOINT_URL", None)
-    max_file_size_mb: int = int(os.getenv("S3_MAX_FILE_SIZE_MB", "50"))
-
-@dataclass
 class EmailConfig:
     """Email configuration."""
-    provider: str = os.getenv("EMAIL_PROVIDER", "sendgrid")  # sendgrid, smtp, lambda
+    provider: str = os.getenv("EMAIL_PROVIDER", "sendgrid")
     sendgrid_api_key: str = os.getenv("SENDGRID_API_KEY", "")
     from_email: str = os.getenv("EMAIL_FROM", "noreply@turolytics.com")
     from_name: str = os.getenv("EMAIL_FROM_NAME", "Turolytics")
@@ -100,12 +38,7 @@ class Settings:
     """Main application settings."""
     
     def __init__(self):
-        self.scraping = ScrapingConfig()
-        self.cors = CORSConfig()
-        self.security = SecurityConfig()
-        self.api = APIConfig()
         self.database = DatabaseConfig()
-        self.s3 = S3Config()
         self.email = EmailConfig()
         
         self._setup_logging()

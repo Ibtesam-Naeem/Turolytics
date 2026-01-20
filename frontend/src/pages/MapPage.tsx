@@ -388,7 +388,7 @@ const MapPage = () => {
   const fetchStreetName = async (coordinates: [number, number]) => {
     try {
       const response = await fetch(
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${coordinates[0]},${coordinates[1]}.json?access_token=pk.eyJ1IjoiaWJ0ZXNhbW5hZWVtIiwiYSI6ImNtaHY3amJ6aDA3dmUyaXExbG42OTdlbW0ifQ.mCJtklraw0s8tPOaXqkDYg&types=address,poi`
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${coordinates[0]},${coordinates[1]}.json?access_token=${import.meta.env.VITE_MAPBOX_ACCESS_TOKEN || ""}&types=address,poi`
       );
       const data = await response.json();
       if (data.features && data.features.length > 0) {
@@ -505,7 +505,12 @@ const MapPage = () => {
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
 
-    mapboxgl.accessToken = "pk.eyJ1IjoiaWJ0ZXNhbW5hZWVtIiwiYSI6ImNtaHY3amJ6aDA3dmUyaXExbG42OTdlbW0ifQ.mCJtklraw0s8tPOaXqkDYg";
+    const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN || "";
+    if (!mapboxToken) {
+      console.error("Mapbox access token is not configured. Please set VITE_MAPBOX_ACCESS_TOKEN in your environment variables.");
+      return;
+    }
+    mapboxgl.accessToken = mapboxToken;
 
     map.current = new mapboxgl.Map({
       container: mapContainer.current,

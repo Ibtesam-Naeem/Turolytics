@@ -86,12 +86,6 @@ const TripHistory = () => {
           vehiclesService.getVehicles({ limit: 1000 }), // Get all vehicles
         ]);
 
-        console.log("TripHistory: Loaded trips response:", {
-          tripsCount: tripsResponse?.trips?.length || 0,
-          total: tripsResponse?.total || 0,
-          trips: tripsResponse?.trips?.slice(0, 3) // First 3 trips for debugging
-        });
-
         setTrips(tripsResponse?.trips || []);
         setTotalTrips(tripsResponse?.total || 0);
         setOffset(0);
@@ -342,7 +336,6 @@ const TripHistory = () => {
         map.current.remove();
         map.current = null;
       } catch (error) {
-        console.warn("Error cleaning up map:", error);
         map.current = null;
       }
     }
@@ -423,23 +416,11 @@ const TripHistory = () => {
           // Extract individual trips from match_data
           if (matchDetail.match_data && matchDetail.match_data.all_trips) {
             const trips = matchDetail.match_data.all_trips;
-            console.log("Individual trips from match_data:", trips);
-            console.log("First trip sample:", trips[0]);
-            
             // Process trips to ensure coordinates are properly extracted
             // Backend stores coordinates as [lat, lng] (see helpers.py line 37)
             // We need to keep them in [lat, lng] format here, then convert to [lng, lat] for Mapbox
-            const processedTrips = trips.map((trip: any, index: number) => {
+            const processedTrips = trips.map((trip: any) => {
               let coords = trip.coordinates;
-              
-              console.log(`Trip ${index} raw data:`, {
-                hasCoordinates: !!trip.coordinates,
-                coordinatesLength: trip.coordinates?.length,
-                hasGps: !!trip.gps,
-                gpsType: trip.gps?.type,
-                gpsCoordsLength: trip.gps?.coordinates?.length,
-                firstCoord: trip.coordinates?.[0] || trip.gps?.coordinates?.[0]
-              });
               
               // If coordinates don't exist or empty, try to extract from GPS data
               if (!coords || coords.length === 0) {
@@ -457,16 +438,12 @@ const TripHistory = () => {
                         return [c[1], c[0]];
                       })
                       .filter((c: any) => c !== null);
-                      
-                      console.log(`Trip ${index} extracted ${coords.length} coordinates from GPS (converted from [lng,lat] to [lat,lng])`);
-                    }
                   }
                 }
+              }
               
               // Normalize coordinates to ensure they're in [lat, lng] format
               coords = normalizeCoordinates(coords);
-              
-              console.log(`Trip ${index} final coordinates:`, coords.length > 0 ? `${coords.length} points, first: [${coords[0][0]}, ${coords[0][1]}]` : 'none');
               
               return {
                 ...trip,
@@ -474,8 +451,6 @@ const TripHistory = () => {
                 coordinate_count: coords.length,
               };
             });
-            
-            console.log("Processed trips:", processedTrips);
             setIndividualTrips(processedTrips);
             setCurrentTripIndex(0);
           } else {
@@ -532,17 +507,15 @@ const TripHistory = () => {
     
     // Validate trip has coordinates
     if (!currentTrip || !currentTrip.coordinates || !Array.isArray(currentTrip.coordinates) || currentTrip.coordinates.length === 0) {
-      console.warn("No coordinates available for current trip, skipping map update", {
-        hasTrip: !!currentTrip,
-        hasCoordinates: !!currentTrip?.coordinates,
-        coordinatesLength: currentTrip?.coordinates?.length,
-        currentTripIndex,
-        individualTripsLength: individualTrips.length
-      });
       return;
     }
 
-    const token = "pk.eyJ1IjoiaWJ0ZXNhbW5hZWVtIiwiYSI6ImNtaHY3amJ6aDA3dmUyaXExbG42OTdlbW0ifQ.mCJtklraw0s8tPOaXqkDYg";
+    const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN || "";
+    if (!token) {
+      console.error("Mapbox access token is not configured. Please set VITE_MAPBOX_ACCESS_TOKEN in your environment variables.");
+      setMapError("Mapbox access token is not configured.");
+      return;
+    }
     mapboxgl.accessToken = token;
 
     // Clean up existing map layers and markers
@@ -554,7 +527,7 @@ const TripHistory = () => {
         try {
           marker.remove();
         } catch (e) {
-          console.warn("Error removing marker:", e);
+          // Ignore marker removal errors
         }
       });
       markersRef.current = [];
@@ -569,7 +542,7 @@ const TripHistory = () => {
             map.current.removeSource(layerId);
           }
         } catch (e) {
-          console.warn(`Error removing layer/source ${layerId}:`, e);
+          // Ignore layer removal errors
         }
       });
       
@@ -605,7 +578,7 @@ const TripHistory = () => {
           });
         }
       } catch (e) {
-        console.warn("Error during comprehensive cleanup:", e);
+        // Ignore cleanup errors
       }
       
       layersRef.current = [];
@@ -615,7 +588,6 @@ const TripHistory = () => {
     const updateMap = () => {
       // Prevent concurrent updates
       if (isUpdatingMap.current) {
-        console.log("Map update already in progress, skipping...");
         return;
       }
       
@@ -626,23 +598,12 @@ const TripHistory = () => {
         const trip = individualTrips[currentTripIndex];
         
         if (!map.current || !trip) {
-          console.warn("Cannot update map - map or trip not available", {
-            hasMap: !!map.current,
-            hasTrip: !!trip,
-            currentTripIndex,
-            individualTripsLength: individualTrips.length
-          });
           isUpdatingMap.current = false;
           return;
         }
 
         // Validate trip has coordinates
         if (!trip.coordinates || !Array.isArray(trip.coordinates) || trip.coordinates.length === 0) {
-          console.warn("No coordinates available for trip, skipping map update", {
-            hasCoordinates: !!trip.coordinates,
-            coordinatesLength: trip.coordinates?.length,
-            currentTripIndex
-          });
           isUpdatingMap.current = false;
           return;
         }
@@ -684,39 +645,19 @@ const TripHistory = () => {
             })
             .filter((coord: any) => coord !== null && coord[0] !== null && coord[1] !== null && 
                     !isNaN(coord[0]) && !isNaN(coord[1]));
-        } else if (trip.polyline && typeof trip.polyline === 'string') {
-          // Try to decode polyline if coordinates aren't available
-          // Note: Would need @mapbox/polyline package for this
-          console.warn("Polyline string available but decoding not implemented. Using coordinates instead.");
         }
 
         if (validCoords.length === 0) {
-          console.warn("No valid coordinates available for route", {
-            hasCoordinates: !!trip.coordinates,
-            coordinatesLength: trip.coordinates?.length,
-            hasPolyline: !!trip.polyline,
-            rawFirstCoord: trip.coordinates?.[0],
-            rawLastCoord: trip.coordinates?.[trip.coordinates?.length - 1]
-          });
           isUpdatingMap.current = false;
           return;
         }
-
-        console.log(`Drawing route with ${validCoords.length} GPS points for trip ${currentTripIndex + 1}`);
-        console.log("First few coordinates:", validCoords.slice(0, 3));
-        console.log("Last few coordinates:", validCoords.slice(-3));
 
         const routeId = `route-${currentTripIndex}`;
 
         try {
           // Ensure map is loaded and style is loaded
           if (!map.current.loaded() || !map.current.isStyleLoaded()) {
-            console.warn("Map not ready yet, waiting...", {
-              loaded: map.current.loaded(),
-              styleLoaded: map.current.isStyleLoaded()
-            });
             const onLoad = () => {
-              console.log("Map ready, retrying route update");
               isUpdatingMap.current = false; // Reset before retry
               updateMap();
             };
@@ -741,7 +682,7 @@ const TripHistory = () => {
               map.current.removeSource(routeId);
             }
           } catch (e) {
-            console.warn("Error removing existing layers (may not exist):", e);
+            // Layer may not exist, ignore error
           }
 
           // Create GeoJSON feature
@@ -754,18 +695,10 @@ const TripHistory = () => {
             },
           };
 
-          console.log("Adding route source with feature:", {
-            type: routeFeature.type,
-            coordinatesCount: routeFeature.geometry.coordinates.length,
-            firstCoord: routeFeature.geometry.coordinates[0],
-            lastCoord: routeFeature.geometry.coordinates[routeFeature.geometry.coordinates.length - 1]
-          });
-
           // Add route source with error handling
           try {
             // Double-check source doesn't exist
             if (map.current.getSource(routeId)) {
-              console.log("Source already exists, updating data");
               const existingSource = map.current.getSource(routeId) as mapboxgl.GeoJSONSource;
               existingSource.setData(routeFeature);
             } else {
@@ -773,7 +706,6 @@ const TripHistory = () => {
                 type: "geojson",
                 data: routeFeature,
               });
-              console.log("Route source added successfully");
             }
           } catch (sourceError: any) {
             console.error("Error adding route source:", sourceError);
@@ -783,7 +715,6 @@ const TripHistory = () => {
                 const source = map.current.getSource(routeId) as mapboxgl.GeoJSONSource;
                 if (source) {
                   source.setData(routeFeature);
-                  console.log("Updated existing route source");
                 }
               } catch (updateError) {
                 console.error("Error updating source:", updateError);
@@ -794,7 +725,6 @@ const TripHistory = () => {
                     type: "geojson",
                     data: routeFeature,
                   });
-                  console.log("Re-added route source after error");
                 } catch (retryError) {
                   console.error("Failed to re-add source:", retryError);
                   isUpdatingMap.current = false;
@@ -828,7 +758,6 @@ const TripHistory = () => {
               },
             });
             layersRef.current.push(`${routeId}-outline`);
-            console.log("Outline layer added");
           } catch (layerError: any) {
             console.error("Error adding outline layer:", layerError);
             // Continue anyway - main layer might still work
@@ -854,7 +783,6 @@ const TripHistory = () => {
               },
             });
             layersRef.current.push(routeId);
-            console.log("Main route layer added successfully");
           } catch (layerError: any) {
             console.error("Error adding main route layer:", layerError);
             // This is critical - if we can't add the main layer, the route won't show
@@ -864,7 +792,6 @@ const TripHistory = () => {
                 const source = map.current.getSource(routeId) as mapboxgl.GeoJSONSource;
                 if (source) {
                   source.setData(routeFeature);
-                  console.log("Updated source data for existing layer");
                 }
               } catch (updateError) {
                 console.error("Failed to update existing layer:", updateError);
@@ -872,19 +799,9 @@ const TripHistory = () => {
             }
           }
 
-          console.log("Route layers added successfully");
-          
           // Verify layers were added
-          const outlineLayerExists = map.current.getLayer(`${routeId}-outline`);
           const mainLayerExists = map.current.getLayer(routeId);
           const sourceExists = map.current.getSource(routeId);
-          
-          console.log("Layer verification:", {
-            outlineLayer: !!outlineLayerExists,
-            mainLayer: !!mainLayerExists,
-            source: !!sourceExists,
-            coordinateCount: validCoords.length
-          });
           
           if (!mainLayerExists || !sourceExists) {
             console.error("Critical: Main layer or source was not added properly!");
@@ -920,9 +837,7 @@ const TripHistory = () => {
             }
           });
           
-          if (bounds.isEmpty()) {
-            console.warn("Bounds are empty, cannot fit bounds");
-          } else {
+          if (!bounds.isEmpty()) {
             map.current.fitBounds(bounds, { padding: 80, duration: 500 });
           }
           
@@ -939,7 +854,7 @@ const TripHistory = () => {
                   }
                 }
               } catch (e) {
-                console.warn("Error refreshing map:", e);
+                // Ignore refresh errors
               }
             }
           }, 100);
@@ -956,7 +871,6 @@ const TripHistory = () => {
     // Initialize map if it doesn't exist
     const initializeMap = () => {
       if (!mapContainer.current) {
-        console.warn("Map container not available");
         return;
       }
 
@@ -965,16 +879,14 @@ const TripHistory = () => {
         const mapContainerElement = map.current.getContainer();
         if (mapContainerElement && mapContainerElement.parentElement) {
           // Map is still attached, just update it with current trip
-          console.log("Map exists, updating with current trip");
           updateMap();
           return;
         } else {
           // Map container was removed, clean up and recreate
-          console.log("Map container was removed, cleaning up and recreating");
           try {
             map.current.remove();
           } catch (e) {
-            console.warn("Error removing old map:", e);
+            // Ignore cleanup errors
           }
           map.current = null;
         }
@@ -1013,7 +925,6 @@ const TripHistory = () => {
 
         // Wait for map to load before adding sources
         map.current.once("load", () => {
-          console.log("Map loaded successfully, updating with trip data");
           setMapError(null); // Clear any previous errors
           // Small delay to ensure style is fully loaded
           setTimeout(() => {
@@ -1021,19 +932,6 @@ const TripHistory = () => {
               updateMap();
             }
           }, 150);
-        });
-
-        // Handle style data load
-        map.current.once("styledata", () => {
-          console.log("Map style loaded");
-        });
-
-        // Handle map resize to ensure it renders correctly
-        map.current.once("resize", () => {
-          console.log("Map resized");
-          if (map.current) {
-            map.current.resize();
-          }
         });
 
         // Force a resize after a short delay to ensure proper rendering
@@ -1064,12 +962,9 @@ const TripHistory = () => {
       const mapContainerElement = map.current.getContainer();
       if (mapContainerElement && mapContainerElement.parentElement) {
         // Map exists and is attached, just update it directly
-        console.log("Map exists, updating with current trip index:", currentTripIndex);
-        
         // If map is not ready yet, wait for it
         if (!map.current.loaded() || !map.current.isStyleLoaded()) {
           const onLoad = () => {
-            console.log("Map ready, updating with trip");
             updateMap();
           };
           if (!map.current.loaded()) {
@@ -1103,7 +998,6 @@ const TripHistory = () => {
           setTimeout(tryInitialize, retryDelay);
           return;
         }
-        console.warn("Map container not available after retries");
         return;
       }
 
@@ -1117,7 +1011,6 @@ const TripHistory = () => {
           setTimeout(tryInitialize, retryDelay);
           return;
         }
-        console.warn("Map container has no dimensions after retries");
         return;
       }
 
@@ -1148,7 +1041,6 @@ const TripHistory = () => {
           const rect = mapContainer.current.getBoundingClientRect();
           if (rect.width > 0 && rect.height > 0) {
             map.current.resize();
-            console.log("Map resized after dialog open");
           }
         }
       }, 300);
