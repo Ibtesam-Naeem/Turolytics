@@ -1,350 +1,185 @@
-import { apiClient } from '@/lib/api-client';
-import { bouncieApiClient } from './bouncie-api-client';
-
+// Stub service for demo mode
 export interface BouncieIntegrationStatus {
   connected: boolean;
-  expired?: boolean;
-  bouncie_user_id?: string;
-  bouncie_user_email?: string;
-  expires_at?: string;
-  created_at?: string;
-  updated_at?: string;
   message?: string;
-}
-
-export interface BouncieVehicleMapping {
-  id: number;
-  vehicle_id: number;
-  vehicle_name?: string;
-  imei: string;
-  bouncie_nickname?: string;
-  bouncie_vin?: string;
-  created_at?: string;
-  updated_at?: string;
 }
 
 export interface BouncieTripMatch {
   id: number;
-  trip_id?: string;
-  turo_trip_id: number;
-  bouncie_trip_count: number;
-  aggregated_distance_km?: number;
-  aggregated_distance_miles?: number;
-  total_duration_hours?: number;
-  coordinate_count?: number;
-  has_polyline: boolean;
-  has_coordinates: boolean;
-  has_match_data: boolean;
-  bouncie_earliest_start?: string;
-  bouncie_latest_end?: string;
-  created_at?: string;
-  updated_at?: string;
-  // Extended fields for detail view
-  coordinates?: number[][];
-  polyline?: string;
-  match_data?: any;
-}
-
-export interface CreateVehicleMappingRequest {
-  vehicle_id: number;
-  imei: string;
-  bouncie_nickname?: string;
-  bouncie_vin?: string;
-}
-
-export interface UpdateVehicleMappingRequest {
   vehicle_id?: number;
   imei?: string;
-  bouncie_nickname?: string;
-  bouncie_vin?: string;
-}
-
-export interface MatchRequest {
-  authorization_code?: string;
-  trip_id?: string;
-  imei?: string;
-  days_back?: number;
-}
-
-export interface BouncieVehicle {
-  imei: string;
-  nickname?: string;
-  vin?: string;
-  make?: string;
-  model?: string;
-  year?: number;
-  [key: string]: any;
-}
-
-export interface BouncieTrip {
-  id?: string;
-  imei: string;
-  startTime?: string;
-  endTime?: string;
-  distance?: number;
-  gps?: any;
-  [key: string]: any;
+  coordinates?: number[][]; // Array of [lat, lng] coordinate pairs
+  match_data?: {
+    all_trips?: Array<{
+      coordinates?: number[][];
+      gps?: {
+        type: string;
+        coordinates: number[][];
+      };
+      startTime?: string;
+      endTime?: string;
+      distance?: number;
+    }>;
+  };
+  bouncie_trip_count?: number;
+  aggregated_distance_km?: number;
+  total_duration_hours?: number;
+  coordinate_count?: number;
+  bouncie_earliest_start?: string;
+  bouncie_latest_end?: string;
+  has_coordinates?: boolean;
+  polyline?: string;
 }
 
 export interface BouncieDTCCode {
   id: number;
-  vehicle_id?: number;
-  vehicle_name?: string;
   imei: string;
+  vehicle_name?: string;
   code: string;
   description?: string;
   is_active: boolean;
-  occurred_at: string;
-  cleared_at?: string;
-  created_at?: string;
-  updated_at?: string;
+  first_seen?: string;
+  last_seen?: string;
 }
 
 class BouncieService {
-  // Authentication
-  async getAuthorizationUrl(popup: boolean = false): Promise<string> {
-    const response = await apiClient.get<{ success: boolean; data: { authorization_url: string } }>(
-      `/api/bouncie/auth/url${popup ? '?popup=true' : ''}`
-    );
-    return response.data.authorization_url;
-  }
-
   async getIntegrationStatus(): Promise<BouncieIntegrationStatus> {
-    const response = await apiClient.get<{ success: boolean; data: BouncieIntegrationStatus }>('/api/bouncie/auth/status');
-    return response.data;
+    return { connected: true }; // Demo: show as connected
   }
 
-  async connectAutomated(email: string, password: string): Promise<{ success: boolean; message: string; authorization_code?: string; tokens_saved?: boolean }> {
-    const response = await apiClient.post<{ success: boolean; data: { message: string; authorization_code?: string; tokens_saved?: boolean } }>(
-      '/api/bouncie/auth/automated-login',
-      { email, password }
-    );
-    return {
-      success: response.success,
-      ...response.data
-    };
+  async getVehicleMappings(limit: number, offset: number): Promise<{ mappings: any[]; total: number }> {
+    return { mappings: [], total: 0 };
+  }
+
+  async syncMatches(days: number, skipExisting: boolean, forceRematch: boolean): Promise<{ matches_created?: number }> {
+    return { matches_created: 0 };
   }
 
   async disconnect(): Promise<void> {
-    await apiClient.delete('/api/bouncie/auth/disconnect');
-    this.clearTokenCache(); // Clear cached token on disconnect
+    // Stub
   }
 
   async deleteAllData(): Promise<void> {
-    await apiClient.delete('/api/bouncie/auth/delete-all-data');
+    // Stub
   }
 
-  // Vehicle Mappings
-  async getVehicleMappings(limit: number = 100, offset: number = 0): Promise<{ mappings: BouncieVehicleMapping[]; total: number }> {
-    const response = await apiClient.get<{ success: boolean; data: { mappings: BouncieVehicleMapping[]; total: number } }>(
-      `/api/bouncie/mappings?limit=${limit}&offset=${offset}`
-    );
-    return response.data;
+  async getAuthorizationUrl(isPopup: boolean): Promise<string> {
+    throw new Error("Bouncie integration not available in demo mode");
   }
 
-  async getVehicleMapping(mappingId: number): Promise<BouncieVehicleMapping> {
-    const response = await apiClient.get<{ success: boolean; data: BouncieVehicleMapping }>(`/api/bouncie/mappings/${mappingId}`);
-    return response.data;
+  async getDTCCodes(vehicleId?: number, imei?: string, activeOnly?: boolean, limit?: number, offset?: number): Promise<{ codes: BouncieDTCCode[]; total: number }> {
+    // Mock DTC codes with real codes
+    const mockCodes: BouncieDTCCode[] = [
+      {
+        id: 1,
+        imei: "imei_002",
+        vehicle_name: "BMW X5",
+        code: "P0300",
+        description: "Random/Multiple Cylinder Misfire Detected",
+        is_active: true,
+        first_seen: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+        last_seen: new Date().toISOString(),
+      },
+      {
+        id: 2,
+        imei: "imei_008",
+        vehicle_name: "Chevrolet Tahoe",
+        code: "P0420",
+        description: "Catalyst System Efficiency Below Threshold",
+        is_active: true,
+        first_seen: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+        last_seen: new Date().toISOString(),
+      },
+    ];
+    return { codes: mockCodes, total: mockCodes.length };
   }
 
-  async createVehicleMapping(request: CreateVehicleMappingRequest): Promise<BouncieVehicleMapping> {
-    const response = await apiClient.post<{ success: boolean; data: { mapping: BouncieVehicleMapping } }>(
-      '/api/bouncie/mappings',
-      request
-    );
-    return response.data.mapping;
-  }
+  // Store trip_id -> match_id mapping for demo mode
+  private tripMatchMap = new Map<string, number>();
+  private matchTripMap = new Map<number, string>();
 
-  async updateVehicleMapping(mappingId: number, request: UpdateVehicleMappingRequest): Promise<BouncieVehicleMapping> {
-    const response = await apiClient.put<{ success: boolean; data: { mapping: BouncieVehicleMapping } }>(
-      `/api/bouncie/mappings/${mappingId}`,
-      request
-    );
-    return response.data.mapping;
-  }
-
-  async deleteVehicleMapping(mappingId: number): Promise<void> {
-    await apiClient.delete(`/api/bouncie/mappings/${mappingId}`);
-  }
-
-  // Trip Matches
-  async getTripMatches(
-    tripId?: string,
-    includePolylines: boolean = false,
-    limit: number = 100,
-    offset: number = 0
-  ): Promise<{ matches: BouncieTripMatch[]; total: number }> {
-    const params = new URLSearchParams({
-      include_polylines: includePolylines.toString(),
-      limit: limit.toString(),
-      offset: offset.toString(),
-    });
-    if (tripId) {
-      params.append('trip_id', tripId);
-    }
-    const response = await apiClient.get<{ success: boolean; data: { matches: BouncieTripMatch[]; total: number } }>(
-      `/api/bouncie/matches?${params.toString()}`
-    );
-    return response.data;
-  }
-
-  async getTripMatchDetail(matchId: number, includeFullData: boolean = false): Promise<BouncieTripMatch> {
-    const response = await apiClient.get<{ success: boolean; data: BouncieTripMatch }>(
-      `/api/bouncie/matches/${matchId}?include_full_data=${includeFullData}`
-    );
-    return response.data;
-  }
-
-  // Actions
-  async matchTrips(request: MatchRequest): Promise<any> {
-    const response = await apiClient.post<{ success: boolean; data: any }>('/api/bouncie/matches/match', request);
-    return response.data;
-  }
-
-  async syncMatches(daysBack: number = 365, skipExisting: boolean = true, forceRematch: boolean = false): Promise<any> {
-    const response = await apiClient.post<{ success: boolean; data: any }>(
-      `/api/bouncie/matches/sync?days_back=${daysBack}&skip_existing=${skipExisting}&force_rematch=${forceRematch}`
-    );
-    return response.data;
-  }
-
-  // Direct Bouncie API calls (frontend → Bouncie)
-  
-  /**
-   * Get vehicles from backend proxy (avoids CORS issues)
-   */
-  async getVehiclesDirect(): Promise<BouncieVehicle[]> {
-    const response = await apiClient.get<{ success: boolean; data: BouncieVehicle[] }>('/api/bouncie/vehicles');
-    return response.data || [];
-  }
-
-  /**
-   * Get trips from backend proxy (avoids CORS issues)
-   */
-  async getTripsDirect(params: {
-    gpsFormat?: string;
-    startDate?: string; // ISO date string (YYYY-MM-DD)
-    endDate?: string; // ISO date string (YYYY-MM-DD)
-    imei?: string;
-  } = {}): Promise<BouncieTrip[]> {
-    if (!params.imei) {
-      throw new Error('IMEI is required for fetching trips');
+  async getTripMatches(tripId: string, includePolylines?: boolean, limit?: number, offset?: number): Promise<{ matches: BouncieTripMatch[]; total: number }> {
+    // Demo mode - return a mock match for trips that have coordinates
+    // Import mock trip history to check if trip has coordinates
+    const { mockTripHistory } = await import("@/data/mockData");
+    const trip = mockTripHistory.find(t => t.trip_id === tripId);
+    
+    if (trip && trip.coordinates && trip.coordinates.length > 0) {
+      // Create or reuse match ID for this trip
+      let matchId = this.tripMatchMap.get(tripId);
+      if (!matchId) {
+        matchId = Date.now(); // Use timestamp as unique ID
+        this.tripMatchMap.set(tripId, matchId);
+        this.matchTripMap.set(matchId, tripId);
+      }
+      
+      return {
+        matches: [{
+          id: matchId,
+          vehicle_id: trip.vehicle_id,
+          imei: `imei_${String(trip.vehicle_id || 0).padStart(3, '0')}`,
+        }],
+        total: 1,
+      };
     }
     
-    const queryParams = new URLSearchParams();
-    if (params.gpsFormat) queryParams.append('gps_format', params.gpsFormat);
-    if (params.startDate) queryParams.append('start_date', params.startDate);
-    if (params.endDate) queryParams.append('end_date', params.endDate);
-    if (params.imei) queryParams.append('imei', params.imei);
-
-    const response = await apiClient.get<{ success: boolean; data: BouncieTrip[] }>(
-      `/api/bouncie/trips?${queryParams.toString()}`
-    );
-    return response.data || [];
+    return { matches: [], total: 0 };
   }
 
-  /**
-   * Get live vehicle status - use backend proxy
-   * Note: Individual vehicle endpoint doesn't exist, use getAllVehiclesWithStatus instead
-   */
-  async getVehicleStatus(imei: string): Promise<any> {
-    // Individual vehicle endpoint doesn't exist, get all and filter
-    const vehicles = await this.getAllVehiclesWithStatus();
-    return vehicles.find(v => v.imei === imei) || null;
-  }
-
-  /**
-   * Get today's trips for calculating miles driven today
-   */
-  async getTripsToday(imei?: string): Promise<BouncieTrip[]> {
-    if (!imei) {
-      return [];
+  async getTripMatchDetail(matchId: number, includeFullData?: boolean): Promise<BouncieTripMatch> {
+    // Demo mode - return mock trip match detail with coordinates
+    // Find the trip_id for this match
+    const tripId = this.matchTripMap.get(matchId);
+    if (!tripId) {
+      return {
+        id: matchId,
+        bouncie_trip_count: 0,
+        has_coordinates: false,
+      };
     }
     
-    const today = new Date().toISOString().split('T')[0];
-    return this.getTripsDirect({
-      imei: imei,
-      startDate: today,
-      endDate: today,
-      gpsFormat: 'geojson'
-    });
-  }
-
-  /**
-   * Get active trip for a vehicle
-   */
-  async getActiveTrip(imei: string): Promise<BouncieTrip | null> {
-    const today = new Date().toISOString().split('T')[0];
-    const trips = await this.getTripsDirect({
-      imei: imei,
-      startDate: today,
-      gpsFormat: 'geojson'
-    });
+    const { mockTripHistory } = await import("@/data/mockData");
+    const trip = mockTripHistory.find(t => t.trip_id === tripId);
     
-    // Find trip without endTime (active trip)
-    return trips.find(trip => !trip.endTime) || null;
-  }
-
-  /**
-   * Get all vehicles with their current status (uses backend proxy)
-   */
-  async getAllVehiclesWithStatus(): Promise<BouncieVehicle[]> {
-    return this.getVehiclesDirect();
-  }
-
-  /**
-   * Get aggregated live vehicle data with location, speed, fuel, trips
-   * This endpoint processes Bouncie data and returns a clean structure optimized for map display
-   */
-  async getLiveVehicles(): Promise<any[]> {
-    const response = await apiClient.get<{ success: boolean; data: { vehicles: any[] } }>('/api/bouncie/live');
-    return response.data?.vehicles || [];
-  }
-
-  /**
-   * Get DTC codes (Diagnostic Trouble Codes)
-   */
-  async getDTCCodes(
-    vehicleId?: number,
-    imei?: string,
-    activeOnly: boolean = true,
-    limit: number = 100,
-    offset: number = 0
-  ): Promise<{ codes: BouncieDTCCode[]; total: number }> {
-    const params = new URLSearchParams({
-      active_only: activeOnly.toString(),
-      limit: limit.toString(),
-      offset: offset.toString(),
-    });
-    if (vehicleId) {
-      params.append('vehicle_id', vehicleId.toString());
+    if (trip && trip.coordinates && trip.coordinates.length > 0) {
+      const coordinates = trip.coordinates;
+      const startDate = trip.start_date ? new Date(trip.start_date) : new Date();
+      const endDate = trip.end_date ? new Date(trip.end_date) : new Date();
+      
+      // Calculate duration in hours
+      const durationMs = endDate.getTime() - startDate.getTime();
+      const durationHours = durationMs / (1000 * 60 * 60);
+      
+      return {
+        id: matchId,
+        vehicle_id: trip.vehicle_id,
+        imei: `imei_${String(trip.vehicle_id || 0).padStart(3, '0')}`,
+        coordinates: coordinates,
+        match_data: {
+          all_trips: [{
+            coordinates: coordinates,
+            startTime: startDate.toISOString(),
+            endTime: endDate.toISOString(),
+            distance: trip.kilometers_driven || 0,
+          }],
+        },
+        bouncie_trip_count: 1,
+        aggregated_distance_km: trip.kilometers_driven || 0,
+        total_duration_hours: durationHours,
+        coordinate_count: coordinates.length,
+        bouncie_earliest_start: startDate.toISOString(),
+        bouncie_latest_end: endDate.toISOString(),
+        has_coordinates: true,
+      };
     }
-    if (imei) {
-      params.append('imei', imei);
-    }
-    const response = await apiClient.get<{ success: boolean; data: { codes: BouncieDTCCode[]; total: number } }>(
-      `/api/bouncie/dtc-codes?${params.toString()}`
-    );
-    return response.data;
-  }
-
-  /**
-   * Clear a DTC code (mark as resolved)
-   */
-  async clearDTCCode(codeId: number): Promise<BouncieDTCCode> {
-    const response = await apiClient.post<{ success: boolean; data: { code: BouncieDTCCode; message: string } }>(
-      `/api/bouncie/dtc-codes/${codeId}/clear`
-    );
-    return response.data.code;
-  }
-
-  /**
-   * Clear token cache (call on disconnect)
-   */
-  clearTokenCache(): void {
-    bouncieApiClient.clearTokenCache();
+    
+    // Fallback if no trip with coordinates found
+    return {
+      id: matchId,
+      bouncie_trip_count: 0,
+      has_coordinates: false,
+    };
   }
 }
 
 export const bouncieService = new BouncieService();
-

@@ -41,6 +41,7 @@ interface Vehicle {
 }
 
 const initialVehicles: Vehicle[] = [
+  // Vehicles on trips - Moving
   { 
     id: "1", 
     name: "2024 Tesla Model 3", 
@@ -55,19 +56,6 @@ const initialVehicles: Vehicle[] = [
     flags: { speedAlerts: 0, hardBraking: 1, rapidAcceleration: 3 }
   },
   { 
-    id: "2", 
-    name: "2023 BMW X5", 
-    coordinates: [-118.2437, 34.0522], 
-    status: "parked", 
-    speed: 0,
-    guest: "Emma Wilson",
-    location: "Los Angeles, CA",
-    fuel: 62,
-    totalKm: 150,
-    allowedKm: 500,
-    flags: { speedAlerts: 0, hardBraking: 0, rapidAcceleration: 0 }
-  },
-  { 
     id: "3", 
     name: "2024 Audi A6", 
     coordinates: [-122.3321, 47.6062], 
@@ -79,19 +67,6 @@ const initialVehicles: Vehicle[] = [
     totalKm: 320,
     allowedKm: 600,
     flags: { speedAlerts: 0, hardBraking: 0, rapidAcceleration: 2 }
-  },
-  { 
-    id: "4", 
-    name: "2023 Mercedes E-Class", 
-    coordinates: [-122.6784, 45.5152], 
-    status: "parked", 
-    speed: 0,
-    guest: "Sarah Mitchell",
-    location: "Portland, OR",
-    fuel: 45,
-    totalKm: 420,
-    allowedKm: 450,
-    flags: { speedAlerts: 0, hardBraking: 2, rapidAcceleration: 1 }
   },
   { 
     id: "5", 
@@ -120,6 +95,86 @@ const initialVehicles: Vehicle[] = [
     flags: { speedAlerts: 0, hardBraking: 3, rapidAcceleration: 4 }
   },
   { 
+    id: "8", 
+    name: "2024 Porsche Cayenne", 
+    coordinates: [-80.1918, 25.7617], 
+    status: "moving", 
+    speed: 62,
+    guest: "Amanda Foster",
+    location: "Miami, FL",
+    fuel: 88,
+    totalKm: 145,
+    allowedKm: 550,
+    flags: { speedAlerts: 0, hardBraking: 2, rapidAcceleration: 5 }
+  },
+  { 
+    id: "9", 
+    name: "2024 Mercedes-Benz GLE", 
+    coordinates: [-121.8947, 36.6002], 
+    status: "moving", 
+    speed: 78,
+    guest: "Alexander Rivera",
+    location: "Monterey, CA",
+    fuel: 72,
+    totalKm: 420,
+    allowedKm: 600,
+    flags: { speedAlerts: 0, hardBraking: 0, rapidAcceleration: 2 }
+  },
+  { 
+    id: "10", 
+    name: "2023 Subaru Outback", 
+    coordinates: [-110.7624, 43.4799], 
+    status: "moving", 
+    speed: 65,
+    guest: "Ryan O'Connor",
+    location: "Jackson Hole, WY",
+    fuel: 76,
+    totalKm: 340,
+    allowedKm: 500,
+    flags: { speedAlerts: 0, hardBraking: 0, rapidAcceleration: 1 }
+  },
+  { 
+    id: "11", 
+    name: "2024 Land Rover Defender", 
+    coordinates: [-109.5498, 38.5733], 
+    status: "moving", 
+    speed: 42,
+    guest: "Olivia Bennett",
+    location: "Moab, UT",
+    fuel: 58,
+    totalKm: 520,
+    allowedKm: 650,
+    flags: { speedAlerts: 0, hardBraking: 5, rapidAcceleration: 4 }
+  },
+  
+  // Vehicles on trips - Parked
+  { 
+    id: "2", 
+    name: "2023 BMW X5", 
+    coordinates: [-118.2437, 34.0522], 
+    status: "parked", 
+    speed: 0,
+    guest: "Emma Wilson",
+    location: "Los Angeles, CA",
+    fuel: 62,
+    totalKm: 150,
+    allowedKm: 500,
+    flags: { speedAlerts: 0, hardBraking: 0, rapidAcceleration: 0 }
+  },
+  { 
+    id: "4", 
+    name: "2023 Mercedes E-Class", 
+    coordinates: [-122.6784, 45.5152], 
+    status: "parked", 
+    speed: 0,
+    guest: "Sarah Mitchell",
+    location: "Portland, OR",
+    fuel: 45,
+    totalKm: 420,
+    allowedKm: 450,
+    flags: { speedAlerts: 0, hardBraking: 2, rapidAcceleration: 1 }
+  },
+  { 
     id: "7", 
     name: "2024 Lexus RX350", 
     coordinates: [-97.7431, 30.2672], 
@@ -133,17 +188,175 @@ const initialVehicles: Vehicle[] = [
     flags: { speedAlerts: 0, hardBraking: 1, rapidAcceleration: 0 }
   },
   { 
-    id: "8", 
-    name: "2024 Porsche Cayenne", 
-    coordinates: [-80.1918, 25.7617], 
-    status: "moving", 
-    speed: 62,
-    guest: "Amanda Foster",
-    location: "Miami, FL",
+    id: "12", 
+    name: "2023 Audi Q7", 
+    coordinates: [-119.5383, 37.8651], 
+    status: "parked", 
+    speed: 0,
+    guest: "Sophie Laurent",
+    location: "Yosemite National Park, CA",
+    fuel: 45,
+    totalKm: 380,
+    allowedKm: 500,
+    flags: { speedAlerts: 0, hardBraking: 2, rapidAcceleration: 1 }
+  },
+  { 
+    id: "13", 
+    name: "2024 Chevrolet Tahoe", 
+    coordinates: [-112.1129, 36.1069], 
+    status: "parked", 
+    speed: 0,
+    guest: "Patricia Williams",
+    location: "Grand Canyon, AZ",
+    fuel: 38,
+    totalKm: 480,
+    allowedKm: 600,
+    flags: { speedAlerts: 0, hardBraking: 1, rapidAcceleration: 2 }
+  },
+  
+  // Vehicles NOT on trips - Available/Parked
+  { 
+    id: "14", 
+    name: "2024 Mercedes C-Class", 
+    coordinates: [-117.1933, 32.7338], 
+    status: "parked", 
+    speed: 0,
+    guest: "Not on trip",
+    location: "San Diego, CA",
+    fuel: 95,
+    totalKm: 0,
+    allowedKm: 0,
+    flags: { speedAlerts: 0, hardBraking: 0, rapidAcceleration: 0 }
+  },
+  { 
+    id: "15", 
+    name: "2024 Tesla Model Y", 
+    coordinates: [-122.2712, 37.8044], 
+    status: "parked", 
+    speed: 0,
+    guest: "Not on trip",
+    location: "Oakland, CA",
     fuel: 88,
-    totalKm: 145,
-    allowedKm: 550,
-    flags: { speedAlerts: 0, hardBraking: 2, rapidAcceleration: 5 }
+    totalKm: 0,
+    allowedKm: 0,
+    flags: { speedAlerts: 0, hardBraking: 0, rapidAcceleration: 0 }
+  },
+  { 
+    id: "16", 
+    name: "2023 Audi A4", 
+    coordinates: [-121.8863, 37.3382], 
+    status: "parked", 
+    speed: 0,
+    guest: "Not on trip",
+    location: "San Jose, CA",
+    fuel: 75,
+    totalKm: 0,
+    allowedKm: 0,
+    flags: { speedAlerts: 0, hardBraking: 0, rapidAcceleration: 0 }
+  },
+  { 
+    id: "17", 
+    name: "2024 Porsche 911", 
+    coordinates: [-118.4004, 34.0736], 
+    status: "parked", 
+    speed: 0,
+    guest: "Not on trip",
+    location: "Beverly Hills, CA",
+    fuel: 92,
+    totalKm: 0,
+    allowedKm: 0,
+    flags: { speedAlerts: 0, hardBraking: 0, rapidAcceleration: 0 }
+  },
+  { 
+    id: "18", 
+    name: "2023 Range Rover Sport", 
+    coordinates: [-122.2015, 47.6101], 
+    status: "parked", 
+    speed: 0,
+    guest: "Not on trip",
+    location: "Bellevue, WA",
+    fuel: 82,
+    totalKm: 0,
+    allowedKm: 0,
+    flags: { speedAlerts: 0, hardBraking: 0, rapidAcceleration: 0 }
+  },
+  { 
+    id: "19", 
+    name: "2024 BMW 5 Series", 
+    coordinates: [-80.1300, 25.7907], 
+    status: "parked", 
+    speed: 0,
+    guest: "Not on trip",
+    location: "South Beach, FL",
+    fuel: 70,
+    totalKm: 0,
+    allowedKm: 0,
+    flags: { speedAlerts: 0, hardBraking: 0, rapidAcceleration: 0 }
+  },
+  { 
+    id: "20", 
+    name: "2024 Ford Mustang GT", 
+    coordinates: [-115.4330, 36.1352], 
+    status: "parked", 
+    speed: 0,
+    guest: "Not on trip",
+    location: "Red Rock Canyon, NV",
+    fuel: 65,
+    totalKm: 0,
+    allowedKm: 0,
+    flags: { speedAlerts: 0, hardBraking: 0, rapidAcceleration: 0 }
+  },
+  { 
+    id: "21", 
+    name: "2023 Lexus RX 350", 
+    coordinates: [-111.9261, 33.4942], 
+    status: "parked", 
+    speed: 0,
+    guest: "Not on trip",
+    location: "Scottsdale, AZ",
+    fuel: 78,
+    totalKm: 0,
+    allowedKm: 0,
+    flags: { speedAlerts: 0, hardBraking: 0, rapidAcceleration: 0 }
+  },
+  { 
+    id: "22", 
+    name: "2024 Jeep Wrangler", 
+    coordinates: [-106.8175, 39.1911], 
+    status: "parked", 
+    speed: 0,
+    guest: "Not on trip",
+    location: "Aspen, CO",
+    fuel: 85,
+    totalKm: 0,
+    allowedKm: 0,
+    flags: { speedAlerts: 0, hardBraking: 0, rapidAcceleration: 0 }
+  },
+  { 
+    id: "23", 
+    name: "2024 Cadillac Escalade", 
+    coordinates: [-96.7970, 32.7767], 
+    status: "parked", 
+    speed: 0,
+    guest: "Not on trip",
+    location: "Downtown Dallas, TX",
+    fuel: 90,
+    totalKm: 0,
+    allowedKm: 0,
+    flags: { speedAlerts: 0, hardBraking: 0, rapidAcceleration: 0 }
+  },
+  { 
+    id: "24", 
+    name: "2023 Volvo XC90", 
+    coordinates: [-123.9615, 45.8918], 
+    status: "parked", 
+    speed: 0,
+    guest: "Not on trip",
+    location: "Cannon Beach, OR",
+    fuel: 80,
+    totalKm: 0,
+    allowedKm: 0,
+    flags: { speedAlerts: 0, hardBraking: 0, rapidAcceleration: 0 }
   },
 ];
 
@@ -196,9 +409,16 @@ const MapPage = () => {
       console.log('[MapPage] liveVehicles:', liveVehicles);
       console.log('[MapPage] liveVehicles.length:', liveVehicles.length);
       
-      if (!bouncieConnected || liveVehicles.length === 0) {
-        console.log('[MapPage] No vehicles to load - bouncieConnected:', bouncieConnected, 'liveVehicles.length:', liveVehicles.length);
-        setVehicles([]);
+      // In demo mode (no Bouncie connection), use initial vehicles
+      if (!bouncieConnected) {
+        console.log('[MapPage] Demo mode - using initial vehicles');
+        setVehicles(initialVehicles);
+        return;
+      }
+      
+      if (liveVehicles.length === 0) {
+        console.log('[MapPage] No live vehicles available');
+        setVehicles(initialVehicles); // Fallback to demo vehicles
         return;
       }
 
@@ -258,17 +478,19 @@ const MapPage = () => {
 
         console.log('[MapPage] Final mapVehicles:', mapVehicles);
         console.log('[MapPage] Setting vehicles count:', mapVehicles.length);
-        setVehicles(mapVehicles);
+        setVehicles(mapVehicles.length > 0 ? mapVehicles : initialVehicles); // Fallback to demo if no real data
       } catch (error) {
         console.error("Failed to load vehicles for map:", error);
-        setVehicles([]);
+        setVehicles(initialVehicles); // Fallback to demo vehicles on error
       }
     };
 
-    if (bouncieConnected && !bouncieLoading) {
+    // Always load vehicles - use real data if Bouncie connected, otherwise use demo
+    if (!bouncieLoading) {
       loadVehicles();
-    } else if (!bouncieConnected && !bouncieLoading) {
-      setVehicles([]);
+    } else {
+      // Show demo vehicles while loading
+      setVehicles(initialVehicles);
     }
   }, [liveVehicles, bouncieConnected, bouncieLoading, distanceUnit]);
 
@@ -395,13 +617,13 @@ const MapPage = () => {
       {/* Map Container */}
       <div ref={mapContainer} className="absolute inset-0" />
 
-      {/* Empty States */}
-      {!bouncieConnected && !bouncieLoading && (
+      {/* Empty States - Only show if no vehicles at all */}
+      {!bouncieConnected && !bouncieLoading && vehicles.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center z-20 bg-background/80 backdrop-blur-sm">
           <div className="text-center p-6 bg-card rounded-lg shadow-lg border border-border max-w-md">
             <p className="text-lg font-semibold mb-2">No Bouncie Connection</p>
             <p className="text-sm text-muted-foreground mb-4">
-              Connect Bouncie in Settings to see live vehicle locations on the map.
+              Showing demo vehicles. Connect Bouncie in Settings to see live vehicle locations.
             </p>
           </div>
         </div>

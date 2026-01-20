@@ -1,24 +1,21 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { authService } from "@/services/auth-service";
 
-type AuthMode = "demo" | "real";
-
 interface User {
   id: string;
   email?: string;
   firstName?: string;
   lastName?: string;
-  mode: AuthMode;
+  isDemo?: boolean;
 }
 
 interface AuthContextType {
   user: User | null;
-  mode: AuthMode | null;
   isAuthenticated: boolean;
   isDemo: boolean;
   login: (email: string, password: string, rememberMe?: boolean) => Promise<{ error?: string }>;
   signup: (userData: SignupData) => Promise<{ error?: string }>;
-  loginDemo: () => Promise<{ error?: string }>;
+  loginDemo: () => Promise<void>;
   logout: () => void;
 }
 
@@ -39,12 +36,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   const isAuthenticated = user !== null;
-  const mode = user?.mode ?? null;
-  const isDemo = mode === "demo";
+  const isDemo = user?.isDemo === true;
 
   // Check for existing token on mount and restore user session
   useEffect(() => {
     const checkAuth = async () => {
+      // Check for demo mode first
+      const isDemoMode = localStorage.getItem('demo_mode') === 'true';
+      if (isDemoMode) {
+        setUser({ id: "demo-user", isDemo: true });
+        setIsLoading(false);
+        return;
+      }
+
       const token = authService.getToken();
       if (token) {
         try {
@@ -52,7 +56,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setUser({
             id: userData.id.toString(),
             email: userData.email,
-            mode: "real",
           });
         } catch (error) {
           // Token is invalid or expired, clear it
@@ -74,7 +77,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   // Periodically validate token (every 30 minutes)
   useEffect(() => {
-    if (!user || user.mode === 'demo') return;
+    if (!user) return;
 
     const interval = setInterval(async () => {
       const token = authService.getToken();
@@ -118,7 +121,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setUser({
         id: userData.id.toString(),
         email: userData.email,
-        mode: "real",
       });
       
       return {};
@@ -156,7 +158,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setUser({
         id: newUser.id.toString(),
         email: newUser.email,
-        mode: "real",
       });
       
       return {};
@@ -167,14 +168,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const loginDemo = async (): Promise<{ error?: string }> => {
-    // Temporary: Set demo user locally
-    setUser({ id: "demo-user", mode: "demo" });
-    return {};
+  const loginDemo = async (): Promise<void> => {
+    // Set localStorage first
+    localStorage.setItem('demo_mode', 'true');
+    // Set user state
+    setUser({ id: "demo-user", isDemo: true });
+    // Force a re-render by updating state
+    setIsLoading(false);
+    // Return a resolved promise to allow awaiting
+    return Promise.resolve();
   };
 
   const logout = () => {
     authService.removeToken();
+    localStorage.removeItem('demo_mode');
     setUser(null);
   };
 
@@ -191,7 +198,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     <AuthContext.Provider
       value={{
         user,
-        mode,
         isAuthenticated,
         isDemo,
         login,

@@ -19,8 +19,12 @@ const Landing = () => {
   const { loginDemo } = useAuth();
 
   const handleViewDemo = async () => {
+    // Set demo mode in localStorage first
+    localStorage.setItem('demo_mode', 'true');
+    // Wait for loginDemo to complete
     await loginDemo();
-    navigate("/dashboard");
+    // Navigate after state is set
+    navigate("/dashboard", { replace: true });
   };
 
   const features = [
@@ -81,9 +85,14 @@ const Landing = () => {
             <span className="font-bold text-lg tracking-tight">Turolytics</span>
           </Link>
           <div className="flex items-center gap-2 sm:gap-3">
-            <Link to="/auth">
-              <Button variant="ghost" size="sm" className="text-sm">Sign In</Button>
-            </Link>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="text-sm"
+              onClick={handleViewDemo}
+            >
+              View Demo
+            </Button>
             <Link to="/waitlist">
               <Button size="sm" className="text-sm gap-1.5 group">
                 Join Waitlist
@@ -107,20 +116,23 @@ const Landing = () => {
             The command center for serious Turo hosts. Track, analyze, and scale your rental business.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-8 sm:mb-12">
-            <Link to="/waitlist" className="w-full sm:w-auto">
-              <Button size="lg" className="w-full sm:w-auto gap-2 h-11 sm:h-12 px-6 sm:px-8 text-sm sm:text-base group">
-                Join Waitlist
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-              </Button>
-            </Link>
             <Button 
-              variant="outline" 
               size="lg" 
-              className="w-full sm:w-auto h-11 sm:h-12 px-6 sm:px-8 text-sm sm:text-base bg-background/50 backdrop-blur-sm"
+              className="w-full sm:w-auto gap-2 h-11 sm:h-12 px-6 sm:px-8 text-sm sm:text-base group"
               onClick={handleViewDemo}
             >
               View Demo
+              <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
             </Button>
+            <Link to="/waitlist" className="w-full sm:w-auto">
+              <Button 
+                variant="outline" 
+                size="lg" 
+                className="w-full sm:w-auto gap-2 h-11 sm:h-12 px-6 sm:px-8 text-sm sm:text-base bg-background/50 backdrop-blur-sm"
+              >
+                Join Waitlist
+              </Button>
+            </Link>
           </div>
           
           {/* Stats Row */}

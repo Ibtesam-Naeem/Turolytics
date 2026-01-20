@@ -232,10 +232,12 @@ const Vehicles = () => {
             {filteredVehicles.map((vehicle) => {
               const statusConfig = getStatusConfig(vehicle.status_mapped || vehicle.status);
               
-              // Get fuel level from Bouncie live data
+              // Get fuel level from Bouncie live data, or fallback to vehicle's fuel_level
               const imei = vehicleMappings.get(vehicle.id);
               const liveData = imei ? liveVehicles.find(v => v.imei === imei) : undefined;
-              const fuelLevel = liveData?.fuelLevel !== undefined ? Math.round(liveData.fuelLevel) : undefined;
+              const fuelLevel = liveData?.fuelLevel !== undefined 
+                ? Math.round(liveData.fuelLevel) 
+                : (vehicle.fuel_level !== undefined ? Math.round(vehicle.fuel_level) : undefined);
               const fuelConfig = getFuelConfig(fuelLevel);
             
             return (
@@ -399,7 +401,7 @@ const Vehicles = () => {
                     <Button 
                       className="flex-1 gap-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40"
                       variant="ghost"
-                      onClick={() => navigate(`/vehicle-documents/${vehicle.id.toString()}`)}
+                      onClick={() => navigate(`/documents?vehicle=${encodeURIComponent(vehicle.name || '')}`)}
                     >
                       <FileText className="w-4 h-4" />
                       Documents

@@ -3,12 +3,13 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { ThemeProvider, useTheme } from "@/contexts/ThemeContext";
 import { RegionalSettingsProvider } from "@/contexts/RegionalSettingsContext";
-import { Eye, Moon, Sun } from "lucide-react";
+import { Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Landing from "./pages/Landing";
 import Auth from "./pages/Auth";
@@ -33,29 +34,6 @@ import Waitlist from "./pages/Waitlist";
 import WaitlistAdmin from "./pages/WaitlistAdmin";
 
 const queryClient = new QueryClient();
-
-// Demo banner component - only shows in demo mode
-const DemoBanner = () => {
-  const navigate = useNavigate();
-  const { isDemo } = useAuth();
-  
-  if (!isDemo) {
-    return null;
-  }
-
-  return (
-    <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-xs">
-      <Eye className="h-3 w-3 text-primary" />
-      <span className="text-muted-foreground">Demo</span>
-      <button
-        onClick={() => navigate("/waitlist")}
-        className="text-primary hover:underline font-medium"
-      >
-        Join waitlist
-      </button>
-    </div>
-  );
-};
 
 // Theme toggle button component
 const ThemeToggle = () => {
@@ -87,25 +65,49 @@ const ThemeToggle = () => {
 };
 
 // Layout wrapper for authenticated pages with sidebar
-const AuthenticatedLayout = ({ children }: { children: React.ReactNode }) => (
-  <SidebarProvider>
-    <div className="flex min-h-screen w-full max-w-full overflow-x-hidden">
-      <AppSidebar />
-      <div className="flex-1 flex flex-col w-full max-w-full overflow-x-hidden">
-        <header className="h-12 flex items-center gap-4 border-b border-border bg-background sticky top-0 z-20 px-4 w-full max-w-full">
-          <SidebarTrigger />
-          <DemoBanner />
-          <div className="ml-auto">
-            <ThemeToggle />
-          </div>
-        </header>
-        <main className="flex-1 w-full max-w-full overflow-x-hidden">
-          {children}
-        </main>
+const AuthenticatedLayout = ({ children }: { children: React.ReactNode }) => {
+  const { isAuthenticated, isDemo } = useAuth();
+  const navigate = useNavigate();
+
+  // Check localStorage immediately (synchronous check)
+  const isDemoMode = typeof window !== 'undefined' && localStorage.getItem('demo_mode') === 'true';
+  const canAccess = isAuthenticated || isDemo || isDemoMode;
+
+  useEffect(() => {
+    // Check localStorage again in useEffect (in case state hasn't updated)
+    const isDemoModeCheck = typeof window !== 'undefined' && localStorage.getItem('demo_mode') === 'true';
+    const hasAccess = isAuthenticated || isDemo || isDemoModeCheck;
+    
+    // Only redirect if definitely not authenticated and not in demo mode
+    if (!hasAccess) {
+      navigate("/auth", { replace: true });
+    }
+  }, [isAuthenticated, isDemo, navigate]);
+
+  // Don't render if not authenticated and not in demo mode
+  if (!canAccess) {
+    return null;
+  }
+
+  return (
+    <SidebarProvider>
+      <div className="flex min-h-screen w-full max-w-full overflow-x-hidden">
+        <AppSidebar />
+        <div className="flex-1 flex flex-col w-full max-w-full overflow-x-hidden">
+          <header className="h-12 flex items-center gap-4 border-b border-border bg-background sticky top-0 z-20 px-4 w-full max-w-full">
+            <SidebarTrigger />
+            <div className="ml-auto">
+              <ThemeToggle />
+            </div>
+          </header>
+          <main className="flex-1 w-full max-w-full overflow-x-hidden">
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
-  </SidebarProvider>
-);
+    </SidebarProvider>
+  );
+};
 
 const App = () => (
   <ThemeProvider>

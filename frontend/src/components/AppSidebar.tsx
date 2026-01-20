@@ -68,7 +68,7 @@ export function AppSidebar() {
   const { open } = useSidebar();
   const location = useLocation();
   const navigate = useNavigate();
-  const { isDemo, logout } = useAuth();
+  const { logout } = useAuth();
   const currentPath = location.pathname;
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
 
@@ -210,7 +210,7 @@ export function AppSidebar() {
                     className="hover:bg-destructive/10 hover:text-destructive transition-colors cursor-pointer"
                   >
                     <LogOut className="h-4 w-4" />
-                    {open && <span>{isDemo ? "Exit Demo Mode" : "Sign Out"}</span>}
+                    {open && <span>Sign Out</span>}
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               </SidebarMenu>
@@ -224,19 +224,16 @@ export function AppSidebar() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {isDemo ? "Exit Demo Mode?" : "Sign out of Turolytics?"}
+              Sign out of Turolytics?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {isDemo 
-                ? "You'll be redirected to the login page. Sign up to access your real fleet dashboard."
-                : "You will need to sign in again to access your fleet dashboard."
-              }
+              You will need to sign in again to access your fleet dashboard.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleLogout} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              {isDemo ? "Exit Demo" : "Sign Out"}
+              Sign Out
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

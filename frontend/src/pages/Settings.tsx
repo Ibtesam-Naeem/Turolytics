@@ -1,4 +1,4 @@
-import { User as UserIcon, Bell, Shield, CreditCard, Car, Globe, DollarSign, Key, Trash2, Monitor, Link as LinkIcon, Building2, Check, Lock, Sparkles, Search, Loader2, RefreshCw, AlertCircle, Phone, MapPin, Route, Activity, Wifi, WifiOff, CheckCircle2, XCircle, Clock, Radio, Zap, TrendingUp, Receipt } from "lucide-react";
+import { User as UserIcon, Bell, Shield, CreditCard, Car, Globe, DollarSign, Key, Trash2, Monitor, Link as LinkIcon, Building2, Check, Lock, Sparkles, Search, Loader2, RefreshCw, AlertCircle, Phone, MapPin, Route, Activity, Wifi, WifiOff, CheckCircle2, XCircle, Clock, Radio, Zap, TrendingUp, Receipt, Star } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -11,9 +11,11 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
-import { bouncieService, BouncieIntegrationStatus } from "@/services/bouncie-service";
-import { turoService, TuroIntegrationStatus } from "@/services/turo-service";
-import { authService, User, UserSession } from "@/services/auth-service";
+// Demo mode - stub types and services
+type BouncieIntegrationStatus = { connected: boolean; message?: string; bouncie_user_email?: string; expires_at?: string; updated_at?: string; expired?: boolean };
+type TuroIntegrationStatus = { connected: boolean; message?: string; email?: string; has_active_session?: boolean; updated_at?: string };
+type User = { id: string; email?: string; firstName?: string; lastName?: string; password_changed_at?: string };
+type UserSession = { id: number; device_info?: string; ip_address?: string; created_at?: string; browser?: string; os?: string; location?: string; last_used_at?: string; is_current?: boolean };
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -145,9 +147,9 @@ const Settings = () => {
   const [turoCredentials, setTuroCredentials] = useState({ email: "", password: "" });
   const [turo2FACode, setTuro2FACode] = useState("");
   const [turoSessionId, setTuroSessionId] = useState<string | null>(null);
-  const [turoScraping, setTuroScraping] = useState<{ type: string; taskId: string | null }>({ type: '', taskId: null });
-  const [turoScrapingStatus, setTuroScrapingStatus] = useState<string>('');
+  const [turoFetching, setTuroFetching] = useState(false);
   const [bankingConnected, setBankingConnected] = useState(false);
+  const [bankingFetching, setBankingFetching] = useState(false);
   // Usage stats
   const [bouncieStats, setBouncieStats] = useState<{ vehicleMappings: number; loading: boolean }>({ vehicleMappings: 0, loading: false });
   const [turoStats, setTuroStats] = useState<{ vehicles: number; trips: number; loading: boolean }>({ vehicles: 0, trips: 0, loading: false });
@@ -157,7 +159,6 @@ const Settings = () => {
   const [deletionReason, setDeletionReason] = useState("");
   const [deleteAccountStep, setDeleteAccountStep] = useState<1 | 2>(1);
   const { theme, setTheme } = useTheme();
-  const [user, setUser] = useState<User | null>(null);
   const [userLoading, setUserLoading] = useState(true);
   const [editProfileOpen, setEditProfileOpen] = useState(false);
   const [editProfileLoading, setEditProfileLoading] = useState(false);
@@ -171,6 +172,7 @@ const Settings = () => {
   const [sessions, setSessions] = useState<UserSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [revokingSessionId, setRevokingSessionId] = useState<number | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -198,63 +200,27 @@ const Settings = () => {
   };
 
   const loadBouncieStatus = async () => {
-    try {
-      setBouncieLoading(true);
-      const status = await bouncieService.getIntegrationStatus();
-      setBouncieStatus(status);
-      
-      // Load usage stats if connected
-      if (status.connected) {
-        loadBouncieStats();
-      }
-    } catch (error) {
-      console.error('Failed to load Bouncie status:', error);
-      // Set default status if API call fails (backend might not be running)
-      setBouncieStatus({ connected: false, message: 'Unable to check status' });
-    } finally {
-      setBouncieLoading(false);
-    }
+    // Demo mode - show as connected
+    setBouncieStatus({ 
+      connected: true,
+      bouncie_user_email: "demo@bouncie.com",
+      updated_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString() // 90 days from now
+    });
+    setBouncieLoading(false);
+    // Load stats when connected
+    loadBouncieStats();
   };
 
   const loadBouncieStats = async () => {
-    try {
-      setBouncieStats(prev => ({ ...prev, loading: true }));
-      const mappings = await bouncieService.getVehicleMappings(1, 0);
-      setBouncieStats({ vehicleMappings: mappings.total, loading: false });
-    } catch (error) {
-      console.error('Failed to load Bouncie stats:', error);
-      setBouncieStats(prev => ({ ...prev, loading: false }));
-    }
+    // Demo mode - show mock stats
+    setBouncieStats({ vehicleMappings: 8, loading: false });
   };
 
-  // Check for OAuth callback results
+  // OAuth callback handling - Demo mode stub (no-op)
   useEffect(() => {
-    const bouncieSuccess = searchParams.get('bouncie_success');
-    const bouncieError = searchParams.get('bouncie_error');
-    
-    if (bouncieSuccess === 'true') {
-      toast({
-        title: "Bouncie Connected",
-        description: "Your Bouncie account has been successfully connected.",
-      });
-      // Remove OAuth params but keep tab param
-      const newParams = new URLSearchParams(searchParams);
-      newParams.delete('bouncie_success');
-      setSearchParams(newParams, { replace: true });
-      // Refresh status
-      loadBouncieStatus();
-    } else if (bouncieError) {
-      toast({
-        title: "Connection Failed",
-        description: `Failed to connect Bouncie: ${bouncieError}`,
-        variant: "destructive",
-      });
-      // Remove OAuth params but keep tab param
-      const newParams = new URLSearchParams(searchParams);
-      newParams.delete('bouncie_error');
-      setSearchParams(newParams, { replace: true });
-    }
-  }, [searchParams, toast, setSearchParams]);
+    // Demo mode - no OAuth callbacks
+  }, [searchParams]);
 
   // Load Bouncie status on mount
   useEffect(() => {
@@ -268,72 +234,73 @@ const Settings = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load user data on mount
+  // Load Banking status on mount - Demo mode
   useEffect(() => {
-    const loadUser = async () => {
-      try {
-        setUserLoading(true);
-        const userData = await authService.getCurrentUser();
-        setUser(userData);
-      } catch (error) {
-        console.error('Failed to load user data:', error);
-        toast({
-          title: "Error",
-          description: "Failed to load user information.",
-          variant: "destructive",
-        });
-      } finally {
-        setUserLoading(false);
-      }
-    };
-    loadUser();
-  }, [toast]);
+    // Demo mode - show as connected
+    setBankingConnected(true);
+  }, []);
 
-  // Load sessions on mount
+  // Load user data on mount - Demo mode stub
   useEffect(() => {
-    const loadSessions = async () => {
-      try {
-        setSessionsLoading(true);
-        const sessionsData = await authService.getSessions();
-        setSessions(sessionsData);
-      } catch (error) {
-        console.error('Failed to load sessions:', error);
-        toast({
-          title: "Error",
-          description: "Failed to load active sessions.",
-          variant: "destructive",
-        });
-      } finally {
-        setSessionsLoading(false);
-      }
-    };
-    loadSessions();
-  }, [toast]);
+    setUser({ 
+      id: "demo-user", 
+      email: "demo@example.com",
+      password_changed_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString() // 30 days ago
+    });
+    setUserLoading(false);
+  }, []);
+
+  // Load sessions on mount - Demo mode with mock data
+  useEffect(() => {
+    // Mock sessions - same location, different devices
+    const mockSessions: UserSession[] = [
+      {
+        id: 1,
+        browser: "Chrome",
+        os: "macOS",
+        location: "San Francisco, CA",
+        ip_address: "192.168.1.100",
+        created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 hours ago
+        last_used_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 minutes ago
+        is_current: true,
+      },
+      {
+        id: 2,
+        browser: "Safari",
+        os: "iOS",
+        location: "San Francisco, CA",
+        ip_address: "192.168.1.101",
+        created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(), // 5 days ago
+        last_used_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
+        is_current: false,
+      },
+      {
+        id: 3,
+        browser: "Chrome",
+        os: "Windows",
+        location: "San Francisco, CA",
+        ip_address: "192.168.1.102",
+        created_at: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(), // 14 days ago
+        last_used_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days ago
+        is_current: false,
+      },
+    ];
+    setSessions(mockSessions);
+    setSessionsLoading(false);
+  }, []);
 
   const handleRevokeSession = async (sessionId: number) => {
-    if (!confirm('Are you sure you want to revoke this session? The user will be logged out from that device.')) {
-      return;
-    }
-
-    try {
-      setRevokingSessionId(sessionId);
-      await authService.revokeSession(sessionId);
+    // Demo mode - simulate session revocation
+    setRevokingSessionId(sessionId);
+    
+    setTimeout(() => {
+      setSessions(prev => prev.filter(s => s.id !== sessionId));
+      setRevokingSessionId(null);
       toast({
         title: "Session Revoked",
         description: "The session has been successfully revoked.",
       });
-      // Reload sessions
-      const sessionsData = await authService.getSessions();
-      setSessions(sessionsData);
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to revoke session.",
-        variant: "destructive",
-      });
-    } finally {
-      setRevokingSessionId(null);
-    }
+    }, 1000);
   };
 
   const formatSessionInfo = (session: UserSession): string => {
@@ -372,149 +339,84 @@ const Settings = () => {
   };
 
   const handleUpdateProfile = async () => {
-    try {
-      setEditProfileLoading(true);
-      const updatedUser = await authService.updateProfile({
-        firstName: editFormData.firstName,
-        lastName: editFormData.lastName,
-        phone: editFormData.phone,
-        country: editFormData.country,
-        state: editFormData.state,
-      });
-      setUser(updatedUser);
-      setEditProfileOpen(false);
-      toast({
-        title: "Profile Updated",
-        description: "Your profile information has been successfully updated.",
-      });
-    } catch (error) {
-      console.error('Failed to update profile:', error);
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to update profile. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setEditProfileLoading(false);
-    }
+    // Demo mode - stub function
+    setEditProfileOpen(false);
+    toast({
+      title: "Demo Mode",
+      description: "Profile updates not available in demo mode.",
+    });
   };
 
   const availableStates = editFormData.country ? statesByCountry[editFormData.country] || [] : [];
 
   const loadTuroStatus = async () => {
-    try {
-      setTuroLoading(true);
-      const status = await turoService.getIntegrationStatus();
-      setTuroStatus(status);
-      
-      // Load usage stats if connected
-      if (status.connected) {
-        loadTuroStats();
-      }
-    } catch (error) {
-      console.error('Failed to load Turo status:', error);
-      setTuroStatus({ connected: false, message: 'Unable to check status' });
-    } finally {
-      setTuroLoading(false);
-    }
+    // Demo mode - show as connected
+    setTuroStatus({ 
+      connected: true, 
+      has_active_session: true, 
+      email: "demo@turo.com",
+      updated_at: new Date().toISOString()
+    });
+    setTuroLoading(false);
+    // Load stats when connected
+    loadTuroStats();
   };
 
   const loadTuroStats = async () => {
-    try {
-      setTuroStats(prev => ({ ...prev, loading: true }));
-      const vehiclesResponse = await apiClient.get<{ success: boolean; data: { vehicles: any[]; total: number } }>('/api/turo/data/vehicles?limit=1');
-      const tripsResponse = await apiClient.get<{ success: boolean; data: { trips: any[]; total: number } }>('/api/turo/data/trips?limit=1');
-      
-      setTuroStats({
-        vehicles: vehiclesResponse.data?.total || 0,
-        trips: tripsResponse.data?.total || 0,
-        loading: false
-      });
-    } catch (error) {
-      console.error('Failed to load Turo stats:', error);
-      setTuroStats(prev => ({ ...prev, loading: false }));
-    }
+    // Demo mode - show mock stats
+    setTuroStats({ vehicles: 8, trips: 127, loading: false });
   };
 
   const handleConnectTuro = async () => {
-    if (!turoCredentials.email || !turoCredentials.password) {
-      toast({
-        title: "Missing Credentials",
-        description: "Please enter both email and password.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      setTuroConnecting(true);
-      const result = await turoService.connect(turoCredentials);
-      
-      if (result.requires_2fa && result.session_id) {
-        // 2FA required - show 2FA dialog
-        setTuroSessionId(result.session_id);
-        setTuroConnectDialogOpen(false);
-        setTuro2FADialogOpen(true);
-        toast({
-          title: "2FA Required",
-          description: "Please enter the 2FA code sent to your phone.",
-        });
-      } else {
-        // Login successful without 2FA
-        toast({
-          title: "Turo Connected",
-          description: "Your Turo account has been successfully connected.",
-        });
-        setTuroConnectDialogOpen(false);
-        setTuroCredentials({ email: "", password: "" });
-        await loadTuroStatus();
-      }
-    } catch (error) {
-      toast({
-        title: "Connection Failed",
-        description: error instanceof Error ? error.message : "Failed to connect Turo account.",
-        variant: "destructive",
-      });
-    } finally {
+    // Demo mode - simulate connection
+    setTuroConnecting(true);
+    toast({
+      title: "Connecting...",
+      description: "Connecting to Turo account...",
+    });
+    
+    // Simulate connection delay
+    setTimeout(() => {
       setTuroConnecting(false);
-    }
-  };
-
-  const handleSubmit2FA = async () => {
-    if (!turo2FACode || !turoSessionId) {
-      toast({
-        title: "Missing Information",
-        description: "Please enter the 2FA code.",
-        variant: "destructive",
+      setTuroConnectDialogOpen(false);
+      setTuroCredentials({ email: "", password: "" });
+      setTuroStatus({ 
+        connected: true, 
+        has_active_session: true, 
+        email: turoCredentials.email || "demo@turo.com",
+        updated_at: new Date().toISOString()
       });
-      return;
-    }
-
-    try {
-      setTuroConnecting(true);
-      const result = await turoService.submit2FA({
-        session_id: turoSessionId,
-        code: turo2FACode,
-      });
-      
+      loadTuroStats();
       toast({
         title: "Turo Connected",
         description: "Your Turo account has been successfully connected.",
       });
+    }, 2000);
+  };
+
+  const handleSubmit2FA = async () => {
+    // Demo mode - simulate 2FA submission
+    setTuroConnecting(true);
+    
+    // Simulate 2FA delay
+    setTimeout(() => {
+      setTuroConnecting(false);
       setTuro2FADialogOpen(false);
       setTuro2FACode("");
       setTuroSessionId(null);
       setTuroCredentials({ email: "", password: "" });
-      await loadTuroStatus();
-    } catch (error) {
-      toast({
-        title: "2FA Failed",
-        description: error instanceof Error ? error.message : "Invalid 2FA code or session expired.",
-        variant: "destructive",
+      setTuroStatus({ 
+        connected: true, 
+        has_active_session: true, 
+        email: "demo@turo.com",
+        updated_at: new Date().toISOString()
       });
-    } finally {
-      setTuroConnecting(false);
-    }
+      loadTuroStats();
+      toast({
+        title: "Turo Connected",
+        description: "Your Turo account has been successfully connected.",
+      });
+    }, 1500);
   };
 
   const handleDisconnectTuro = async () => {
@@ -522,26 +424,21 @@ const Settings = () => {
       return;
     }
 
-    try {
-      setTuroDisconnecting(true);
-      await turoService.disconnect();
+    // Demo mode - simulate disconnection
+    setTuroDisconnecting(true);
+    
+    setTimeout(() => {
+      setTuroDisconnecting(false);
+      setTuroStatus({ connected: false, has_active_session: false });
+      setTuroStats({ vehicles: 0, trips: 0, loading: false });
       toast({
         title: "Turo Disconnected",
         description: "Your Turo integration has been disconnected.",
       });
-      await loadTuroStatus();
-    } catch (error) {
-      toast({
-        title: "Disconnect Failed",
-        description: error instanceof Error ? error.message : "Failed to disconnect Turo.",
-        variant: "destructive",
-      });
-    } finally {
-      setTuroDisconnecting(false);
-    }
+    }, 1000);
   };
 
-  const handleScrapeTuro = async (scraperType: 'trips' | 'earnings' | 'vehicles' | 'transactions' | 'receipts') => {
+  const handleFetchTuroData = async () => {
     if (!turoStatus?.connected) {
       toast({
         title: "Not Connected",
@@ -551,65 +448,83 @@ const Settings = () => {
       return;
     }
 
-    try {
-      setTuroScraping({ type: scraperType, taskId: null });
-      setTuroScrapingStatus('Starting...');
-      
-      const result = await turoService.scrape(scraperType);
-      setTuroScraping({ type: scraperType, taskId: result.task_id });
-      setTuroScrapingStatus('Running...');
-      
+    // Demo mode - simulate data fetching
+    setTuroFetching(true);
+    toast({
+      title: "Fetching Data",
+      description: "Started fetching all Turo data...",
+    });
+
+    // Simulate fetch progress
+    setTimeout(() => {
+      setTuroFetching(false);
+      loadTuroStats(); // Refresh stats
       toast({
-        title: "Scraping Started",
-        description: `Started scraping ${scraperType}. Task ID: ${result.task_id.substring(0, 8)}...`,
+        title: "Data Fetch Complete",
+        description: "Successfully fetched all Turo data.",
       });
+    }, 3000);
+  };
 
-      // Poll for status
-      const checkStatus = async () => {
-        if (!result.task_id) return;
-        
-        try {
-          const status = await turoService.getScrapeStatus(result.task_id);
-          setTuroScrapingStatus(status.status || 'Running...');
-          
-          if (status.status === 'completed') {
-            setTuroScraping({ type: '', taskId: null });
-            setTuroScrapingStatus('');
-            toast({
-              title: "Scraping Complete",
-              description: `Successfully scraped ${scraperType} data.`,
-            });
-          } else if (status.status === 'failed') {
-            setTuroScraping({ type: '', taskId: null });
-            setTuroScrapingStatus('');
-            toast({
-              title: "Scraping Failed",
-              description: status.message || `Failed to scrape ${scraperType}.`,
-              variant: "destructive",
-            });
-          } else {
-            // Still running, check again in 2 seconds
-            setTimeout(checkStatus, 2000);
-          }
-        } catch (error) {
-          console.error('Error checking scrape status:', error);
-          // Continue polling even on error
-          setTimeout(checkStatus, 2000);
-        }
-      };
-
-      // Start polling after a short delay
-      setTimeout(checkStatus, 2000);
-    } catch (error) {
-      setTuroScraping({ type: '', taskId: null });
-      setTuroScrapingStatus('');
+  const handleFetchBankingData = async () => {
+    if (!bankingConnected) {
       toast({
-        title: "Scraping Failed",
-        description: error instanceof Error ? error.message : `Failed to start scraping ${scraperType}.`,
+        title: "Not Connected",
+        description: "Please connect your bank account first.",
         variant: "destructive",
       });
+      return;
     }
+
+    // Demo mode - simulate banking data fetch
+    setBankingFetching(true);
+    toast({
+      title: "Fetching Data",
+      description: "Fetching banking transactions...",
+    });
+    
+    // Simulate fetch delay
+    setTimeout(() => {
+      setBankingFetching(false);
+      toast({
+        title: "Data Fetched",
+        description: "Successfully fetched 342 new transactions from your connected accounts.",
+      });
+    }, 3000);
   };
+
+  const handleConnectBanking = async () => {
+    // Demo mode - simulate banking connection
+    toast({
+      title: "Connecting...",
+      description: "Redirecting to Plaid authorization...",
+    });
+    
+    // Simulate connection delay
+    setTimeout(() => {
+      setBankingConnected(true);
+      toast({
+        title: "Banking Connected",
+        description: "Your bank accounts have been successfully connected.",
+      });
+    }, 2000);
+  };
+
+  const handleDisconnectBanking = async () => {
+    if (!confirm('Are you sure you want to disconnect your bank accounts? This will stop automatic transaction imports.')) {
+      return;
+    }
+
+    // Demo mode - simulate disconnection
+    setTimeout(() => {
+      setBankingConnected(false);
+      toast({
+        title: "Banking Disconnected",
+        description: "Your bank accounts have been disconnected.",
+      });
+    }, 1000);
+  };
+
 
   const handleDeleteAccountContinue = () => {
     if (!deletionReason.trim()) {
@@ -624,48 +539,37 @@ const Settings = () => {
   };
 
   const handleDeleteAccountConfirm = async () => {
-    try {
-      setDeleteAccountLoading(true);
-      await authService.deleteAccount({ reason: deletionReason });
-      
-      toast({
-        title: "Account Deleted",
-        description: "Your account has been permanently deleted.",
-      });
-      
-      // Logout and redirect
-      setTimeout(() => {
-        window.location.href = '/';
-      }, 2000);
-    } catch (error) {
-      toast({
-        title: "Deletion Failed",
-        description: error instanceof Error ? error.message : "Failed to delete account.",
-        variant: "destructive",
-      });
-    } finally {
-      setDeleteAccountLoading(false);
-      setDeleteAccountOpen(false);
-      setDeletionReason("");
-      setDeleteAccountStep(1);
-    }
+    // Demo mode - stub function
+    toast({
+      title: "Demo Mode",
+      description: "Account deletion not available in demo mode.",
+    });
+    setDeleteAccountOpen(false);
   };
 
   const handleConnectBouncie = async () => {
-    try {
-      setBouncieConnecting(true);
-      // Get authorization URL and redirect to it
-      const authUrl = await bouncieService.getAuthorizationUrl(false);
-      // Full page redirect to Bouncie OAuth
-      window.location.href = authUrl;
-    } catch (error) {
-      toast({
-        title: "Connection Failed",
-        description: error instanceof Error ? error.message : "Failed to get authorization URL.",
-        variant: "destructive",
-      });
+    // Demo mode - simulate Bouncie connection
+    setBouncieConnecting(true);
+    toast({
+      title: "Connecting...",
+      description: "Redirecting to Bouncie authorization...",
+    });
+    
+    // Simulate OAuth flow
+    setTimeout(() => {
       setBouncieConnecting(false);
-    }
+      setBouncieStatus({ 
+        connected: true,
+        bouncie_user_email: "demo@bouncie.com",
+        updated_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString()
+      });
+      loadBouncieStats();
+      toast({
+        title: "Bouncie Connected",
+        description: "Your Bouncie account has been successfully connected.",
+      });
+    }, 2000);
   };
 
   const handleDisconnectBouncie = async () => {
@@ -673,84 +577,67 @@ const Settings = () => {
       return;
     }
 
-    try {
-      setBouncieDisconnecting(true);
-      await bouncieService.disconnect();
+    // Demo mode - simulate disconnection
+    setBouncieDisconnecting(true);
+    
+    setTimeout(() => {
+      setBouncieDisconnecting(false);
+      setBouncieStatus({ connected: false });
+      setBouncieStats({ vehicleMappings: 0, loading: false });
       toast({
         title: "Bouncie Disconnected",
         description: "Your Bouncie integration has been disconnected.",
       });
-      await loadBouncieStatus();
-    } catch (error) {
-      toast({
-        title: "Disconnect Failed",
-        description: error instanceof Error ? error.message : "Failed to disconnect Bouncie.",
-        variant: "destructive",
-      });
-    } finally {
-      setBouncieDisconnecting(false);
-    }
+    }, 1000);
   };
 
   const handleSyncMatches = async () => {
-    try {
-      setSyncing(true);
-      const result = await bouncieService.syncMatches(365, true, false);
+    // Demo mode - simulate trip matching sync
+    setSyncing(true);
+    toast({
+      title: "Syncing Matches",
+      description: "Matching Bouncie trips with Turo trips...",
+    });
+    
+    // Simulate sync process
+    setTimeout(() => {
+      setSyncing(false);
+      const matchesCreated = Math.floor(Math.random() * 15) + 5; // Random 5-20 matches
       toast({
         title: "Sync Complete",
-        description: `Matched ${result.matches_created || 0} trips successfully.`,
+        description: `Matched ${matchesCreated} trips successfully.`,
       });
-    } catch (error) {
-      toast({
-        title: "Sync Failed",
-        description: error instanceof Error ? error.message : "Failed to sync trip matches.",
-        variant: "destructive",
-      });
-    } finally {
-      setSyncing(false);
-    }
+    }, 2500);
   };
 
   const handleDeleteBouncieData = async () => {
-    try {
-      setBouncieDeletingData(true);
-      await bouncieService.deleteAllData();
+    // Demo mode - simulate data deletion
+    setBouncieDeletingData(true);
+    
+    setTimeout(() => {
+      setBouncieDeletingData(false);
+      setBouncieDeleteDataDialogOpen(false);
+      setBouncieStats({ vehicleMappings: 0, loading: false });
       toast({
         title: "Data Deleted",
         description: "All Bouncie data has been successfully deleted.",
       });
-      setBouncieDeleteDataDialogOpen(false);
-      await loadBouncieStatus();
-    } catch (error) {
-      toast({
-        title: "Deletion Failed",
-        description: error instanceof Error ? error.message : "Failed to delete Bouncie data.",
-        variant: "destructive",
-      });
-    } finally {
-      setBouncieDeletingData(false);
-    }
+    }, 2000);
   };
 
   const handleDeleteTuroData = async () => {
-    try {
-      setTuroDeletingData(true);
-      await turoService.deleteAllData();
+    // Demo mode - simulate data deletion
+    setTuroDeletingData(true);
+    
+    setTimeout(() => {
+      setTuroDeletingData(false);
+      setTuroDeleteDataDialogOpen(false);
+      setTuroStats({ vehicles: 0, trips: 0, loading: false });
       toast({
         title: "Data Deleted",
         description: "All Turo data has been successfully deleted.",
       });
-      setTuroDeleteDataDialogOpen(false);
-      await loadTuroStatus();
-    } catch (error) {
-      toast({
-        title: "Deletion Failed",
-        description: error instanceof Error ? error.message : "Failed to delete Turo data.",
-        variant: "destructive",
-      });
-    } finally {
-      setTuroDeletingData(false);
-    }
+    }, 2000);
   };
 
   const bouncieConnected = bouncieStatus?.connected ?? false;
@@ -1191,19 +1078,12 @@ const Settings = () => {
                                 Loading stats...
                               </div>
                             ) : (
-                              <div className="grid grid-cols-2 gap-3 rounded-lg bg-muted/50 p-3">
+                              <div className="rounded-lg bg-muted/50 p-3">
                                 <div>
                                   <p className="text-xs text-muted-foreground">Vehicles</p>
                                   <p className="text-lg font-semibold flex items-center gap-1">
                                     <Car className="h-4 w-4 text-primary" />
                                     {turoStats.vehicles}
-                                  </p>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-muted-foreground">Total Trips</p>
-                                  <p className="text-lg font-semibold flex items-center gap-1">
-                                    <Route className="h-4 w-4 text-primary" />
-                                    {turoStats.trips}
                                   </p>
                                 </div>
                               </div>
@@ -1248,132 +1128,40 @@ const Settings = () => {
 
                       {/* Actions */}
                       {turoStatus?.connected && (
-                        <>
-                          <Separator />
-                          <div className="space-y-2">
-                            <Label>Test Scraping</Label>
-                            <p className="text-xs text-muted-foreground">
-                              Scrape individual data types for testing purposes
-                            </p>
-                            <div className="grid grid-cols-1 gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleScrapeTuro('trips')}
-                                disabled={!!turoScraping.taskId}
-                                className="w-full justify-start"
-                              >
-                                {turoScraping.type === 'trips' && turoScraping.taskId ? (
-                                  <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Scraping Trips...
-                                  </>
-                                ) : (
-                                  <>
-                                    <Route className="mr-2 h-4 w-4" />
-                                    Scrape Trips
-                                  </>
-                                )}
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleScrapeTuro('earnings')}
-                                disabled={!!turoScraping.taskId}
-                                className="w-full justify-start"
-                              >
-                                {turoScraping.type === 'earnings' && turoScraping.taskId ? (
-                                  <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Scraping Earnings...
-                                  </>
-                                ) : (
-                                  <>
-                                    <DollarSign className="mr-2 h-4 w-4" />
-                                    Scrape Earnings
-                                  </>
-                                )}
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleScrapeTuro('vehicles')}
-                                disabled={!!turoScraping.taskId}
-                                className="w-full justify-start"
-                              >
-                                {turoScraping.type === 'vehicles' && turoScraping.taskId ? (
-                                  <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Scraping Vehicles...
-                                  </>
-                                ) : (
-                                  <>
-                                    <Car className="mr-2 h-4 w-4" />
-                                    Scrape Vehicles
-                                  </>
-                                )}
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleScrapeTuro('transactions')}
-                                disabled={!!turoScraping.taskId}
-                                className="w-full justify-start"
-                              >
-                                {turoScraping.type === 'transactions' && turoScraping.taskId ? (
-                                  <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Scraping Transactions...
-                                  </>
-                                ) : (
-                                  <>
-                                    <DollarSign className="mr-2 h-4 w-4" />
-                                    Scrape Transactions
-                                  </>
-                                )}
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleScrapeTuro('receipts')}
-                                disabled={!!turoScraping.taskId}
-                                className="w-full justify-start"
-                              >
-                                {turoScraping.type === 'receipts' && turoScraping.taskId ? (
-                                  <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Scraping Receipts...
-                                  </>
-                                ) : (
-                                  <>
-                                    <Receipt className="mr-2 h-4 w-4" />
-                                    Scrape Receipts
-                                  </>
-                                )}
-                              </Button>
-                            </div>
-                            {turoScrapingStatus && (
-                              <p className="text-xs text-muted-foreground">
-                                Status: {turoScrapingStatus}
-                              </p>
+                        <div className="space-y-2 pt-2 border-t">
+                          <Button 
+                            variant="outline" 
+                            onClick={handleFetchTuroData}
+                            disabled={turoFetching}
+                            className="w-full"
+                          >
+                            {turoFetching ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Fetching Data...
+                              </>
+                            ) : (
+                              <>
+                                <RefreshCw className="mr-2 h-4 w-4" />
+                                Fetch Data
+                              </>
                             )}
-                          </div>
-                          <Separator />
+                          </Button>
                           <Button 
                             variant="outline" 
                             onClick={() => setTuroDeleteDataDialogOpen(true)}
-                            disabled={turoDeletingData || !!turoScraping.taskId}
+                            disabled={turoDeletingData || turoFetching}
                             className="w-full text-destructive hover:text-destructive"
                           >
                             <Trash2 className="mr-2 h-4 w-4" />
                             Delete All Data
                           </Button>
-                        </>
+                        </div>
                       )}
                       <Button 
                         variant={turoStatus?.connected ? "outline" : "default"}
                         onClick={turoStatus?.connected ? handleDisconnectTuro : () => setTuroConnectDialogOpen(true)}
-                        disabled={turoConnecting || turoDisconnecting || !!turoScraping.taskId}
+                        disabled={turoConnecting || turoDisconnecting || turoFetching}
                         className="w-full"
                       >
                         {turoConnecting ? (
@@ -1628,56 +1416,115 @@ const Settings = () => {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <Label>Connection Status</Label>
-                      <div className="flex items-center gap-2">
-                        {bankingConnected ? (
-                          <Badge variant="default" className="gap-1">
-                            <CheckCircle2 className="h-3 w-3" />
-                            Connected
-                          </Badge>
-                        ) : (
-                          <Badge variant="secondary" className="gap-1">
-                            <XCircle className="h-3 w-3" />
-                            Not Connected
-                          </Badge>
-                        )}
-                        <Badge variant="outline" className="text-xs">
-                          Coming Soon
-                        </Badge>
-                      </div>
+                  {false ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading status...
                     </div>
-                    {bankingConnected && (
-                      <div className="rounded-lg bg-muted p-3">
+                  ) : (
+                    <>
+                      {/* Status and Health Indicators */}
+                      <div className="space-y-3">
                         <div className="flex items-center justify-between">
-                          <span className="text-sm text-muted-foreground">Connected Account</span>
-                          <span className="text-sm font-medium">Chase •••• 4242</span>
+                          <Label>Connection Status</Label>
+                          <div className="flex items-center gap-2">
+                            {bankingConnected ? (
+                              <Badge variant="default" className="gap-1">
+                                <CheckCircle2 className="h-3 w-3" />
+                                Connected
+                              </Badge>
+                            ) : (
+                              <Badge variant="secondary" className="gap-1">
+                                <XCircle className="h-3 w-3" />
+                                Not Connected
+                              </Badge>
+                            )}
+                          </div>
                         </div>
+
+                        {bankingConnected && (
+                          <>
+                            {/* Account Info */}
+                            <div className="space-y-2 rounded-lg bg-muted p-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm text-muted-foreground">Connected Accounts</span>
+                              </div>
+                              <div className="space-y-2 mt-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-sm font-medium">Chase</span>
+                                  <span className="text-sm text-muted-foreground">•••• 4242</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-sm font-medium">TD Bank</span>
+                                  <span className="text-sm text-muted-foreground">•••• 5678</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-sm font-medium">Wells Fargo</span>
+                                  <span className="text-sm text-muted-foreground">•••• 7890</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-sm font-medium">Bank of America</span>
+                                  <span className="text-sm text-muted-foreground">•••• 1234</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-sm font-medium">Capital One</span>
+                                  <span className="text-sm text-muted-foreground">•••• 9012</span>
+                                </div>
+                              </div>
+                            </div>
+                          </>
+                        )}
                       </div>
-                    )}
-                  </div>
-                  <Button 
-                    variant={bankingConnected ? "outline" : "default"}
-                    onClick={() => setBankingConnected(!bankingConnected)}
-                    disabled={true}
-                    className="w-full"
-                  >
-                    {bankingConnected ? (
-                      <>
-                        <WifiOff className="mr-2 h-4 w-4" />
-                        Disconnect
-                      </>
-                    ) : (
-                      <>
-                        <Wifi className="mr-2 h-4 w-4" />
-                        Connect Bank
-                      </>
-                    )}
-                  </Button>
-                  <p className="text-xs text-muted-foreground text-center">
-                    Banking integration will be available soon
-                  </p>
+
+                      {/* Actions */}
+                      {bankingConnected && (
+                        <div className="space-y-2 pt-2 border-t">
+                          <Button 
+                            variant="outline" 
+                            onClick={handleFetchBankingData}
+                            disabled={bankingFetching}
+                            className="w-full"
+                          >
+                            {bankingFetching ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Fetching Data...
+                              </>
+                            ) : (
+                              <>
+                                <RefreshCw className="mr-2 h-4 w-4" />
+                                Fetch Data
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      )}
+
+                      <Button 
+                        variant={bankingConnected ? "outline" : "default"}
+                        onClick={bankingConnected ? handleDisconnectBanking : handleConnectBanking}
+                        disabled={bankingFetching}
+                        className="w-full"
+                      >
+                        {bankingFetching ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Connecting...
+                          </>
+                        ) : bankingConnected ? (
+                          <>
+                            <WifiOff className="mr-2 h-4 w-4" />
+                            Disconnect
+                          </>
+                        ) : (
+                          <>
+                            <Wifi className="mr-2 h-4 w-4" />
+                            Connect Bank
+                          </>
+                        )}
+                      </Button>
+                    </>
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -1796,13 +1643,15 @@ const Settings = () => {
                     open={changePasswordOpen} 
                     onOpenChange={setChangePasswordOpen}
                     onPasswordChanged={async () => {
-                      // Reload user data after password change to update the date
-                      try {
-                        const userData = await authService.getCurrentUser();
-                        setUser(userData);
-                      } catch (error) {
-                        console.error('Failed to reload user data:', error);
-                      }
+                      // Demo mode - simulate password change
+                      setUser(prev => prev ? {
+                        ...prev,
+                        password_changed_at: new Date().toISOString()
+                      } : prev);
+                      toast({
+                        title: "Password Changed",
+                        description: "Your password has been successfully updated.",
+                      });
                     }}
                   />
                   <Separator />
@@ -1876,15 +1725,56 @@ const Settings = () => {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Key className="h-5 w-5" />
-                    API Keys
+                    API Key
                   </CardTitle>
-                  <CardDescription>Manage API access for integrations</CardDescription>
+                  <CardDescription>API key to link external services</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <p className="text-sm text-muted-foreground">
-                    Create API keys to integrate Turolytics with external services
+                    Integration API keys for connecting external services
                   </p>
-                  <Button variant="outline">Generate New Key</Button>
+                  <div className="space-y-3">
+                    {/* Bouncie API Key */}
+                    {bouncieConnected && (
+                      <div className="rounded-lg border p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Radio className="h-4 w-4 text-primary" />
+                            <div>
+                              <p className="text-sm font-medium">Bouncie API Key</p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Connected • Last used {formatRelativeTime(new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString())}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <code className="flex-1 px-3 py-2 rounded bg-muted text-sm font-mono">
+                            ••••••••••••••••••••••••••••••••••••••••••••••
+                          </code>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              navigator.clipboard.writeText("bouncie_api_7f3k9m2p5q8r1t4v6w9x0y2z3a5b7c9d1e3f");
+                              toast({
+                                title: "Copied",
+                                description: "Bouncie API key copied to clipboard.",
+                              });
+                            }}
+                          >
+                            Copy
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                    {!bouncieConnected && (
+                      <p className="text-sm text-muted-foreground text-center py-4">
+                        Connect Bouncie integration to view API key
+                      </p>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             </div>

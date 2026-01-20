@@ -666,13 +666,19 @@ const Reviews = () => {
                                   </div>
 
                                   {/* Review Text */}
-                                  {review.review_text && (
+                                  {review.review_text && review.review_text.trim() ? (
                                     <div className="pt-1">
                                       <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
                                         {review.review_text}
                                       </p>
                                     </div>
-                                  )}
+                                  ) : rating > 0 ? (
+                                    <div className="pt-1">
+                                      <p className="text-sm text-muted-foreground italic">
+                                        No review text available
+                                      </p>
+                                    </div>
+                                  ) : null}
                                   
                                   {/* Areas of Improvement */}
                                   {review.areas_of_improvement && review.areas_of_improvement.length > 0 && (

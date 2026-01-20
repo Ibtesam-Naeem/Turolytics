@@ -11,7 +11,11 @@ import {
 } from "@/components/ui/select";
 import { dashboardService, MonthlyRevenue } from "@/services/dashboard-service";
 
-export const RevenueChart = () => {
+interface RevenueChartProps {
+  turoConnected?: boolean | null;
+}
+
+export const RevenueChart = ({ turoConnected }: RevenueChartProps = {}) => {
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
   const [data, setData] = useState<MonthlyRevenue[]>([]);
@@ -84,6 +88,12 @@ export const RevenueChart = () => {
           <div className="flex flex-col items-center justify-center h-[300px] text-center">
             <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
             <p className="text-sm text-muted-foreground">Loading revenue data...</p>
+          </div>
+        ) : turoConnected === false ? (
+          <div className="flex flex-col items-center justify-center h-[300px] text-center">
+            <TrendingUp className="w-12 h-12 text-muted-foreground opacity-50" />
+            <p className="text-muted-foreground">No utilization data available</p>
+            <p className="text-sm text-muted-foreground">Connect your Turo account and scrape trip data to see utilization.</p>
           </div>
         ) : hasData ? (
           <ResponsiveContainer width="100%" height={300}>

@@ -35,6 +35,14 @@ export class ApiClient {
     if (!response.ok) {
       // Handle 401 Unauthorized - token expired or invalid
       if (response.status === 401) {
+        // Don't redirect if in demo mode
+        const isDemoMode = localStorage.getItem('demo_mode') === 'true';
+        if (isDemoMode) {
+          // In demo mode, just return the error without redirecting
+          const error = await response.json().catch(() => ({ detail: response.statusText }));
+          throw new Error(error.detail || `HTTP error! status: ${response.status}`);
+        }
+        
         // Clear tokens on 401
         localStorage.removeItem('auth_token');
         sessionStorage.removeItem('auth_token');

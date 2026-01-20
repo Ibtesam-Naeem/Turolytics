@@ -36,28 +36,12 @@ def get_db() -> Generator:
         db.close()
 
 def init_db() -> None:
-    """Initialize database - create all tables."""
+    """Initialize database - create only waitlist table for demo."""
     try:
-        from core.database.models import (
-            Account,
-            Vehicle,
-            VehicleUtilizationHistory,
-            Trip,
-            Review,
-            EarningsBreakdown,
-            VehicleEarnings,
-            SessionStorage,
-            Document,
-            BouncieIntegration,
-            BouncieVehicleMapping,
-            BouncieTripMatch,
-            UserSession,
-            VehicleOdometerHistory,
-            Receipt,
-            Waitlist,
-        )
-        Base.metadata.create_all(bind=engine)
-        logger.info("Database tables created successfully")
+        from core.database.models.waitlist import Waitlist
+        # Only create waitlist table
+        Waitlist.__table__.create(bind=engine, checkfirst=True)
+        logger.info("Database initialized - waitlist table created")
    
     except Exception as e:
         logger.error(f"Error initializing database: {e}")

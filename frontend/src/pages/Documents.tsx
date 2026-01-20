@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { 
   FileText, 
   Download, 
@@ -17,7 +18,8 @@ import {
   FolderOpen,
   Upload,
   Loader2,
-  X
+  X,
+  Folder
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -44,36 +46,80 @@ interface Document {
 const insuranceDocs: Document[] = [
   { id: "1", name: "Full Coverage Policy", vehicle: "2024 Tesla Model 3", size: "2.4 MB", uploadDate: "Nov 15, 2025", expiryDate: "Mar 15, 2026", status: "valid" },
   { id: "2", name: "Liability Insurance", vehicle: "2023 BMW X5", size: "1.8 MB", uploadDate: "Nov 10, 2025", expiryDate: "Dec 20, 2025", status: "expiring" },
-  { id: "3", name: "Comprehensive Policy", vehicle: "2024 Mercedes GLE", size: "2.1 MB", uploadDate: "Oct 20, 2025", expiryDate: "Jan 20, 2026", status: "valid" },
-  { id: "4", name: "Full Coverage Policy", vehicle: "2023 Audi A4", size: "2.0 MB", uploadDate: "Sep 15, 2025", expiryDate: "Nov 10, 2025", status: "expired" },
+  { id: "3", name: "Comprehensive Policy", vehicle: "2024 Mercedes-Benz GLE", size: "2.1 MB", uploadDate: "Oct 20, 2025", expiryDate: "Jan 20, 2026", status: "valid" },
+  { id: "4", name: "Full Coverage Policy", vehicle: "2023 Audi Q7", size: "2.0 MB", uploadDate: "Sep 15, 2025", expiryDate: "Nov 10, 2025", status: "expired" },
+  { id: "5", name: "Commercial Auto Insurance", vehicle: "2024 Porsche Cayenne", size: "2.3 MB", uploadDate: "Oct 5, 2025", expiryDate: "Apr 5, 2026", status: "valid" },
+  { id: "6", name: "Fleet Insurance Policy", vehicle: "2024 Land Rover Defender", size: "3.1 MB", uploadDate: "Sep 1, 2025", expiryDate: "Mar 1, 2026", status: "valid" },
+  { id: "7", name: "Comprehensive Coverage", vehicle: "2023 Honda Accord", size: "1.9 MB", uploadDate: "Nov 1, 2025", expiryDate: "May 1, 2026", status: "valid" },
+  { id: "8", name: "Full Coverage Policy", vehicle: "2024 Chevrolet Tahoe", size: "2.2 MB", uploadDate: "Oct 15, 2025", expiryDate: "Dec 15, 2025", status: "expiring" },
+  { id: "9", name: "Liability Insurance", vehicle: "2023 Subaru Outback", size: "1.7 MB", uploadDate: "Aug 20, 2025", expiryDate: "Feb 20, 2026", status: "valid" },
+  { id: "10", name: "Commercial Policy", vehicle: "2024 Ford F-150", size: "2.5 MB", uploadDate: "Jul 10, 2025", expiryDate: "Jan 10, 2026", status: "valid" },
 ];
 
 const registrationDocs: Document[] = [
-  { id: "5", name: "Vehicle Registration", vehicle: "2024 Tesla Model 3", size: "856 KB", uploadDate: "Nov 1, 2025", expiryDate: "Nov 1, 2026", status: "valid" },
-  { id: "6", name: "Vehicle Registration", vehicle: "2023 BMW X5", size: "912 KB", uploadDate: "Oct 15, 2025", expiryDate: "Oct 15, 2026", status: "valid" },
-  { id: "7", name: "Vehicle Registration", vehicle: "2024 Mercedes GLE", size: "780 KB", uploadDate: "Aug 20, 2025", expiryDate: "Dec 1, 2025", status: "expiring" },
-  { id: "8", name: "Vehicle Title", vehicle: "2023 Audi A4", size: "1.2 MB", uploadDate: "Jul 10, 2025", status: "valid" },
+  { id: "11", name: "Vehicle Registration", vehicle: "2024 Tesla Model 3", size: "856 KB", uploadDate: "Nov 1, 2025", expiryDate: "Nov 1, 2026", status: "valid" },
+  { id: "12", name: "Vehicle Registration", vehicle: "2023 BMW X5", size: "912 KB", uploadDate: "Oct 15, 2025", expiryDate: "Oct 15, 2026", status: "valid" },
+  { id: "13", name: "Vehicle Registration", vehicle: "2024 Mercedes-Benz GLE", size: "780 KB", uploadDate: "Aug 20, 2025", expiryDate: "Dec 1, 2025", status: "expiring" },
+  { id: "14", name: "Vehicle Title", vehicle: "2023 Audi Q7", size: "1.2 MB", uploadDate: "Jul 10, 2025", status: "valid" },
+  { id: "15", name: "Vehicle Registration", vehicle: "2024 Porsche Cayenne", size: "890 KB", uploadDate: "Sep 5, 2025", expiryDate: "Sep 5, 2026", status: "valid" },
+  { id: "16", name: "Vehicle Registration", vehicle: "2024 Land Rover Defender", size: "945 KB", uploadDate: "Oct 1, 2025", expiryDate: "Oct 1, 2026", status: "valid" },
+  { id: "17", name: "Vehicle Title", vehicle: "2023 Honda Accord", size: "1.1 MB", uploadDate: "Jun 15, 2025", status: "valid" },
+  { id: "18", name: "Vehicle Registration", vehicle: "2024 Chevrolet Tahoe", size: "875 KB", uploadDate: "Nov 10, 2025", expiryDate: "Nov 10, 2026", status: "valid" },
+  { id: "19", name: "Vehicle Registration", vehicle: "2023 Subaru Outback", size: "820 KB", uploadDate: "Aug 1, 2025", expiryDate: "Aug 1, 2026", status: "valid" },
+  { id: "20", name: "Vehicle Registration", vehicle: "2024 Ford F-150", size: "910 KB", uploadDate: "Jul 20, 2025", expiryDate: "Jul 20, 2026", status: "valid" },
+  { id: "21", name: "Vehicle Title", vehicle: "2024 Tesla Model Y", size: "1.3 MB", uploadDate: "Jan 15, 2024", status: "valid" },
+  { id: "22", name: "Vehicle Registration", vehicle: "2024 Mercedes C-Class", size: "765 KB", uploadDate: "Sep 20, 2025", expiryDate: "Sep 20, 2026", status: "valid" },
 ];
 
 const maintenanceDocs: Document[] = [
-  { id: "9", name: "Oil Change Receipt", vehicle: "2024 Tesla Model 3", size: "456 KB", uploadDate: "Nov 20, 2025", status: "valid" },
-  { id: "10", name: "Brake Service Invoice", vehicle: "2023 BMW X5", size: "1.1 MB", uploadDate: "Nov 18, 2025", status: "valid" },
-  { id: "11", name: "Tire Rotation Receipt", vehicle: "2024 Mercedes GLE", size: "380 KB", uploadDate: "Nov 15, 2025", status: "valid" },
-  { id: "12", name: "Annual Inspection", vehicle: "2023 Audi A4", size: "2.3 MB", uploadDate: "Nov 10, 2025", status: "valid" },
-  { id: "13", name: "Battery Replacement", vehicle: "2024 Tesla Model 3", size: "520 KB", uploadDate: "Oct 28, 2025", status: "valid" },
+  { id: "23", name: "Oil Change Receipt", vehicle: "2024 Tesla Model 3", size: "456 KB", uploadDate: "Nov 20, 2025", status: "valid" },
+  { id: "24", name: "Brake Service Invoice", vehicle: "2023 BMW X5", size: "1.1 MB", uploadDate: "Nov 18, 2025", status: "valid" },
+  { id: "25", name: "Tire Rotation Receipt", vehicle: "2024 Mercedes-Benz GLE", size: "380 KB", uploadDate: "Nov 15, 2025", status: "valid" },
+  { id: "26", name: "Annual Inspection", vehicle: "2023 Audi Q7", size: "2.3 MB", uploadDate: "Nov 10, 2025", status: "valid" },
+  { id: "27", name: "Battery Replacement", vehicle: "2024 Tesla Model 3", size: "520 KB", uploadDate: "Oct 28, 2025", status: "valid" },
+  { id: "28", name: "Transmission Service", vehicle: "2024 Porsche Cayenne", size: "1.4 MB", uploadDate: "Nov 5, 2025", status: "valid" },
+  { id: "29", name: "AC System Repair", vehicle: "2024 Land Rover Defender", size: "980 KB", uploadDate: "Oct 25, 2025", status: "valid" },
+  { id: "30", name: "Wheel Alignment", vehicle: "2023 Honda Accord", size: "420 KB", uploadDate: "Nov 12, 2025", status: "valid" },
+  { id: "31", name: "Engine Diagnostic", vehicle: "2024 Chevrolet Tahoe", size: "1.2 MB", uploadDate: "Oct 30, 2025", status: "valid" },
+  { id: "32", name: "Tire Replacement", vehicle: "2023 Subaru Outback", size: "1.6 MB", uploadDate: "Nov 8, 2025", status: "valid" },
+  { id: "33", name: "Coolant Flush", vehicle: "2024 Ford F-150", size: "510 KB", uploadDate: "Oct 18, 2025", status: "valid" },
+  { id: "34", name: "Spark Plug Replacement", vehicle: "2024 Mercedes C-Class", size: "640 KB", uploadDate: "Nov 3, 2025", status: "valid" },
+  { id: "35", name: "Windshield Replacement", vehicle: "2024 Tesla Model Y", size: "2.1 MB", uploadDate: "Oct 12, 2025", status: "valid" },
+  { id: "36", name: "Suspension Repair", vehicle: "2024 Porsche 911", size: "1.8 MB", uploadDate: "Sep 28, 2025", status: "valid" },
 ];
 
 const receiptsDocs: Document[] = [
-  { id: "14", name: "Purchase Agreement", vehicle: "2024 Tesla Model 3", size: "3.2 MB", uploadDate: "Jan 15, 2024", status: "valid" },
-  { id: "15", name: "Lease Contract", vehicle: "2023 BMW X5", size: "4.1 MB", uploadDate: "Mar 20, 2023", status: "valid" },
-  { id: "16", name: "Financing Agreement", vehicle: "2024 Mercedes GLE", size: "2.8 MB", uploadDate: "Jun 10, 2024", status: "valid" },
+  { id: "37", name: "Gas Receipt - Shell", vehicle: "2023 BMW X5", size: "245 KB", uploadDate: "Nov 18, 2025", status: "valid" },
+  { id: "38", name: "Gas Receipt - Chevron", vehicle: "2024 Mercedes-Benz GLE", size: "198 KB", uploadDate: "Nov 15, 2025", status: "valid" },
+  { id: "39", name: "Gas Receipt - BP", vehicle: "2024 Porsche Cayenne", size: "267 KB", uploadDate: "Nov 12, 2025", status: "valid" },
+  { id: "40", name: "Gas Receipt - Mobil", vehicle: "2024 Land Rover Defender", size: "223 KB", uploadDate: "Nov 10, 2025", status: "valid" },
+  { id: "41", name: "Gas Receipt - Exxon", vehicle: "2023 Honda Accord", size: "189 KB", uploadDate: "Nov 8, 2025", status: "valid" },
+  { id: "42", name: "Gas Receipt - Shell", vehicle: "2024 Chevrolet Tahoe", size: "256 KB", uploadDate: "Nov 5, 2025", status: "valid" },
+  { id: "43", name: "Gas Receipt - Chevron", vehicle: "2023 Subaru Outback", size: "201 KB", uploadDate: "Nov 3, 2025", status: "valid" },
+  { id: "44", name: "Gas Receipt - Costco", vehicle: "2024 Ford F-150", size: "178 KB", uploadDate: "Nov 1, 2025", status: "valid" },
+  { id: "45", name: "Parking Ticket - LAX", vehicle: "2024 Tesla Model 3", size: "312 KB", uploadDate: "Oct 28, 2025", status: "valid" },
+  { id: "46", name: "Parking Receipt - SFO", vehicle: "2023 BMW X5", size: "298 KB", uploadDate: "Oct 25, 2025", status: "valid" },
+  { id: "47", name: "Toll Receipt - Golden Gate Bridge", vehicle: "2024 Mercedes-Benz GLE", size: "156 KB", uploadDate: "Oct 22, 2025", status: "valid" },
+  { id: "48", name: "Toll Receipt - Bay Bridge", vehicle: "2024 Porsche Cayenne", size: "142 KB", uploadDate: "Oct 20, 2025", status: "valid" },
+  { id: "49", name: "Parking Ticket - Downtown SF", vehicle: "2024 Land Rover Defender", size: "289 KB", uploadDate: "Oct 18, 2025", status: "valid" },
+  { id: "50", name: "Gas Receipt - Shell", vehicle: "2023 Honda Accord", size: "234 KB", uploadDate: "Oct 15, 2025", status: "valid" },
+  { id: "51", name: "Toll Receipt - I-405", vehicle: "2024 Chevrolet Tahoe", size: "167 KB", uploadDate: "Oct 12, 2025", status: "valid" },
+  { id: "52", name: "Parking Receipt - Airport", vehicle: "2023 Subaru Outback", size: "301 KB", uploadDate: "Oct 10, 2025", status: "valid" },
+  { id: "53", name: "Gas Receipt - 76", vehicle: "2024 Ford F-150", size: "212 KB", uploadDate: "Oct 8, 2025", status: "valid" },
+  { id: "54", name: "Toll Receipt - SR-520", vehicle: "2024 Tesla Model Y", size: "148 KB", uploadDate: "Oct 5, 2025", status: "valid" },
+  { id: "55", name: "Parking Ticket - Seattle", vehicle: "2024 Mercedes C-Class", size: "275 KB", uploadDate: "Oct 3, 2025", status: "valid" },
+  { id: "56", name: "Gas Receipt - Arco", vehicle: "2024 Porsche 911", size: "198 KB", uploadDate: "Oct 1, 2025", status: "valid" },
 ];
 
+// Combine all documents for "All" category
+const allDocs = [...insuranceDocs, ...registrationDocs, ...maintenanceDocs, ...receiptsDocs];
+
 const categories = [
+  { id: "all", label: "All", icon: Folder, docs: allDocs },
   { id: "insurance", label: "Insurance", icon: Shield, docs: insuranceDocs },
   { id: "registration", label: "Registration", icon: Car, docs: registrationDocs },
   { id: "maintenance", label: "Maintenance", icon: Wrench, docs: maintenanceDocs },
-  { id: "receipts", label: "Contracts", icon: Receipt, docs: receiptsDocs },
+  { id: "receipts", label: "Receipts", icon: Receipt, docs: receiptsDocs },
 ];
 
 const getStatusIndicator = (status: Document["status"]) => {
@@ -88,8 +134,9 @@ const getStatusIndicator = (status: Document["status"]) => {
 };
 
 const Documents = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState("insurance");
+  const [activeCategory, setActiveCategory] = useState("all");
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -98,17 +145,54 @@ const Documents = () => {
   const [uploadVehicleId, setUploadVehicleId] = useState<number | undefined>(undefined);
   const { toast } = useToast();
 
-  const allDocs = [...insuranceDocs, ...registrationDocs, ...maintenanceDocs, ...receiptsDocs];
-  const expiringCount = allDocs.filter(d => d.status === "expiring").length;
-  const expiredCount = allDocs.filter(d => d.status === "expired").length;
-  const totalDocs = allDocs.length;
+  // Get vehicle filter from URL params
+  const vehicleFilter = searchParams.get("vehicle");
+
+  // Set active category based on vehicle filter on mount
+  useEffect(() => {
+    if (vehicleFilter) {
+      // If vehicle filter is present, show "All" category filtered by vehicle
+      setActiveCategory("all");
+    }
+  }, [vehicleFilter]);
+
+  // Calculate stats based on filtered documents if vehicle filter is active
+  const docsForStats = vehicleFilter 
+    ? allDocs.filter(doc => {
+        const vehicleNameLower = vehicleFilter.toLowerCase();
+        const docVehicleLower = doc.vehicle.toLowerCase();
+        return docVehicleLower.includes(vehicleNameLower) || vehicleNameLower.includes(docVehicleLower.split(' ').slice(1).join(' '));
+      })
+    : allDocs;
+  
+  const expiringCount = docsForStats.filter(d => d.status === "expiring").length;
+  const expiredCount = docsForStats.filter(d => d.status === "expired").length;
+  const totalDocs = vehicleFilter ? docsForStats.length : allDocs.length;
 
   const currentCategory = categories.find(c => c.id === activeCategory);
-  const filteredDocs = currentCategory?.docs.filter(
-    (doc) =>
-      doc.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      doc.vehicle.toLowerCase().includes(searchQuery.toLowerCase())
-  ) || [];
+  
+  // Filter documents by category, search query, and vehicle filter
+  const filteredDocs = (currentCategory?.docs || []).filter((doc) => {
+    // First filter by vehicle if vehicle filter is present
+    if (vehicleFilter) {
+      // Match vehicle name - handle cases where vehicle name might be "Porsche 911" but doc has "2024 Porsche 911"
+      const vehicleNameLower = vehicleFilter.toLowerCase();
+      const docVehicleLower = doc.vehicle.toLowerCase();
+      const vehicleMatches = docVehicleLower.includes(vehicleNameLower) || vehicleNameLower.includes(docVehicleLower.split(' ').slice(1).join(' '));
+      if (!vehicleMatches) return false;
+    }
+    
+    // Then filter by search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      return (
+        doc.name.toLowerCase().includes(query) ||
+        doc.vehicle.toLowerCase().includes(query)
+      );
+    }
+    
+    return true;
+  });
 
   const handleUploadDocument = async () => {
     if (!selectedFile) {
@@ -159,8 +243,28 @@ const Documents = () => {
         <div className="w-64 border-r border-border bg-card/50 flex flex-col">
           {/* Sidebar Header */}
           <div className="p-4 border-b border-border">
-            <h1 className="text-lg font-semibold text-foreground">Documents</h1>
-            <p className="text-xs text-muted-foreground mt-0.5">{totalDocs} files</p>
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1">
+                <h1 className="text-lg font-semibold text-foreground">Documents</h1>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {vehicleFilter ? `Filtered: ${vehicleFilter}` : `${totalDocs} files`}
+                </p>
+              </div>
+              {vehicleFilter && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={() => {
+                    setSearchParams({});
+                    setActiveCategory("all");
+                  }}
+                  title="Clear vehicle filter"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* Quick Stats */}

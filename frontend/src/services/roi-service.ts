@@ -1,7 +1,7 @@
-import { apiClient } from '@/lib/api-client';
-
+// Stub service for demo mode
 export interface ROICalculation {
   id: number;
+  vehicle_id?: number;
   vehicle_name: string;
   vehicle_price: number;
   daily_rate: number;
@@ -12,69 +12,82 @@ export interface ROICalculation {
   roi: number;
   annual_profit: number;
   created_at: string;
-  updated_at: string;
+  updated_at?: string;
 }
 
-export interface ROICalculationCreate {
-  vehicle_name: string;
-  vehicle_price: number;
-  daily_rate: number;
-  booking_days: number;
-  monthly_expenses: number;
-  insurance_monthly: number;
-  annual_depreciation: number;
-  roi: number;
-  annual_profit: number;
-}
-
-export interface ROICalculationsResponse {
-  calculations: ROICalculation[];
-  total: number;
-}
+// In-memory storage for demo mode
+let mockCalculations: ROICalculation[] = [];
+let nextId = 1;
 
 class ROIService {
-  /**
-   * Get all saved ROI calculations for the current user
-   */
-  async getCalculations(): Promise<ROICalculationsResponse> {
-    const response = await apiClient.get<{ success: boolean; data: ROICalculationsResponse }>(
-      '/api/roi/calculations'
+  async getCalculations(params?: any): Promise<{ calculations: ROICalculation[]; total: number }> {
+    // Return calculations sorted by most recent first
+    const sorted = [...mockCalculations].sort((a, b) => 
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
-    return response.data;
+    return { calculations: sorted, total: sorted.length };
   }
 
-  /**
-   * Save a new ROI calculation
-   */
-  async saveCalculation(calculation: ROICalculationCreate): Promise<ROICalculation> {
-    const response = await apiClient.post<{ success: boolean; data: { calculation: ROICalculation } }>(
-      '/api/roi/calculations',
-      calculation
-    );
-    return response.data.calculation;
+  async saveCalculation(data: {
+    vehicle_name: string;
+    vehicle_price: number;
+    daily_rate: number;
+    booking_days: number;
+    monthly_expenses: number;
+    insurance_monthly: number;
+    annual_depreciation: number;
+    roi: number;
+    annual_profit: number;
+  }): Promise<ROICalculation> {
+    const now = new Date().toISOString();
+    const newCalculation: ROICalculation = {
+      id: nextId++,
+      vehicle_name: data.vehicle_name,
+      vehicle_price: data.vehicle_price,
+      daily_rate: data.daily_rate,
+      booking_days: data.booking_days,
+      monthly_expenses: data.monthly_expenses,
+      insurance_monthly: data.insurance_monthly,
+      annual_depreciation: data.annual_depreciation,
+      roi: data.roi,
+      annual_profit: data.annual_profit,
+      created_at: now,
+      updated_at: now,
+    };
+    mockCalculations.push(newCalculation);
+    return newCalculation;
   }
 
-  /**
-   * Update an existing ROI calculation
-   */
-  async updateCalculation(
-    calculationId: number,
-    updates: Partial<ROICalculationCreate>
-  ): Promise<ROICalculation> {
-    const response = await apiClient.patch<{ success: boolean; data: { calculation: ROICalculation } }>(
-      `/api/roi/calculations/${calculationId}`,
-      updates
-    );
-    return response.data.calculation;
+  async updateCalculation(id: number, data: {
+    vehicle_name: string;
+    vehicle_price: number;
+    daily_rate: number;
+    booking_days: number;
+    monthly_expenses: number;
+    insurance_monthly: number;
+    annual_depreciation: number;
+    roi: number;
+    annual_profit: number;
+  }): Promise<ROICalculation> {
+    const index = mockCalculations.findIndex(c => c.id === id);
+    if (index === -1) {
+      throw new Error("Calculation not found");
+    }
+    const updated: ROICalculation = {
+      ...mockCalculations[index],
+      ...data,
+      updated_at: new Date().toISOString(),
+    };
+    mockCalculations[index] = updated;
+    return updated;
   }
 
-  /**
-   * Delete an ROI calculation
-   */
-  async deleteCalculation(calculationId: number): Promise<void> {
-    await apiClient.delete<{ success: boolean; data: { message: string } }>(
-      `/api/roi/calculations/${calculationId}`
-    );
+  async deleteCalculation(id: number): Promise<void> {
+    const index = mockCalculations.findIndex(c => c.id === id);
+    if (index === -1) {
+      throw new Error("Calculation not found");
+    }
+    mockCalculations.splice(index, 1);
   }
 }
 

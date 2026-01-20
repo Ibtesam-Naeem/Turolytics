@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Wrench, Droplet, FileText, Car, Battery, CheckCircle2, Calendar, Clock, AlertTriangle } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
@@ -29,11 +30,133 @@ interface MaintenanceItem {
   completed?: boolean;
 }
 
-const initialMaintenanceItems: MaintenanceItem[] = [];
+// Mock maintenance items for demo
+const initialMaintenanceItems: MaintenanceItem[] = [
+  {
+    id: "1",
+    type: "maintenance",
+    vehicle: "Tesla Model 3",
+    task: "Tire Rotation",
+    dueDate: "In 3 days",
+    urgency: "medium",
+    icon: Wrench,
+    description: "Rotate tires to ensure even wear. Current mileage: 28,450 km",
+    estimatedCost: 45,
+    lastCompleted: "6 months ago",
+  },
+  {
+    id: "2",
+    type: "maintenance",
+    vehicle: "BMW X5",
+    task: "Oil Change",
+    dueDate: "In 5 days",
+    urgency: "high",
+    icon: Droplet,
+    description: "Synthetic oil change required. Last service: 8,500 km ago",
+    estimatedCost: 120,
+    lastCompleted: "4 months ago",
+  },
+  {
+    id: "3",
+    type: "maintenance",
+    vehicle: "Mercedes-Benz GLE",
+    task: "Tire Rotation",
+    dueDate: "In 1 week",
+    urgency: "low",
+    icon: Wrench,
+    description: "Regular tire rotation service",
+    estimatedCost: 50,
+    lastCompleted: "5 months ago",
+  },
+  {
+    id: "4",
+    type: "maintenance",
+    vehicle: "Audi Q7",
+    task: "Oil Change",
+    dueDate: "In 10 days",
+    urgency: "medium",
+    icon: Droplet,
+    description: "Full synthetic oil change and filter replacement",
+    estimatedCost: 135,
+    lastCompleted: "3 months ago",
+  },
+  {
+    id: "5",
+    type: "maintenance",
+    vehicle: "Porsche Cayenne",
+    task: "Tire Rotation",
+    dueDate: "In 2 weeks",
+    urgency: "low",
+    icon: Wrench,
+    description: "Standard tire rotation",
+    estimatedCost: 60,
+    lastCompleted: "6 months ago",
+  },
+  {
+    id: "6",
+    type: "maintenance",
+    vehicle: "Land Rover Defender",
+    task: "Oil Change",
+    dueDate: "In 2 weeks",
+    urgency: "medium",
+    icon: Droplet,
+    description: "Full synthetic oil change",
+    estimatedCost: 140,
+    lastCompleted: "4 months ago",
+  },
+  {
+    id: "7",
+    type: "maintenance",
+    vehicle: "Honda Accord",
+    task: "Tire Rotation",
+    dueDate: "In 3 weeks",
+    urgency: "low",
+    icon: Wrench,
+    description: "Regular tire rotation",
+    estimatedCost: 40,
+    lastCompleted: "6 months ago",
+  },
+  {
+    id: "8",
+    type: "maintenance",
+    vehicle: "Chevrolet Tahoe",
+    task: "Oil Change",
+    dueDate: "In 3 weeks",
+    urgency: "medium",
+    icon: Droplet,
+    description: "Conventional oil change",
+    estimatedCost: 65,
+    lastCompleted: "3 months ago",
+  },
+  {
+    id: "9",
+    type: "maintenance",
+    vehicle: "Subaru Outback",
+    task: "Tire Rotation",
+    dueDate: "In 1 month",
+    urgency: "low",
+    icon: Wrench,
+    description: "Standard tire rotation",
+    estimatedCost: 45,
+    lastCompleted: "5 months ago",
+  },
+  {
+    id: "10",
+    type: "maintenance",
+    vehicle: "Ford F-150",
+    task: "Oil Change",
+    dueDate: "In 1 month",
+    urgency: "low",
+    icon: Droplet,
+    description: "Synthetic blend oil change",
+    estimatedCost: 75,
+    lastCompleted: "4 months ago",
+  },
+];
 
 export const UpcomingMaintenanceTimeline = () => {
   const navigate = useNavigate();
-  const [maintenanceItems, setMaintenanceItems] = useState(initialMaintenanceItems);
+  const [maintenanceItems, setMaintenanceItems] = useState<MaintenanceItem[]>(initialMaintenanceItems);
   const [selectedItem, setSelectedItem] = useState<MaintenanceItem | null>(null);
   const [bouncieConnected, setBouncieConnected] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
@@ -131,41 +254,43 @@ export const UpcomingMaintenanceTimeline = () => {
               </p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {pendingItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <div
-                key={item.id}
-                className="flex items-start gap-3 p-3 rounded-lg border border-border bg-card hover:bg-accent/50 hover:border-primary/30 transition-colors cursor-pointer"
-                onClick={() => setSelectedItem(item)}
-              >
-                <div className="mt-0.5">
-                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                    <Icon className="h-4 w-4 text-primary" />
-                  </div>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1">
-                      {item.vehicle && (
-                        <p className="text-sm font-semibold text-foreground">
-                          {item.vehicle}
-                        </p>
-                      )}
-                      <p className={`text-sm ${item.vehicle ? 'text-muted-foreground' : 'font-semibold text-foreground'}`}>
-                        {item.task}
-                      </p>
+            <ScrollArea className="h-[400px]">
+              <div className="space-y-3 pr-4">
+                {pendingItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <div
+                  key={item.id}
+                  className="flex items-start gap-3 p-3 rounded-lg border border-border bg-card hover:bg-accent/50 hover:border-primary/30 transition-colors cursor-pointer"
+                  onClick={() => setSelectedItem(item)}
+                >
+                  <div className="mt-0.5">
+                    <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                      <Icon className="h-4 w-4 text-primary" />
                     </div>
-                    <Badge variant={getUrgencyColor(item.urgency)} className="shrink-0">
-                      {item.dueDate}
-                    </Badge>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1">
+                        {item.vehicle && (
+                          <p className="text-sm font-semibold text-foreground">
+                            {item.vehicle}
+                          </p>
+                        )}
+                        <p className={`text-sm ${item.vehicle ? 'text-muted-foreground' : 'font-semibold text-foreground'}`}>
+                          {item.task}
+                        </p>
+                      </div>
+                      <Badge variant={getUrgencyColor(item.urgency)} className="shrink-0">
+                        {item.dueDate}
+                      </Badge>
+                    </div>
                   </div>
                 </div>
+              );
+            })}
               </div>
-            );
-          })}
-            </div>
+            </ScrollArea>
           )}
 
           {/* Completed Items */}

@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { Eye, EyeOff, Mail, Lock, User, ChevronLeft, Car, Phone, MapPin, X, ChevronDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import { authService } from "@/services/auth-service";
+import { authService } from "@/services/auth-service"; // Stub service for demo
 
 const countries = [
   { code: "US", name: "United States" },
@@ -120,7 +120,15 @@ const Auth = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { login, signup } = useAuth();
+  const { login, signup, isDemo } = useAuth();
+  
+  // Redirect demo users to dashboard
+  useEffect(() => {
+    const isDemoMode = localStorage.getItem('demo_mode') === 'true';
+    if (isDemo || isDemoMode) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [isDemo, navigate]);
   
   const [isSignUp, setIsSignUp] = useState(searchParams.get("mode") === "signup");
   const [showPassword, setShowPassword] = useState(false);

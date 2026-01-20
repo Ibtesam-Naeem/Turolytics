@@ -1,122 +1,34 @@
-import { apiClient } from '@/lib/api-client';
+// Stub auth service for demo mode
+// Real authentication not available in demo
 
 export interface User {
-  id: number;
-  user_id: number;
+  id: string;
   email: string;
-  email_verified: boolean;
-  first_name?: string;
-  last_name?: string;
-  phone_number?: string;
-  country?: string;
-  state?: string;
-  created_at: string;
-  updated_at: string;
-  password_changed_at?: string;
-}
-
-export interface LoginRequest {
-  email: string;
-  password: string;
-  rememberMe?: boolean;
-}
-
-export interface RegisterRequest {
-  email: string;
-  password: string;
   firstName?: string;
   lastName?: string;
-  phone?: string;
-  country?: string;
-  state?: string;
-}
-
-export interface AuthResponse {
-  access_token: string;
-  token_type: string;
-}
-
-export interface DeleteAccountRequest {
-  reason?: string;
 }
 
 export interface UserSession {
   id: number;
-  user_agent?: string;
+  device_info?: string;
   ip_address?: string;
-  device_type?: string;
+  created_at?: string;
   browser?: string;
   os?: string;
   location?: string;
-  created_at: string;
-  last_used_at: string;
-  expires_at?: string;
-  is_active: number;
-  is_current: boolean;
 }
 
 class AuthService {
-  async register(data: RegisterRequest): Promise<User> {
-    // Map frontend field names to backend field names
-    const requestData = {
-      email: data.email,
-      password: data.password,
-      firstName: data.firstName,
-      lastName: data.lastName,
-      phone: data.phone,
-      country: data.country,
-      state: data.state,
-    };
-    return apiClient.post<User>('/api/auth/register', requestData);
+  getToken(): string | null {
+    return localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
   }
 
-  async login(data: LoginRequest): Promise<AuthResponse> {
-    return apiClient.post<AuthResponse>('/api/auth/login/json', {
-      email: data.email,
-      password: data.password,
-      rememberMe: data.rememberMe ?? true,
-    });
-  }
-
-  async getCurrentUser(): Promise<User> {
-    return apiClient.get<User>('/api/auth/me');
-  }
-
-  async updateProfile(data: {
-    firstName?: string;
-    lastName?: string;
-    phone?: string;
-    country?: string;
-    state?: string;
-  }): Promise<User> {
-    return apiClient.put<User>('/api/auth/profile', data);
-  }
-
-  async changePassword(data: {
-    currentPassword: string;
-    newPassword: string;
-  }): Promise<{ message: string }> {
-    return apiClient.post<{ message: string }>('/api/auth/password/change', {
-      current_password: data.currentPassword,
-      new_password: data.newPassword,
-    });
-  }
-
-  setToken(token: string, rememberMe: boolean = true): void {
+  setToken(token: string, rememberMe: boolean): void {
     if (rememberMe) {
       localStorage.setItem('auth_token', token);
-      // Remove from sessionStorage if it exists
-      sessionStorage.removeItem('auth_token');
     } else {
       sessionStorage.setItem('auth_token', token);
-      // Remove from localStorage if it exists
-      localStorage.removeItem('auth_token');
     }
-  }
-
-  getToken(): string | null {
-    // Check localStorage first (remember me), then sessionStorage
-    return localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
   }
 
   removeToken(): void {
@@ -124,85 +36,57 @@ class AuthService {
     sessionStorage.removeItem('auth_token');
   }
 
-  setRememberedEmail(email: string): void {
-    const accounts = this.getRememberedAccounts();
-    // Check if email already exists
-    const existingIndex = accounts.findIndex(acc => acc.email === email);
-    
-    if (existingIndex >= 0) {
-      // Update existing account timestamp
-      accounts[existingIndex].lastUsed = new Date().toISOString();
-    } else {
-      // Add new account
-      accounts.push({
-        email,
-        lastUsed: new Date().toISOString(),
-      });
-    }
-    
-    // Sort by last used (most recent first) and keep only last 5
-    accounts.sort((a, b) => new Date(b.lastUsed).getTime() - new Date(a.lastUsed).getTime());
-    const recentAccounts = accounts.slice(0, 5);
-    
-    localStorage.setItem('remembered_accounts', JSON.stringify(recentAccounts));
+  async getCurrentUser(): Promise<User> {
+    // Demo mode - return stub user
+    return { id: "demo-user", email: "demo@example.com" };
   }
 
-  getRememberedAccounts(): Array<{ email: string; lastUsed: string }> {
-    const stored = localStorage.getItem('remembered_accounts');
-    if (!stored) {
-      // Check for old single email format and migrate
-      const oldEmail = localStorage.getItem('remembered_email');
-      if (oldEmail) {
-        const accounts = [{ email: oldEmail, lastUsed: new Date().toISOString() }];
-        localStorage.setItem('remembered_accounts', JSON.stringify(accounts));
-        localStorage.removeItem('remembered_email');
-        return accounts;
-      }
-      return [];
-    }
-    try {
-      return JSON.parse(stored);
-    } catch {
-      return [];
-    }
+  async login(data: { email: string; password: string; rememberMe?: boolean }): Promise<{ access_token: string }> {
+    // Demo mode - not used (loginDemo is used instead)
+    throw new Error("Real login not available in demo mode");
   }
 
-  getRememberedEmail(): string | null {
-    const accounts = this.getRememberedAccounts();
-    return accounts.length > 0 ? accounts[0].email : null;
-  }
-
-  clearRememberedEmail(): void {
-    localStorage.removeItem('remembered_accounts');
-    localStorage.removeItem('remembered_email'); // Legacy cleanup
-  }
-
-  removeRememberedAccount(email: string): void {
-    const accounts = this.getRememberedAccounts();
-    const filtered = accounts.filter(acc => acc.email !== email);
-    if (filtered.length > 0) {
-      localStorage.setItem('remembered_accounts', JSON.stringify(filtered));
-    } else {
-      localStorage.removeItem('remembered_accounts');
-    }
-  }
-
-  isAuthenticated(): boolean {
-    return !!this.getToken();
-  }
-
-  async deleteAccount(request: DeleteAccountRequest): Promise<void> {
-    await apiClient.post('/api/auth/account/delete', request);
+  async register(data: any): Promise<User> {
+    // Demo mode - not used
+    throw new Error("Real registration not available in demo mode");
   }
 
   async getSessions(): Promise<UserSession[]> {
-    return apiClient.get<UserSession[]>('/api/auth/sessions');
+    // Demo mode - return empty array
+    return [];
   }
 
   async revokeSession(sessionId: number): Promise<void> {
-    await apiClient.delete(`/api/auth/sessions/${sessionId}`);
+    // Demo mode - stub
+  }
+
+  async updateProfile(data: any): Promise<User> {
+    // Demo mode - stub
+    return { id: "demo-user", email: "demo@example.com" };
+  }
+
+  async deleteAccount(data: { reason: string }): Promise<void> {
+    // Demo mode - stub
+  }
+
+  getRememberedAccounts(): Array<{ email: string }> {
+    const email = localStorage.getItem('remembered_email');
+    return email ? [{ email }] : [];
+  }
+
+  setRememberedEmail(email: string): void {
+    localStorage.setItem('remembered_email', email);
+  }
+
+  clearRememberedEmail(): void {
+    localStorage.removeItem('remembered_email');
+  }
+
+  removeRememberedAccount(email: string): void {
+    if (localStorage.getItem('remembered_email') === email) {
+      localStorage.removeItem('remembered_email');
+    }
   }
 }
 
 export const authService = new AuthService();
-

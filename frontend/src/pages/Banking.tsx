@@ -15,43 +15,58 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, 
+  ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid,
   PieChart, Pie, Cell, AreaChart, Area, BarChart, Bar
 } from "recharts";
 
 // Mock data
+// Calculate totals from linked accounts
+const chaseBalance = 28450;
+const wellsFargoBalance = 13700;
+const creditCardBalance = -2340; // negative = debt
+const autoLoanBalance = -18500; // negative = debt
+const autoLoanOriginal = 35000; // original loan amount
+
+const totalBalance = chaseBalance + wellsFargoBalance + creditCardBalance + autoLoanBalance; // 21,310
+const availableCash = chaseBalance + wellsFargoBalance; // 42,150 (only positive accounts)
+const creditLimit = 10000; // assumed credit limit
+const creditUtilization = Math.round((Math.abs(creditCardBalance) / creditLimit) * 100); // 23%
+
 const kpiData = {
-  totalBalance: 42150,
-  availableCash: 38420,
+  totalBalance: availableCash, // Net worth = positive accounts only for simplicity
+  availableCash: availableCash,
   mtdPayouts: 24580,
   mtdExpenses: 8420,
-  netProfit: 16160,
-  creditUtilization: 23
+  netProfit: 24580 - 8420, // 16,160
+  creditUtilization: creditUtilization
 };
 
 const linkedAccounts = [
-  { id: 1, institution: "Chase", name: "Business Checking", type: "Chequing", available: 28450, current: 28450, logo: "🏦", sparkline: [28000, 29500, 27800, 30200, 28450] },
-  { id: 2, institution: "Wells Fargo", name: "Savings", type: "Savings", available: 13700, current: 13700, logo: "🏛️", sparkline: [12000, 12500, 13000, 13200, 13700] },
-  { id: 3, institution: "Capital One", name: "Venture Card", type: "Credit Card", available: 8500, current: -2340, logo: "💳", sparkline: [-1800, -2100, -1950, -2200, -2340] },
-  { id: 4, institution: "Toyota Financial", name: "Auto Loan - Tesla", type: "Loan", available: 0, current: -18500, logo: "🚗", sparkline: [-19200, -19000, -18800, -18650, -18500] },
+  { id: 1, institution: "Chase", name: "Business Checking", type: "Chequing", available: chaseBalance, current: chaseBalance, logo: "🏦", sparkline: [28000, 29500, 27800, 30200, chaseBalance] },
+  { id: 2, institution: "Wells Fargo", name: "Savings", type: "Savings", available: wellsFargoBalance, current: wellsFargoBalance, logo: "🏛️", sparkline: [12000, 12500, 13000, 13200, wellsFargoBalance] },
+  { id: 3, institution: "Capital One", name: "Venture Card", type: "Credit Card", available: creditLimit - Math.abs(creditCardBalance), current: creditCardBalance, logo: "💳", sparkline: [-1800, -2100, -1950, -2200, creditCardBalance] },
+  { id: 4, institution: "Tesla Finance", name: "Auto Loan - Tesla Model 3", type: "Loan", available: autoLoanOriginal, current: autoLoanBalance, logo: "🚗", sparkline: [-19200, -19000, -18800, -18650, autoLoanBalance] },
 ];
 
 const payoutReconciliation = [
-  { id: 1, date: "Nov 28", amount: 2845, trips: 8, vehicles: ["Tesla Model 3", "BMW X5"], netProfit: 2340, status: "matched" },
-  { id: 2, date: "Nov 21", amount: 3120, trips: 12, vehicles: ["Audi A4", "Mercedes C-Class", "Tesla Model Y"], netProfit: 2680, status: "matched" },
-  { id: 3, date: "Nov 14", amount: 2560, trips: 6, vehicles: ["BMW X5", "Tesla Model 3"], netProfit: 2100, status: "pending" },
-  { id: 4, date: "Nov 7", amount: 2980, trips: 9, vehicles: ["Tesla Model Y", "Audi A4"], netProfit: 2450, status: "matched" },
+  // Net profit = payout amount - estimated expenses (roughly 15-20% of payout for Turo fees, taxes, etc.)
+  { id: 1, date: "Nov 28", amount: 2845, trips: 8, vehicles: ["Tesla Model 3", "BMW X5"], netProfit: Math.round(2845 * 0.82), status: "matched" },
+  { id: 2, date: "Nov 21", amount: 3120, trips: 12, vehicles: ["Audi A4", "Mercedes C-Class", "Tesla Model Y"], netProfit: Math.round(3120 * 0.82), status: "matched" },
+  { id: 3, date: "Nov 14", amount: 2560, trips: 6, vehicles: ["BMW X5", "Tesla Model 3"], netProfit: Math.round(2560 * 0.82), status: "pending" },
+  { id: 4, date: "Nov 7", amount: 2980, trips: 9, vehicles: ["Tesla Model Y", "Audi A4"], netProfit: Math.round(2980 * 0.82), status: "matched" },
 ];
 
+// Expense categories - total should match mtdExpenses (8420)
 const expenseCategories = [
-  { name: "Fuel", value: 2450, color: "hsl(var(--chart-1))" },
-  { name: "Insurance", value: 1850, color: "hsl(var(--chart-2))" },
+  { name: "Fuel", value: 1450, color: "hsl(var(--chart-1))" },
+  { name: "Insurance", value: 2800, color: "hsl(var(--chart-2))" },
   { name: "Maintenance", value: 1420, color: "hsl(var(--chart-3))" },
   { name: "Repairs", value: 980, color: "hsl(var(--chart-4))" },
-  { name: "Tolls", value: 520, color: "hsl(var(--chart-5))" },
   { name: "Cleaning", value: 680, color: "hsl(var(--primary))" },
-  { name: "Other", value: 520, color: "hsl(var(--muted-foreground))" },
+  { name: "Registration", value: 280, color: "hsl(var(--chart-5))" },
+  { name: "Other", value: 810, color: "hsl(var(--muted-foreground))" },
 ];
+// Total: 1450 + 2800 + 1420 + 980 + 680 + 280 + 810 = 8,420 ✓
 
 const transactions = [
   { id: 1, date: "Nov 28", merchant: "Turo Payout", amount: 2845, category: "Income", vehicle: "Multiple", turoRelated: true, type: "income" },
@@ -64,27 +79,28 @@ const transactions = [
   { id: 8, date: "Nov 22", merchant: "Discount Tire", amount: -380, category: "Repairs", vehicle: "BMW X5", turoRelated: true, type: "expense" },
 ];
 
+// Monthly cashflow data - last 12 months showing realistic growth pattern
 const cashflowData = [
-  { day: "Nov 1", inflow: 850, outflow: -320, net: 530 },
-  { day: "Nov 3", inflow: 1200, outflow: -180, net: 1020 },
-  { day: "Nov 5", inflow: 0, outflow: -450, net: -450 },
-  { day: "Nov 7", inflow: 2980, outflow: -220, net: 2760 },
-  { day: "Nov 9", inflow: 680, outflow: -95, net: 585 },
-  { day: "Nov 11", inflow: 0, outflow: -380, net: -380 },
-  { day: "Nov 14", inflow: 2560, outflow: -165, net: 2395 },
-  { day: "Nov 16", inflow: 420, outflow: -520, net: -100 },
-  { day: "Nov 18", inflow: 0, outflow: -450, net: -450 },
-  { day: "Nov 21", inflow: 3120, outflow: -280, net: 2840 },
-  { day: "Nov 23", inflow: 580, outflow: -78, net: 502 },
-  { day: "Nov 25", inflow: 0, outflow: -35, net: -35 },
-  { day: "Nov 28", inflow: 2845, outflow: -185, net: 2660 },
+  { month: "Dec 2023", inflow: 18200, outflow: -15200, net: 3000 },
+  { month: "Jan 2024", inflow: 19500, outflow: -15800, net: 3700 },
+  { month: "Feb 2024", inflow: 20100, outflow: -16200, net: 3900 },
+  { month: "Mar 2024", inflow: 21800, outflow: -16800, net: 5000 },
+  { month: "Apr 2024", inflow: 22500, outflow: -17200, net: 5300 },
+  { month: "May 2024", inflow: 23800, outflow: -17800, net: 6000 },
+  { month: "Jun 2024", inflow: 25100, outflow: -18500, net: 6600 },
+  { month: "Jul 2024", inflow: 26800, outflow: -19200, net: 7600 },
+  { month: "Aug 2024", inflow: 26200, outflow: -19000, net: 7200 },
+  { month: "Sep 2024", inflow: 24800, outflow: -18200, net: 6600 },
+  { month: "Oct 2024", inflow: 23100, outflow: -17500, net: 5600 },
+  { month: "Nov 2024", inflow: 24580, outflow: -8420, net: 16160 },
 ];
 
 const upcomingBills = [
-  { id: 1, name: "Toyota Auto Loan", nextPayment: "Dec 5", minPayment: 485, apr: 4.9, balance: 18500, vehicle: "Tesla Model 3" },
+  { id: 1, name: "Tesla Finance", nextPayment: "Dec 5", minPayment: 485, apr: 4.9, balance: 18500, vehicle: "Tesla Model 3" },
   { id: 2, name: "Capital One Card", nextPayment: "Dec 12", minPayment: 125, apr: 19.9, balance: 2340, vehicle: null },
   { id: 3, name: "Insurance Premium", nextPayment: "Dec 18", minPayment: 450, apr: 0, balance: 450, vehicle: "All Vehicles" },
-  { id: 4, name: "BMW Financing", nextPayment: "Dec 20", minPayment: 520, apr: 3.9, balance: 24800, vehicle: "BMW X5" },
+  { id: 4, name: "BMW Financial Services", nextPayment: "Dec 20", minPayment: 520, apr: 3.9, balance: 24800, vehicle: "BMW X5" },
+  { id: 5, name: "Mercedes-Benz Financial", nextPayment: "Dec 22", minPayment: 380, apr: 3.5, balance: 15200, vehicle: "Mercedes C-Class" },
 ];
 
 const vehicleCosts = [
@@ -266,10 +282,18 @@ const Banking = () => {
                         <Badge variant="secondary" className="text-xs">{account.type}</Badge>
                       </td>
                       <td className="py-4 px-4 text-right font-medium text-foreground">
-                        {account.available > 0 ? formatCurrency(account.available, currency) : "—"}
+                        {account.type === "Credit Card" 
+                          ? formatCurrency(account.available, currency) + " available"
+                          : account.type === "Loan"
+                            ? formatCurrency(account.available, currency) + " original"
+                            : account.available > 0 
+                              ? formatCurrency(account.available, currency) 
+                              : "—"}
                       </td>
                       <td className={`py-4 px-4 text-right font-bold ${account.current >= 0 ? "text-success" : "text-destructive"}`}>
-                        {account.current >= 0 ? formatCurrency(account.current, currency) : `-${formatCurrency(Math.abs(account.current), currency)}`}
+                        {account.current >= 0 
+                          ? formatCurrency(account.current, currency) 
+                          : `-${formatCurrency(Math.abs(account.current), currency)}`}
                       </td>
                       <td className="py-4 px-4 text-right">
                         <MiniSparkline data={account.sparkline} positive={account.sparkline[4] >= account.sparkline[0]} />
@@ -331,8 +355,8 @@ const Banking = () => {
               <CardDescription>Spending by category this month</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="h-48">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="h-52 flex items-center justify-center">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
@@ -340,8 +364,8 @@ const Banking = () => {
                         cx="50%"
                         cy="50%"
                         innerRadius={50}
-                        outerRadius={80}
-                        paddingAngle={2}
+                        outerRadius={85}
+                        paddingAngle={3}
                         dataKey="value"
                       >
                         {expenseCategories.map((entry, index) => (
@@ -360,24 +384,33 @@ const Banking = () => {
                   </ResponsiveContainer>
                 </div>
                 <div className="space-y-2">
-                  {expenseCategories.map((category, index) => (
-                    <div key={index} className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: category.color }} />
-                        <span className="text-muted-foreground">{category.name}</span>
+                  {expenseCategories.map((category, index) => {
+                    const percentage = ((category.value / totalExpenses) * 100).toFixed(1);
+                    return (
+                      <div key={index} className="p-2.5 rounded-lg border border-border/50 bg-muted/20 hover:bg-muted/40 transition-colors">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-3.5 h-3.5 rounded-full shadow-sm" style={{ backgroundColor: category.color }} />
+                            <span className="font-semibold text-sm text-foreground">{category.name}</span>
+                          </div>
+                          <span className="font-bold text-base text-foreground">{formatCurrency(category.value, currency)}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Progress 
+                            value={parseFloat(percentage)} 
+                            className="flex-1 h-1.5 mr-3"
+                          />
+                          <span className="text-xs font-medium text-muted-foreground min-w-[3rem] text-right">
+                            {percentage}%
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-foreground">{formatCurrency(category.value, currency)}</span>
-                        <span className="text-xs text-muted-foreground">
-                          ({((category.value / totalExpenses) * 100).toFixed(0)}%)
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                  <div className="pt-2 border-t border-border mt-2">
-                    <div className="flex items-center justify-between font-medium">
-                      <span>Total</span>
-                      <span className="text-destructive">{formatCurrency(totalExpenses, currency)}</span>
+                    );
+                  })}
+                  <div className="pt-3 mt-3 border-t-2 border-border">
+                    <div className="flex items-center justify-between p-3 rounded-lg bg-destructive/10 border border-destructive/20">
+                      <span className="font-bold text-base text-foreground">Total Expenses</span>
+                      <span className="font-bold text-xl text-destructive">{formatCurrency(totalExpenses, currency)}</span>
                     </div>
                   </div>
                 </div>
@@ -390,33 +423,95 @@ const Banking = () => {
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">Cashflow Timeline</CardTitle>
-            <CardDescription>Daily net inflow/outflow over the last 30 days</CardDescription>
+            <CardDescription>Monthly net cashflow over the last 12 months</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-64">
+            <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={cashflowData}>
+                <AreaChart data={cashflowData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="positiveGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="hsl(var(--success))" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="hsl(var(--success))" stopOpacity={0}/>
+                      <stop offset="5%" stopColor="hsl(var(--success))" stopOpacity={0.4}/>
+                      <stop offset="95%" stopColor="hsl(var(--success))" stopOpacity={0.05}/>
                     </linearGradient>
                     <linearGradient id="negativeGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="hsl(var(--destructive))" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="hsl(var(--destructive))" stopOpacity={0}/>
+                      <stop offset="5%" stopColor="hsl(var(--destructive))" stopOpacity={0.4}/>
+                      <stop offset="95%" stopColor="hsl(var(--destructive))" stopOpacity={0.05}/>
+                    </linearGradient>
+                    <linearGradient id="inflowGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="hsl(var(--chart-1))" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0.05}/>
+                    </linearGradient>
+                    <linearGradient id="outflowGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="hsl(var(--chart-5))" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="hsl(var(--chart-5))" stopOpacity={0.05}/>
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="day" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
-                  <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" tickFormatter={(v) => `$${v}`} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+                  <XAxis 
+                    dataKey="month" 
+                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} 
+                    stroke="hsl(var(--muted-foreground))"
+                    angle={-45}
+                    textAnchor="end"
+                    height={80}
+                  />
+                  <YAxis 
+                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} 
+                    stroke="hsl(var(--muted-foreground))" 
+                    tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                    width={60}
+                  />
                   <Tooltip 
-                    formatter={(value: number) => formatCurrency(value)}
                     contentStyle={{ 
                       backgroundColor: 'hsl(var(--card))', 
                       border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px'
+                      borderRadius: '8px',
+                      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                    }}
+                    formatter={(value: number, name: string) => {
+                      if (name === 'inflow') return [formatCurrency(value, currency), 'Inflow'];
+                      if (name === 'outflow') return [formatCurrency(Math.abs(value), currency), 'Outflow'];
+                      return [formatCurrency(value, currency), 'Net'];
+                    }}
+                    labelStyle={{ fontWeight: 600, marginBottom: 4 }}
+                  />
+                  <Legend 
+                    wrapperStyle={{ paddingTop: 20 }}
+                    iconType="circle"
+                    formatter={(value) => {
+                      if (value === 'inflow') return 'Revenue';
+                      if (value === 'outflow') return 'Expenses';
+                      return 'Net Cashflow';
                     }}
                   />
-                  <Area type="monotone" dataKey="net" stroke="hsl(var(--primary))" fill="url(#positiveGradient)" strokeWidth={2} />
+                  <Area 
+                    type="monotone" 
+                    dataKey="inflow" 
+                    stroke="hsl(var(--chart-1))" 
+                    fill="url(#inflowGradient)" 
+                    strokeWidth={2}
+                    name="inflow"
+                    stackId="1"
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="outflow" 
+                    stroke="hsl(var(--chart-5))" 
+                    fill="url(#outflowGradient)" 
+                    strokeWidth={2}
+                    name="outflow"
+                    stackId="1"
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="net" 
+                    stroke="hsl(var(--success))" 
+                    strokeWidth={3}
+                    dot={{ fill: 'hsl(var(--success))', r: 4, strokeWidth: 2, stroke: 'hsl(var(--card))' }}
+                    activeDot={{ r: 6 }}
+                    name="net"
+                  />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -467,7 +562,7 @@ const Banking = () => {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2 max-h-96 overflow-y-auto scrollbar-thin">
+              <div className="space-y-2 max-h-[400px] overflow-y-auto scrollbar-thin pr-2">
                 {filteredTransactions.map((t) => (
                   <div key={t.id} className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors">
                     <div className="flex items-center gap-3">
@@ -510,8 +605,9 @@ const Banking = () => {
               </div>
               <CardDescription>Plaid Liabilities & scheduled payments</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
-              {upcomingBills.map((bill) => (
+            <CardContent>
+              <div className="space-y-3 max-h-[400px] overflow-y-auto scrollbar-thin pr-2">
+                {upcomingBills.map((bill) => (
                 <div key={bill.id} className="p-3 rounded-lg border border-border bg-muted/20">
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-medium text-foreground text-sm">{bill.name}</span>
@@ -539,6 +635,7 @@ const Banking = () => {
                   </div>
                 </div>
               ))}
+              </div>
             </CardContent>
           </Card>
         </div>
