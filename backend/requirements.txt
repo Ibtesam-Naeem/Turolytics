@@ -1,0 +1,16 @@
+# Core dependencies
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+sqlalchemy>=2.0.0
+pydantic>=2.0.0
+pydantic[email]>=2.0.0
+python-dotenv>=1.0.0
+
+# Database
+psycopg2-binary>=2.9.0
+
+# Email service 
+sendgrid>=6.10.0
+
+# AWS Lambda email service
+boto3>=1.28.0
