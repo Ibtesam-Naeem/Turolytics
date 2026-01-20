@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import logging
+import os
 
 from core.database import init_db
 from waitlist.routes import router as waitlist_router
@@ -35,9 +36,18 @@ app = FastAPI(
 )
 
 # ------------------------------ CORS ------------------------------
+# Get allowed origins from environment variable (comma-separated)
+# For Railway deployment, set CORS_ORIGINS to your frontend URL(s)
+# Example: CORS_ORIGINS=https://your-app.railway.app,https://your-custom-domain.com
+cors_origins_env = os.getenv("CORS_ORIGINS", "*")
+if cors_origins_env == "*":
+    cors_origins = ["*"]
+else:
+    cors_origins = [origin.strip() for origin in cors_origins_env.split(",")]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

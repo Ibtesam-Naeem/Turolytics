@@ -19,7 +19,20 @@ class DatabaseConfig:
     
     @property
     def database_url(self) -> str:
-        """Get SQLAlchemy database URL."""
+        """Get SQLAlchemy database URL.
+        
+        Supports Railway's DATABASE_URL environment variable (preferred)
+        or falls back to individual DB_* variables for local development.
+        """
+        # Railway provides DATABASE_URL automatically when PostgreSQL service is added
+        railway_db_url = os.getenv("DATABASE_URL")
+        if railway_db_url:
+            # Railway's DATABASE_URL uses postgres:// but SQLAlchemy needs postgresql://
+            if railway_db_url.startswith("postgres://"):
+                railway_db_url = railway_db_url.replace("postgres://", "postgresql://", 1)
+            return railway_db_url
+        
+        # Fallback to individual environment variables for local development
         return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
 
 @dataclass
