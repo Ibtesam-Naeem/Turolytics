@@ -26,6 +26,18 @@ def get_waitlist_confirmation_template(email: str, context: Dict[str, Any] = Non
     position = context.get("position") if context else None
     total = context.get("total") if context else None
     
+    position_html = (
+        f'<p style="margin: 0 0 20px; color: #667eea; font-size: 16px; line-height: 1.6; font-weight: 600;">You\'re #{position} on the waitlist{f" of {total} people" if total else ""}.</p>'
+        if position
+        else ""
+    )
+
+    fleet_html = (
+        '<p style="margin: 0 0 20px; color: #1a1a1a; font-size: 16px; line-height: 1.6;">If you shared any details about your fleet or tools, those are already noted and will help shape upcoming features.</p>'
+        if has_fleet_details
+        else ""
+    )
+
     html_content = f"""
     <!DOCTYPE html>
     <html>
@@ -60,7 +72,7 @@ def get_waitlist_confirmation_template(email: str, context: Dict[str, Any] = Non
                                     Thanks for signing up for the <strong>Turolytics waitlist</strong> — you're officially in.
                                 </p>
                                 
-                                {f'<p style="margin: 0 0 20px; color: #667eea; font-size: 16px; line-height: 1.6; font-weight: 600;">You\'re #{position} on the waitlist{f" of {total} people" if total else ""}.</p>' if position else ''}
+                                {position_html}
                                 
                                 <p style="margin: 0 0 20px; color: #1a1a1a; font-size: 16px; line-height: 1.6;">
                                     Turolytics is being built to help Turo hosts track fleet performance, earnings, utilization, and key insights in one place. We're currently onboarding early users in phases to make sure everything is stable, accurate, and genuinely useful.
@@ -76,7 +88,7 @@ def get_waitlist_confirmation_template(email: str, context: Dict[str, Any] = Non
                                     <li style="margin-bottom: 8px;">We'll notify you as soon as your spot opens up</li>
                                 </ul>
                                 
-                                {f'<p style="margin: 0 0 20px; color: #1a1a1a; font-size: 16px; line-height: 1.6;">If you shared any details about your fleet or tools, those are already noted and will help shape upcoming features.</p>' if has_fleet_details else ''}
+                                {fleet_html}
                                 
                                 <p style="margin: 0; color: #1a1a1a; font-size: 16px; line-height: 1.6;">
                                     Thanks again for your interest — we're excited to have you early.
