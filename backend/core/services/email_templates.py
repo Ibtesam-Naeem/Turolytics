@@ -105,8 +105,19 @@ def get_waitlist_confirmation_template(email: str, context: Dict[str, Any] = Non
     </html>
     """
     
-    position_text = f"\nYou're #{position} on the waitlist{f' of {total} people' if total else ''}.\n" if position else ""
+    position_text = (
+        f"\nYou're #{position} on the waitlist"
+        f"{f' of {total} people' if total else ''}.\n"
+        if position
+        else ""
+    )
     
+    fleet_details_text = (
+        "If you shared any details about your fleet or tools, those are already noted and will help shape upcoming features.\n\n"
+        if has_fleet_details
+        else ""
+    )
+
     text_content = f"""Hi there,
 
 Thanks for signing up for the Turolytics waitlist — you're officially in.{position_text}
@@ -119,7 +130,7 @@ What happens next:
 * Early users will get priority access and the ability to give direct feedback
 * We'll notify you as soon as your spot opens up
 
-{f'If you shared any details about your fleet or tools, those are already noted and will help shape upcoming features.\n\n' if has_fleet_details else ''}Thanks again for your interest — we're excited to have you early.
+{fleet_details_text}Thanks again for your interest — we're excited to have you early.
 
 Best,
 Turolytics Team
