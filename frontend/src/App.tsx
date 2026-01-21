@@ -33,6 +33,8 @@ import BouncieCallback from "./pages/BouncieCallback";
 import Waitlist from "./pages/Waitlist";
 import WaitlistAdmin from "./pages/WaitlistAdmin";
 import WaitlistViewer from "./pages/WaitlistViewer";
+import FAQs from "./pages/FAQs";
+import UpcomingFeatures from "./pages/UpcomingFeatures";
 
 const queryClient = new QueryClient();
 
@@ -126,6 +128,8 @@ const App = () => (
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/auth/bouncie/callback" element={<BouncieCallback />} />
               <Route path="/waitlist" element={<Waitlist />} />
+              <Route path="/faqs" element={<FAQs />} />
+              <Route path="/upcoming-features" element={<UpcomingFeatures />} />
               <Route path="/waitlist/user" element={<WaitlistViewer />} />
               <Route path="/waitlist/admin" element={<AuthenticatedLayout><WaitlistAdmin /></AuthenticatedLayout>} />
               
