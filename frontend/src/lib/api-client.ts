@@ -27,10 +27,14 @@ export class ApiClient {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch(url, {
+    // Ensure credentials are included for cookie-based auth
+    const fetchOptions: RequestInit = {
       ...options,
       headers,
-    });
+      credentials: options.credentials || 'same-origin',
+    };
+
+    const response = await fetch(url, fetchOptions);
 
     if (!response.ok) {
       // Handle 401 Unauthorized - token expired or invalid
@@ -59,8 +63,8 @@ export class ApiClient {
     return response.json();
   }
 
-  async get<T>(endpoint: string): Promise<T> {
-    return this.request<T>(endpoint, { method: 'GET' });
+  async get<T>(endpoint: string, options?: RequestInit): Promise<T> {
+    return this.request<T>(endpoint, { method: 'GET', ...options });
   }
 
   async post<T>(endpoint: string, data?: unknown, options?: RequestInit): Promise<T> {

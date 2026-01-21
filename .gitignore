@@ -17,14 +17,21 @@ ENV/
 .env.production
 .env.staging
 
-# API Keys and Secrets
-*secret*
-*key*
-*credential*
-*password*
-!**/ForgotPassword.tsx
-!**/ChangePasswordDialog.tsx
-*token*
+# Secrets / credentials (targeted)
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_rsa.pub
+*.kdbx
+credentials*.json
+service-account*.json
+*service_account*.json
+gcloud*.json
+firebase*.json
+secrets/
+.secrets/
 
 # IDE
 .vscode/
@@ -38,16 +45,7 @@ backend/sessions/
 # Scraped Data
 backend/data/
 
-# JSON files (session and data)
-*.json
-!package.json
-!package-lock.json
-!tsconfig.json
-!tsconfig.app.json
-!tsconfig.node.json
-!vercel.json
-!frontend/vercel.json
-!railway.json
+
 *.swo
 *~
 

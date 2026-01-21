@@ -1,6 +1,6 @@
 # ------------------------------ IMPORTS ------------------------------
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 import logging
@@ -141,6 +141,34 @@ class WaitlistService:
         except Exception as e:
             self.db.rollback()
             logger.error(f"Error joining waitlist: {e}", exc_info=True)
+            raise
+    
+    def get_all_entries(self) -> List[Dict[str, Optional[str]]]:
+        """
+        Get all waitlist entries.
+        
+        Returns:
+            List of dictionaries with waitlist entry data
+        """
+        try:
+            entries = self.db.query(Waitlist).order_by(Waitlist.created_at.desc()).all()
+            return [
+                {
+                    "id": entry.id,
+                    "email": entry.email,
+                    "vehicle_count": entry.vehicle_count,
+                    "tracking_product": entry.tracking_product,
+                    "tracking_product_other": entry.tracking_product_other,
+                    "would_use": entry.would_use,
+                    "price_willing": entry.price_willing,
+                    "feedback": entry.feedback,
+                    "created_at": entry.created_at.isoformat() if entry.created_at else None,
+                    "notified_at": entry.notified_at.isoformat() if entry.notified_at else None,
+                }
+                for entry in entries
+            ]
+        except Exception as e:
+            logger.error(f"Error fetching waitlist entries: {e}", exc_info=True)
             raise
     
 # ------------------------------ END OF FILE ------------------------------
