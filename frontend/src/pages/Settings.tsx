@@ -10,7 +10,6 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
 import { bouncieService, BouncieIntegrationStatus } from "@/services/bouncie-service";
 import { turoService, TuroIntegrationStatus } from "@/services/turo-service";
 import { authService, User, UserSession } from "@/services/auth-service";
@@ -151,7 +150,6 @@ const Settings = () => {
   // Usage stats
   const [bouncieStats, setBouncieStats] = useState<{ vehicleMappings: number; loading: boolean }>({ vehicleMappings: 0, loading: false });
   const [turoStats, setTuroStats] = useState<{ vehicles: number; trips: number; loading: boolean }>({ vehicles: 0, trips: 0, loading: false });
-  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
   const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
   const [deletionReason, setDeletionReason] = useState("");
@@ -1784,27 +1782,18 @@ const Settings = () => {
                         : "Never changed"}
                     </p>
                   </div>
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     onClick={() => {
-                      setChangePasswordOpen(true);
+                      // TODO: Implement change password functionality
+                      toast({
+                        title: "Coming soon",
+                        description: "Password change functionality will be available soon.",
+                      });
                     }}
                   >
                     Change Password
                   </Button>
-                  <ChangePasswordDialog 
-                    open={changePasswordOpen} 
-                    onOpenChange={setChangePasswordOpen}
-                    onPasswordChanged={async () => {
-                      // Reload user data after password change to update the date
-                      try {
-                        const userData = await authService.getCurrentUser();
-                        setUser(userData);
-                      } catch (error) {
-                        console.error('Failed to reload user data:', error);
-                      }
-                    }}
-                  />
                   <Separator />
                   <div className="flex items-center justify-between">
                     <div>

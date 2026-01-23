@@ -12,7 +12,6 @@ import { Eye, Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Landing from "./pages/Landing";
 import Auth from "./pages/Auth";
-import ForgotPassword from "./pages/ForgotPassword";
 import Index from "./pages/Index";
 import Banking from "./pages/Banking";
 import MapPage from "./pages/MapPage";
@@ -120,7 +119,6 @@ const App = () => (
               {/* Public routes */}
               <Route path="/" element={<Landing />} />
               <Route path="/auth" element={<Auth />} />
-              <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/auth/bouncie/callback" element={<BouncieCallback />} />
               <Route path="/waitlist" element={<Waitlist />} />
               <Route path="/waitlist/admin" element={<AuthenticatedLayout><WaitlistAdmin /></AuthenticatedLayout>} />
