@@ -1,12 +1,11 @@
 # ------------------------------ IMPORTS ------------------------------
 import os
 import logging
-from typing import Optional
 from dataclasses import dataclass
 from dotenv import load_dotenv
 
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
-# Only load .env for local/dev. On Railway, env vars come from the platform.
+
 if ENVIRONMENT != "production":
     load_dotenv()
 
@@ -22,20 +21,12 @@ class DatabaseConfig:
     
     @property
     def database_url(self) -> str:
-        """Get SQLAlchemy database URL.
-        
-        Supports Railway's DATABASE_URL environment variable (preferred)
-        or falls back to individual DB_* variables for local development.
-        """
-        # Railway provides DATABASE_URL automatically when PostgreSQL service is added
+        """Get SQLAlchemy database URL. Uses Railway's DATABASE_URL if available, otherwise falls back to DB_* vars."""
         railway_db_url = os.getenv("DATABASE_URL")
         if railway_db_url:
-            # Railway's DATABASE_URL uses postgres:// but SQLAlchemy needs postgresql://
             if railway_db_url.startswith("postgres://"):
                 railway_db_url = railway_db_url.replace("postgres://", "postgresql://", 1)
             return railway_db_url
-        
-        # Fallback to individual environment variables for local development
         return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
 
 @dataclass
@@ -45,8 +36,6 @@ class EmailConfig:
     sendgrid_api_key: str = os.getenv("SENDGRID_API_KEY", "")
     from_email: str = os.getenv("EMAIL_FROM", "noreply@turolytics.com")
     from_name: str = os.getenv("EMAIL_FROM_NAME", "Turolytics")
-    use_lambda: bool = os.getenv("EMAIL_USE_LAMBDA", "false").lower() == "true"
-    lambda_function_name: Optional[str] = os.getenv("EMAIL_LAMBDA_FUNCTION", None)
 
 @dataclass
 class WaitlistAdminConfig:
@@ -81,7 +70,6 @@ class Settings:
         if ENVIRONMENT != "production":
             return
         
-        # Prevent deploying with a known placeholder secret.
         if not self.waitlist_admin.session_secret or self.waitlist_admin.session_secret == "change-me-in-production":
             raise ValueError(
                 "Missing WAITLIST_SESSION_SECRET (or SECRET_KEY). "
@@ -90,5 +78,3 @@ class Settings:
 
 # ------------------------------ GLOBAL SETTINGS INSTANCE ------------------------------
 settings = Settings()
-
-# ------------------------------ END OF FILE ------------------------------

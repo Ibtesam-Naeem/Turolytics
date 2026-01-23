@@ -13,5 +13,3 @@ class WaitlistRequest(BaseModel):
     wouldUse: Optional[str] = None
     priceWilling: Optional[str] = None
     feedback: Optional[str] = None
-
-# ------------------------------ END OF FILE ------------------------------

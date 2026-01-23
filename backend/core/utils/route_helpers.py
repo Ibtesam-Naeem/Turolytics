@@ -1,13 +1,20 @@
 # ------------------------------ IMPORTS ------------------------------
 from functools import wraps
 from fastapi import HTTPException
+from pydantic import BaseModel
 from typing import Callable, Any, Optional, Dict
 from sqlalchemy.orm import Session
 import logging
 
-from core.schemas import APIResponse
-
 logger = logging.getLogger(__name__)
+
+# ------------------------------ RESPONSE MODELS ------------------------------
+
+class APIResponse(BaseModel):
+    """Standard API response wrapper."""
+    success: bool
+    data: Dict[str, Any]
+    message: Optional[str] = None
 
 # ------------------------------ ERROR HANDLING ------------------------------
 

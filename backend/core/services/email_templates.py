@@ -4,16 +4,7 @@ from typing import Dict, Any
 # ------------------------------ EMAIL TEMPLATES ------------------------------
 
 def get_waitlist_confirmation_template(email: str, context: Dict[str, Any] = None) -> Dict[str, str]:
-    """
-    Generate waitlist confirmation email template.
-    
-    Args:
-        email: Recipient email address
-        context: Optional context data for personalization (can include vehicle_count, tracking_product, etc.)
-    
-    Returns:
-        Dictionary with 'subject' and 'html_content' keys
-    """
+    """Generate waitlist confirmation email template. """
     subject = "You're on the Turolytics waitlist"
     
     has_fleet_details = context and (

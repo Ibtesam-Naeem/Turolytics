@@ -10,7 +10,7 @@ from core.config.settings import settings
 # ------------------------------ CONSTANTS ------------------------------
 
 SESSION_COOKIE_NAME = "waitlist_admin_session"
-SESSION_DURATION = 86400  # 24 hours in seconds
+SESSION_DURATION = 86400
 
 def generate_session_token() -> str:
     """Generate a secure session token."""
@@ -48,19 +48,10 @@ def verify_session_token(token: str) -> bool:
         return False
 
 def get_session_from_request(request: Request) -> Optional[str]:
-    """Get session token from request (cookie or header)."""
-    # Try cookie first
+    """Get session token from request cookie."""
     cookie_token = request.cookies.get(SESSION_COOKIE_NAME)
     if cookie_token and verify_session_token(cookie_token):
         return cookie_token
-    
-    # Try Authorization header as fallback
-    auth_header = request.headers.get("Authorization")
-    if auth_header and auth_header.startswith("Bearer "):
-        token = auth_header[7:]
-        if verify_session_token(token):
-            return token
-    
     return None
 
 def require_waitlist_auth(request: Request) -> bool:

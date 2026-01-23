@@ -28,7 +28,6 @@ FIELD_MAPPING = {
 @dataclass
 class JoinWaitlistResult:
     """Result of joining the waitlist."""
-    entry: Waitlist
     message: str
     
     def to_dict(self) -> Dict[str, str]:
@@ -66,7 +65,6 @@ class WaitlistService:
         """Handle case where entry already exists (same info)."""
         logger.info(f"Waitlist: Email {existing.email} already exists with same info")
         return JoinWaitlistResult(
-            entry=existing,
             message="You're already on the waitlist!"
         )
     
@@ -83,18 +81,7 @@ class WaitlistService:
             logger.error(f"Waitlist: Error sending confirmation email to {email}: {e}", exc_info=True)
     
     def join_waitlist(self, request: WaitlistRequest) -> JoinWaitlistResult:
-        """
-        Add or update an email in the waitlist.
-        
-        Args:
-            request: WaitlistRequest object with email and optional fields
-        
-        Returns:
-            JoinWaitlistResult with entry and message
-        
-        Raises:
-            Exception: If database operation fails (IntegrityError is handled internally)
-        """
+        """Add or update an email in the waitlist."""
         request_dict = request.model_dump(exclude={"email"})
         email = request.email
         
@@ -110,7 +97,6 @@ class WaitlistService:
                     self.db.refresh(existing)
                     logger.info(f"Waitlist: Updated existing entry for {email}")
                     return JoinWaitlistResult(
-                        entry=existing,
                         message="Your waitlist information has been updated!"
                     )
                 
@@ -127,7 +113,6 @@ class WaitlistService:
             self._send_confirmation_email(email, request_dict)
             
             return JoinWaitlistResult(
-                entry=waitlist_entry,
                 message="Successfully joined the waitlist!"
             )
         except IntegrityError as e:
@@ -144,12 +129,7 @@ class WaitlistService:
             raise
     
     def get_all_entries(self) -> List[Dict[str, Optional[str]]]:
-        """
-        Get all waitlist entries.
-        
-        Returns:
-            List of dictionaries with waitlist entry data
-        """
+        """Get all waitlist entries."""
         try:
             entries = self.db.query(Waitlist).order_by(Waitlist.created_at.desc()).all()
             return [
@@ -170,5 +150,3 @@ class WaitlistService:
         except Exception as e:
             logger.error(f"Error fetching waitlist entries: {e}", exc_info=True)
             raise
-    
-# ------------------------------ END OF FILE ------------------------------
