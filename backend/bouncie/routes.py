@@ -9,8 +9,7 @@ from datetime import datetime, timedelta, timezone
 from .service import BouncieService
 from .data_fetcher import fetch_trips_in_date_range
 from .matching import match_trip, match_all_trips
-from .utils import trip_to_dict
-from .helpers import format_date_for_api
+from .helpers import format_date_for_api, trip_to_dict
 from .schemas import (
     APIResponse,
     MatchRequest,
@@ -1319,7 +1318,6 @@ async def handle_bouncie_webhook(
     }
     """
     import os
-    from datetime import datetime
     
     # Get raw body for signature verification
     body_bytes = await request.body()
@@ -1472,7 +1470,6 @@ async def _handle_mil_event(
     payload: dict
 ):
     """Handle new_mil_event webhook - store DTC codes."""
-    from datetime import datetime, timezone
     
     logger.info(f"Processing MIL event for account {account_id}, vehicle {vehicle_id}, IMEI {imei}")
     
@@ -1563,7 +1560,6 @@ async def _handle_trip_ended(
     payload: dict
 ):
     """Handle trip_ended webhook - trigger automatic trip matching."""
-    from datetime import datetime, timezone
     from .auto_match import process_bouncie_link
     
     logger.info(f"Processing trip_ended event for account {account_id}, vehicle {vehicle_id}, IMEI {imei}")
@@ -1601,7 +1597,6 @@ async def _handle_device_connected(
     payload: dict
 ):
     """Handle device_connected webhook - log device connection."""
-    from datetime import datetime, timezone
     
     logger.info(f"Device {imei} connected for account {account_id}, vehicle {vehicle_id}")
     
@@ -1623,7 +1618,6 @@ async def _handle_device_disconnected(
     payload: dict
 ):
     """Handle device_disconnected webhook - log device disconnection."""
-    from datetime import datetime, timezone
     
     logger.info(f"Device {imei} disconnected for account {account_id}, vehicle {vehicle_id}")
     
@@ -1645,7 +1639,6 @@ async def _handle_vin_change(
     payload: dict
 ):
     """Handle vin_change webhook - update vehicle mapping with new VIN."""
-    from datetime import datetime, timezone
     
     logger.info(f"Processing VIN change for account {account_id}, vehicle {vehicle_id}, IMEI {imei}")
     

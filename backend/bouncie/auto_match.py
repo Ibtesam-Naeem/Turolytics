@@ -1,15 +1,14 @@
 # ------------------------------ IMPORTS ------------------------------
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Set
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
 from .service import BouncieService
 from .data_fetcher import fetch_trips_in_date_range
 from .matching import match_all_trips
-from .utils import trip_to_dict, get_account_or_raise
-from .data_fetcher import fetch_trips_in_date_range
+from .helpers import trip_to_dict
 from core.database.models import (
     Account, Vehicle, Trip, BouncieIntegration,
     BouncieVehicleMapping, BouncieTripMatch
@@ -20,31 +19,71 @@ logger = logging.getLogger(__name__)
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
 
-def _serialize_datetime_for_json(obj: Any) -> Any:
-    """Recursively serialize datetime objects to ISO format strings for JSON."""
+def _serialize_datetime(obj: Any) -> Any:
+    """Recursively serialize datetime objects to ISO format strings."""
     if isinstance(obj, datetime):
         return obj.isoformat()
     elif isinstance(obj, dict):
-        return {key: _serialize_datetime_for_json(value) for key, value in obj.items()}
+        return {k: _serialize_datetime(v) for k, v in obj.items()}
     elif isinstance(obj, list):
-        return [_serialize_datetime_for_json(item) for item in obj]
-    elif isinstance(obj, tuple):
-        return tuple(_serialize_datetime_for_json(item) for item in obj)
-    else:
-        return obj
+        return [_serialize_datetime(item) for item in obj]
+    return obj
 
-def _set_match_fields(match: BouncieTripMatch, matched_bouncie: Dict[str, Any], serialized_match_data: Dict[str, Any]) -> None:
-    """Set common fields on a BouncieTripMatch object from matched Bouncie trip data."""
-    match.bouncie_trip_count = matched_bouncie.get("trip_count", 0)
-    match.aggregated_distance_km = matched_bouncie.get("aggregated_distance_km")
-    match.aggregated_distance_miles = matched_bouncie.get("aggregated_distance_miles")
-    match.total_duration_hours = matched_bouncie.get("total_duration_hours")
-    match.coordinates = matched_bouncie.get("coordinates")
-    match.polyline = matched_bouncie.get("polyline")
-    match.coordinate_count = matched_bouncie.get("coordinate_count", 0)
-    match.bouncie_earliest_start = matched_bouncie.get("earliest_start")
-    match.bouncie_latest_end = matched_bouncie.get("latest_end")
-    match.match_data = serialized_match_data
+
+def _find_matching_turo_vehicle(
+    bouncie_vehicle: Dict[str, Any],
+    turo_vehicles: List[Vehicle],
+    mapped_vehicle_ids: Set[int]
+) -> Optional[Vehicle]:
+    """Find matching Turo vehicle for a Bouncie vehicle by name similarity."""
+    bouncie_nickname = (bouncie_vehicle.get("nickName") or "").lower().strip()
+    
+    if bouncie_nickname:
+        for tv in turo_vehicles:
+            if tv.id in mapped_vehicle_ids or not tv.name:
+                continue
+            
+            turo_name_lower = tv.name.lower()
+            if bouncie_nickname in turo_name_lower:
+                logger.info(f"Matched '{bouncie_vehicle.get('nickName')}' to '{tv.name}'")
+                return tv
+            
+            words = [w for w in bouncie_nickname.split() if len(w) > 2]
+            if words and all(word in turo_name_lower for word in words):
+                logger.info(f"Matched '{bouncie_vehicle.get('nickName')}' to '{tv.name}' by words")
+                return tv
+    
+    unmapped = [tv for tv in turo_vehicles if tv.id not in mapped_vehicle_ids]
+    if len(unmapped) == 1:
+        logger.warning(f"No name match for '{bouncie_vehicle.get('nickName')}', using only unmapped vehicle '{unmapped[0].name}'")
+        return unmapped[0]
+    elif len(unmapped) > 1:
+        logger.warning(f"No name match for '{bouncie_vehicle.get('nickName')}' and {len(unmapped)} unmapped vehicles - requires manual mapping")
+    
+    return None
+
+
+def _ensure_utc_datetime(dt: Optional[datetime]) -> Optional[datetime]:
+    """Ensure datetime is UTC-aware. Converts naive to UTC."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _get_trip_dedup_key(trip: Dict[str, Any]) -> Optional[tuple]:
+    """Get deduplication key for a Bouncie trip."""
+    start_time = trip.get("startTime")
+    end_time = trip.get("endTime")
+    imei = trip.get("imei")
+    transaction_id = trip.get("transactionId")
+    
+    if transaction_id:
+        return ("id", transaction_id)
+    if start_time and end_time and imei:
+        return ("time", start_time, end_time, imei)
+    return None
 
 # ------------------------------ AUTOMATIC PROCESSING ------------------------------
 
@@ -55,28 +94,9 @@ async def process_bouncie_link(
     skip_existing_matches: bool = True,
     force_rematch: bool = False
 ) -> Dict[str, Any]:
-    """
-    Automatically process Bouncie integration after linking:
-    1. Fetch vehicles and create IMEI mappings
-    2. Fetch recent trips
-    3. Match with Turo trips (skipping already-matched trips by default)
-    4. Store matches in database
-    
-    Args:
-        db: Database session
-        account_id: Account ID
-        days_back: How many days back to fetch trips (default 60)
-        skip_existing_matches: If True, skip trips that already have matches (default True)
-        force_rematch: If True, re-match all trips even if matches exist (default False)
-    
-    Returns:
-        Dict with processing results
-    """
+    """Automatically process Bouncie integration: fetch vehicles, trips, and match."""
     try:
-        try:
-            account = get_account_or_raise(db, account_id)
-        except HTTPException as e:
-            return {"success": False, "error": e.detail}
+        account = DatabaseService.get_account_or_raise(db, account_id=account_id)
         
         integration = db.query(BouncieIntegration).filter(
             BouncieIntegration.account_id == account.id
@@ -86,17 +106,15 @@ async def process_bouncie_link(
             return {"success": False, "error": "Bouncie not linked for this account"}
         
         service = BouncieService(db=db, account_id=account_id)
-        
-        # Ensure tokens are loaded and refresh if needed before making requests
         service._load_tokens()
+        
         if not service.access_token:
             return {"success": False, "error": "No Bouncie access token available. Please reconnect Bouncie."}
         
-        # Check if token is expired and refresh if possible
         if service.token_expires_at and service.token_expires_at < datetime.now(timezone.utc):
             if not service.refresh_token:
                 return {"success": False, "error": "Bouncie token expired and no refresh token available. Please reconnect Bouncie."}
-            logger.info(f"Token expired for account {account_id}, refreshing...")
+            logger.info(f"Refreshing expired token for account {account_id}")
             if not service._refresh_access_token():
                 return {"success": False, "error": "Bouncie token expired and refresh failed. Please reconnect Bouncie."}
         
@@ -110,9 +128,7 @@ async def process_bouncie_link(
             "errors": []
         }
 
-        logger.info(f"Fetching Bouncie vehicles for account {account_id}")
         vehicles_result = await service.get_vehicles()
-        
         if not vehicles_result.get("success"):
             error_msg = f"Failed to fetch vehicles: {vehicles_result.get('error')}"
             logger.error(error_msg)
@@ -124,69 +140,35 @@ async def process_bouncie_link(
         
         turo_vehicles = db.query(Vehicle).filter(Vehicle.account_id == account.id).all()
         
+        existing_mappings = db.query(BouncieVehicleMapping).filter(
+            BouncieVehicleMapping.account_id == account.id
+        ).all()
+        mapped_vehicle_ids = {m.vehicle_id for m in existing_mappings}
+        mapped_imeis = {m.imei for m in existing_mappings}
+        
         for bv in bouncie_vehicles:
             imei = bv.get("imei")
-            if not imei:
+            if not imei or imei in mapped_imeis:
                 continue
             
-            existing = db.query(BouncieVehicleMapping).filter(
-                BouncieVehicleMapping.account_id == account.id,
-                BouncieVehicleMapping.imei == imei
-            ).first()
-            
-            if not existing:
-                turo_vehicle = None
-                
-                # Try to match by name similarity
-                bouncie_nickname = (bv.get("nickName") or "").lower().strip()
-                if bouncie_nickname:
-                    for tv in turo_vehicles:
-                        existing_mapping = db.query(BouncieVehicleMapping).filter(
-                            BouncieVehicleMapping.vehicle_id == tv.id
-                        ).first()
-                        if not existing_mapping and tv.name:
-                            turo_name_lower = tv.name.lower()
-                            # Check if Bouncie nickname appears in Turo vehicle name
-                            # e.g., "Elantra" should match "Hyundai Elantra 2017"
-                            if bouncie_nickname in turo_name_lower:
-                                turo_vehicle = tv
-                                logger.info(f"Matched Bouncie '{bv.get('nickName')}' to Turo vehicle '{tv.name}' by name similarity")
-                                break
-                            
-                            # Also try matching individual words (for cases like "Genesis G70" matching "Genesis G70")
-                            bouncie_words = [w for w in bouncie_nickname.split() if len(w) > 2]
-                            if bouncie_words and all(word in turo_name_lower for word in bouncie_words):
-                                turo_vehicle = tv
-                                logger.info(f"Matched Bouncie '{bv.get('nickName')}' to Turo vehicle '{tv.name}' by word matching")
-                                break
-                
-                # Fallback: pick first available vehicle if no name match found
-                if not turo_vehicle:
-                    for tv in turo_vehicles:
-                        existing_mapping = db.query(BouncieVehicleMapping).filter(
-                            BouncieVehicleMapping.vehicle_id == tv.id
-                        ).first()
-                        if not existing_mapping:
-                            turo_vehicle = tv
-                            logger.warning(f"No name match found for Bouncie '{bv.get('nickName')}', assigning to first available vehicle '{tv.name}'")
-                            break
-                
-                if turo_vehicle:
-                    mapping = BouncieVehicleMapping(
-                        account_id=account.id,
-                        vehicle_id=turo_vehicle.id,
-                        imei=imei,
-                        bouncie_nickname=bv.get("nickName"),
-                        bouncie_vin=bv.get("vin")
-                    )
-                    db.add(mapping)
-                    results["vehicles_mapped"] += 1
-                    logger.info(f"Mapped Bouncie IMEI {imei} to Turo vehicle {turo_vehicle.id} ({turo_vehicle.name})")
+            turo_vehicle = _find_matching_turo_vehicle(bv, turo_vehicles, mapped_vehicle_ids)
+            if turo_vehicle:
+                mapping = BouncieVehicleMapping(
+                    account_id=account.id,
+                    vehicle_id=turo_vehicle.id,
+                    imei=imei,
+                    bouncie_nickname=bv.get("nickName"),
+                    bouncie_vin=bv.get("vin")
+                )
+                db.add(mapping)
+                mapped_vehicle_ids.add(turo_vehicle.id)
+                mapped_imeis.add(imei)
+                results["vehicles_mapped"] += 1
+                logger.info(f"Mapped IMEI {imei} to vehicle {turo_vehicle.id} ({turo_vehicle.name})")
         
         db.commit()
         
-        logger.info(f"Fetching Bouncie trips for last {days_back} days")
-        end_date = datetime.now()
+        end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=days_back)
         
         all_bouncie_trips = await fetch_trips_in_date_range(
@@ -202,15 +184,30 @@ async def process_bouncie_link(
         if not all_bouncie_trips:
             return {"success": True, "results": results, "message": "No Bouncie trips found"}
         
-        turo_trips = db.query(Trip).filter(
+        turo_trips_query = db.query(Trip).filter(
             Trip.account_id == account.id,
             Trip.status == "COMPLETED"
-        ).all()
+        )
         
-        if not turo_trips:
-            return {"success": True, "results": results, "message": "No Turo trips found to match"}
+        from turo.parsing import parse_turo_trip_datetime_from_dict
+        turo_trips = turo_trips_query.all()
         
-        trips_to_match = []
+        trips_in_range = []
+        for trip in turo_trips:
+            trip_dict = trip_to_dict(trip)
+            trip_start = parse_turo_trip_datetime_from_dict(trip_dict, is_start=True)
+            trip_end = parse_turo_trip_datetime_from_dict(trip_dict, is_start=False)
+            
+            if trip_start and trip_end:
+                trip_start_utc = _ensure_utc_datetime(trip_start)
+                trip_end_utc = _ensure_utc_datetime(trip_end)
+                
+                if trip_start_utc <= end_date and trip_end_utc >= start_date:
+                    trips_in_range.append(trip)
+        
+        if not trips_in_range:
+            return {"success": True, "results": results, "message": "No Turo trips found in date range to match"}
+        
         if skip_existing_matches and not force_rematch:
             existing_match_trip_ids = {
                 match.trip_id for match in db.query(BouncieTripMatch)
@@ -218,21 +215,13 @@ async def process_bouncie_link(
                 .filter(Trip.account_id == account.id)
                 .all()
             }
-            
-            for trip in turo_trips:
-                if trip.id not in existing_match_trip_ids:
-                    trips_to_match.append(trip)
-                else:
-                    results["trips_skipped"] += 1
-            
-            logger.info(
-                f"Found {len(trips_to_match)} unmatched trips out of {len(turo_trips)} total trips. "
-                f"Skipping {results['trips_skipped']} trips that already have matches."
-            )
+            trips_to_match = [t for t in trips_in_range if t.id not in existing_match_trip_ids]
+            results["trips_skipped"] = len(trips_in_range) - len(trips_to_match)
+            logger.info(f"Found {len(trips_to_match)} unmatched trips, skipping {results['trips_skipped']}")
         else:
-            trips_to_match = turo_trips
+            trips_to_match = trips_in_range
             if force_rematch:
-                logger.info(f"Force re-matching enabled: will re-match all {len(trips_to_match)} trips")
+                logger.info(f"Force re-matching {len(trips_to_match)} trips")
         
         if not trips_to_match:
             return {
@@ -251,14 +240,12 @@ async def process_bouncie_link(
         logger.info(f"Matching {len(turo_trips_dict)} Turo trips with {len(all_bouncie_trips)} Bouncie trips")
         matches = match_all_trips(turo_trips_dict, all_bouncie_trips, vehicle_imei_map)
         
-        # Check for unmatched trips and try to fill gaps by re-fetching
-        unmatched_trips = [m for m in matches if not m.get("matched_bouncie_trip")]
-        if unmatched_trips and len(unmatched_trips) <= 5:  # Only re-fetch if reasonable number
-            logger.info(f"Found {len(unmatched_trips)} unmatched trips, attempting to fill gaps...")
-            from turo.parsing import parse_turo_trip_datetime_from_dict
+        unmatched = [m for m in matches if not m.get("matched_bouncie_trip")]
+        if unmatched and len(unmatched) <= 5:
+            logger.info(f"Found {len(unmatched)} unmatched trips, attempting gap fill...")
             
             gap_trips = []
-            for match in unmatched_trips:
+            for match in unmatched:
                 turo_trip = match.get("turo_trip")
                 if not turo_trip:
                     continue
@@ -267,40 +254,28 @@ async def process_bouncie_link(
                 turo_end = parse_turo_trip_datetime_from_dict(turo_trip, is_start=False)
                 
                 if turo_start and turo_end:
-                    # Add buffer to the date range (1 day before/after)
-                    gap_start = turo_start - timedelta(days=1)
-                    gap_end = turo_end + timedelta(days=1)
-                    
-                    # Fetch trips for this specific gap
-                    gap_bouncie_trips = await fetch_trips_in_date_range(
+                    turo_start_utc = _ensure_utc_datetime(turo_start)
+                    turo_end_utc = _ensure_utc_datetime(turo_end)
+                    gap_trips.extend(await fetch_trips_in_date_range(
                         service=service,
-                        start_date=gap_start,
-                        end_date=gap_end,
+                        start_date=turo_start_utc - timedelta(days=1),
+                        end_date=turo_end_utc + timedelta(days=1),
                         vehicles=bouncie_vehicles
-                    )
-                    
-                    if gap_bouncie_trips:
-                        gap_trips.extend(gap_bouncie_trips)
-                        logger.info(
-                            f"Found {len(gap_bouncie_trips)} additional Bouncie trips for gap "
-                            f"{gap_start.date()} to {gap_end.date()}"
-                        )
+                    ))
             
-            # Re-match with additional trips
             if gap_trips:
-                # Deduplicate trips (by trip ID if available, or by start/end time)
-                existing_trip_keys = {
-                    (t.get("startTime"), t.get("endTime"), t.get("imei"))
-                    for t in all_bouncie_trips
+                existing_keys = {
+                    _get_trip_dedup_key(t) for t in all_bouncie_trips
+                    if _get_trip_dedup_key(t) is not None
                 }
                 new_trips = [
                     t for t in gap_trips
-                    if (t.get("startTime"), t.get("endTime"), t.get("imei")) not in existing_trip_keys
+                    if _get_trip_dedup_key(t) not in existing_keys
                 ]
                 
                 if new_trips:
                     all_bouncie_trips.extend(new_trips)
-                    logger.info(f"Added {len(new_trips)} new Bouncie trips, re-matching...")
+                    logger.info(f"Added {len(new_trips)} new trips, re-matching...")
                     matches = match_all_trips(turo_trips_dict, all_bouncie_trips, vehicle_imei_map)
         
         results["trips_matched"] = len([m for m in matches if m.get("matched_bouncie_trip")])
@@ -324,46 +299,61 @@ async def process_bouncie_link(
                 BouncieTripMatch.trip_id == trip.id
             ).first()
             
-            serialized_match_data = _serialize_datetime_for_json(matched_bouncie)
+            serialized_data = _serialize_datetime(matched_bouncie)
             
             if existing_match:
-                _set_match_fields(existing_match, matched_bouncie, serialized_match_data)
+                match_obj = existing_match
                 results["matches_updated"] += 1
             else:
-                trip_match = BouncieTripMatch(
-                    account_id=account.id,
-                    trip_id=trip.id
-                )
-                _set_match_fields(trip_match, matched_bouncie, serialized_match_data)
-                db.add(trip_match)
+                match_obj = BouncieTripMatch(account_id=account.id, trip_id=trip.id)
+                db.add(match_obj)
                 results["matches_created"] += 1
+            
+            match_obj.bouncie_trip_count = matched_bouncie.get("trip_count", 0)
+            match_obj.aggregated_distance_km = matched_bouncie.get("aggregated_distance_km")
+            match_obj.aggregated_distance_miles = matched_bouncie.get("aggregated_distance_miles")
+            match_obj.total_duration_hours = matched_bouncie.get("total_duration_hours")
+            match_obj.coordinates = matched_bouncie.get("coordinates")
+            match_obj.polyline = matched_bouncie.get("polyline")
+            match_obj.coordinate_count = matched_bouncie.get("coordinate_count", 0)
+            
+            earliest_start = matched_bouncie.get("earliest_start")
+            latest_end = matched_bouncie.get("latest_end")
+            match_obj.bouncie_earliest_start = _ensure_utc_datetime(earliest_start) if earliest_start else None
+            match_obj.bouncie_latest_end = _ensure_utc_datetime(latest_end) if latest_end else None
+            
+            match_obj.match_data = serialized_data
         
         db.commit()
         
-        logger.info(f"Successfully processed Bouncie link: {results}")
+        logger.info(f"Processing complete: {results}")
         return {"success": True, "results": results}
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Error processing Bouncie link: {e}")
         db.rollback()
         return {"success": False, "error": str(e)}
 
+
 async def handle_bouncie_auto_processing(db: Session, account_id: int) -> None:
-    """Handle automatic Bouncie processing after OAuth callback (non-blocking)."""
+    """Handle automatic Bouncie processing after OAuth callback.
+    
+    Note: This function is async and will block the caller. For true fire-and-forget
+    behavior, use FastAPI BackgroundTasks or a task queue (Celery/RQ).
+    """
     try:
-        processing_result = await process_bouncie_link(db, account_id, days_back=365)
-        if processing_result.get("success"):
-            results = processing_result.get("results", {})
+        result = await process_bouncie_link(db, account_id, days_back=365)
+        if result.get("success"):
+            r = result.get("results", {})
             logger.info(
-                f"Auto-processing completed: "
-                f"{results.get('vehicles_mapped')} vehicles mapped, "
-                f"{results.get('trips_fetched')} trips fetched, "
-                f"{results.get('matches_created')} matches created"
+                f"Auto-processing: {r.get('vehicles_mapped')} vehicles, "
+                f"{r.get('trips_fetched')} trips, {r.get('matches_created')} matches"
             )
         else:
-            logger.warning(f"Auto-processing had issues: {processing_result.get('error')}")
+            logger.warning(f"Auto-processing failed: {result.get('error')}")
     except Exception as e:
-        logger.error(f"Error during auto-processing (non-fatal): {e}")
+        logger.error(f"Error during auto-processing: {e}")
 
 # ------------------------------ END OF FILE ------------------------------
-

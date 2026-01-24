@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List, Tuple
 import logging
 import polyline
+from core.database.models import Trip
 
 logger = logging.getLogger(__name__)
 
@@ -238,6 +239,22 @@ def get_odometer_at_time_from_trips(
             }
     
     return None
+
+# ------------------------------ MODEL SERIALIZATION ------------------------------
+
+def trip_to_dict(trip: Trip) -> Dict[str, Any]:
+    """Convert Trip SQL model into serialisable dict for matching."""
+    return {
+        "trip_id": trip.trip_id,
+        "vehicle_id": trip.vehicle_id,
+        "start_date": trip.start_date,
+        "start_time": trip.start_time,
+        "end_date": trip.end_date,
+        "end_time": trip.end_time,
+        "kilometers_driven": trip.kilometers_driven,
+        "status": trip.status,
+        "updated_at": trip.updated_at.isoformat() if trip.updated_at else None,
+    }
 
 
 # ------------------------------ END OF FILE ------------------------------

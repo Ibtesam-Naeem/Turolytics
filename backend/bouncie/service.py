@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import requests
+import traceback
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional
 from urllib.parse import urlencode, urlparse, parse_qs
@@ -59,26 +60,50 @@ class BouncieService:
 
     # ------------------------------ TOKEN MANAGEMENT ------------------------------
 
+    def _get_account(self, raise_on_error: bool = False) -> Optional[Account]:
+        """Get account by account_id, trying both account_id and user_id lookup."""
+        if not self.db or not self.account_id:
+            return None
+        
+        # Try account_id first, then fall back to user_id if needed
+        account = DatabaseService.get_account(self.db, account_id=self.account_id)
+        if not account:
+            # If account_id lookup failed, try as user_id (for backward compatibility)
+            account = DatabaseService.get_account(self.db, user_id=self.account_id)
+        
+        if not account:
+            if raise_on_error:
+                all_accounts = self.db.query(Account).all()
+                account_info = [f"id={a.id}, user_id={a.user_id}, email={a.email}" for a in all_accounts]
+                raise ValueError(
+                    f"Account {self.account_id} not found (tried as both account_id and user_id).\n"
+                    f"Available accounts: {', '.join(account_info) if account_info else 'None'}"
+                )
+            logger.warning(f"Account {self.account_id} not found (tried as both account_id and user_id)")
+            return None
+        
+        # Update account_id to the actual account.id for consistency
+        self.account_id = account.id
+        self.account = account
+        return account
+
+    @staticmethod
+    def _extract_refresh_token(token_data: Dict[str, Any], existing_refresh_token: Optional[str] = None) -> Optional[str]:
+        """Extract refresh token from token response, trying various field names."""
+        return (
+            token_data.get("refresh_token") or 
+            token_data.get("refreshToken") or
+            token_data.get("refresh") or
+            existing_refresh_token  # Preserve existing if not provided
+        )
+
     def _load_tokens(self):
         """Load tokens from database for the current account."""
-        if not self.db or not self.account_id:
+        account = self._get_account()
+        if not account:
             return
 
         try:
-            # Try account_id first, then fall back to user_id if needed
-            account = DatabaseService.get_account(self.db, account_id=self.account_id)
-            if not account:
-                # If account_id lookup failed, try as user_id (for backward compatibility)
-                account = DatabaseService.get_account(self.db, user_id=self.account_id)
-            
-            if not account:
-                logger.warning(f"Account {self.account_id} not found (tried as both account_id and user_id)")
-                return
-            
-            # Update account_id to the actual account.id for consistency
-            self.account_id = account.id
-            self.account = account
-            
             integration = self.db.query(BouncieIntegration).filter(
                 BouncieIntegration.account_id == account.id
             ).first()
@@ -96,30 +121,10 @@ class BouncieService:
 
     def _save_tokens(self, access_token: str, refresh_token: Optional[str], expires_in: int):
         """Save or update tokens in the database."""
-        if not self.db or not self.account_id:
-            logger.warning("Cannot save tokens: No DB session or account_id provided")
-            return False
-
         try:
-            # Try account_id first, then fall back to user_id if needed
-            account = DatabaseService.get_account(self.db, account_id=self.account_id)
+            account = self._get_account(raise_on_error=True)
             if not account:
-                # If account_id lookup failed, try as user_id (for backward compatibility)
-                account = DatabaseService.get_account(self.db, user_id=self.account_id)
-            
-            if not account:
-                all_accounts = self.db.query(Account).all()
-                account_info = [f"id={a.id}, user_id={a.user_id}, email={a.email}" for a in all_accounts]
-                logger.error(
-                    f"Account {self.account_id} not found (tried as both account_id and user_id) - cannot save tokens.\n"
-                    f"Available accounts: {', '.join(account_info) if account_info else 'None'}\n"
-                    f"Please ensure the account exists in the database."
-                )
                 return False
-            
-            # Update account_id to the actual account.id for consistency
-            self.account_id = account.id
-            self.account = account
             
             expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
             
@@ -132,20 +137,17 @@ class BouncieService:
                 self.db.add(integration)
             
             integration.access_token = access_token
-            # Always update refresh_token if provided, otherwise preserve existing
-            if refresh_token:
+            # Update refresh_token if provided, otherwise preserve existing
+            if refresh_token is not None:
                 integration.refresh_token = refresh_token
-            # If refresh_token is None and we don't have one, keep existing (don't overwrite with None)
-            elif not integration.refresh_token:
-                # Only set to None if integration is new and we have no refresh_token
-                pass  # Keep it as None for new integrations
             integration.expires_at = expires_at
             
             self.db.commit()
             self.db.refresh(integration)
             
+            # Update instance variables
             self.access_token = access_token
-            if refresh_token:
+            if refresh_token is not None:
                 self.refresh_token = refresh_token
             self.token_expires_at = expires_at
             self.headers["Authorization"] = self.access_token
@@ -153,6 +155,9 @@ class BouncieService:
             logger.info(f"Saved Bouncie tokens for account {account.id} (user_id: {account.user_id})")
             return True
             
+        except ValueError as e:
+            logger.error(f"Cannot save tokens: {e}")
+            return False
         except Exception as e:
             logger.error(f"Error saving tokens: {e}", exc_info=True)
             self.db.rollback()
@@ -185,13 +190,7 @@ class BouncieService:
                 token_data = response.json()
                 logger.info("Token refresh successful")
                 
-                # Preserve existing refresh_token if new one is not provided
-                new_refresh_token = (
-                    token_data.get("refresh_token") or 
-                    token_data.get("refreshToken") or
-                    token_data.get("refresh") or
-                    self.refresh_token  # Keep existing if not provided
-                )
+                new_refresh_token = self._extract_refresh_token(token_data, self.refresh_token)
                 
                 self._save_tokens(
                     token_data.get("access_token"),
@@ -205,7 +204,6 @@ class BouncieService:
                 
         except Exception as e:
             logger.error(f"Exception refreshing token: {e}")
-            import traceback
             logger.error(traceback.format_exc())
             return False
     
@@ -248,22 +246,17 @@ class BouncieService:
                 "redirect_uri": self.redirect_uri
             }
             
-            response = requests.post(BOUNCIE_TOKEN_URL, json=data, 
-                                   headers={"Content-Type": "application/json"}, timeout=30)
-            
-            if response.status_code == 401:
-                response = requests.post(BOUNCIE_TOKEN_URL, data=data, timeout=30)
+            response = requests.post(
+                BOUNCIE_TOKEN_URL, 
+                json=data, 
+                headers={"Content-Type": "application/json"}, 
+                timeout=30
+            )
             
             if response.status_code == 200:
                 token_data = response.json()
                 
-                # Check for refresh token in various possible field names
-                refresh_token = (
-                    token_data.get("refresh_token") or 
-                    token_data.get("refreshToken") or
-                    token_data.get("refresh") or
-                    None
-                )
+                refresh_token = self._extract_refresh_token(token_data)
                 
                 if not refresh_token:
                     logger.debug("No refresh token found in response - token refresh will not be possible")
@@ -277,8 +270,9 @@ class BouncieService:
                     if not save_success:
                         logger.warning("Token exchange succeeded but failed to save to database")
                 else:
+                    # Fallback: set tokens directly if no DB session
                     self.access_token = token_data.get("access_token")
-                    self.refresh_token = token_data.get("refresh_token")
+                    self.refresh_token = refresh_token
                     self.token_expires_at = datetime.now(timezone.utc) + timedelta(seconds=token_data.get("expires_in", 3600))
                     self.headers["Authorization"] = self.access_token
 
@@ -290,6 +284,27 @@ class BouncieService:
     
     # ------------------------------ CORE API METHODS ------------------------------
     
+    def _ensure_valid_token(self) -> Optional[Dict[str, Any]]:
+        """Ensure we have a valid access token, refreshing if necessary."""
+        # Always reload tokens from database to ensure we have the latest refresh_token
+        if self.db and self.account_id:
+            self._load_tokens()
+        
+        # Check if we have an access token
+        if not self.access_token:
+            return {"success": False, "error": "No access token available"}
+        
+        # Check if token is expired and refresh if needed
+        if self.token_expires_at and datetime.now(timezone.utc) >= self.token_expires_at:
+            if not self.refresh_token:
+                logger.warning("Token expired but no refresh token available")
+                return {"success": False, "error": "Token expired and no refresh token available. Please reconnect Bouncie."}
+            if not self._refresh_access_token():
+                logger.error("Token refresh failed")
+                return {"success": False, "error": "Token expired and refresh failed. Please reconnect Bouncie."}
+        
+        return None
+    
     def _make_request(
         self,
         method: str,
@@ -297,24 +312,10 @@ class BouncieService:
         params: Optional[Dict[str, Any]] = None,
         **kwargs
     ) -> Dict[str, Any]:
-        # Always reload tokens from database to ensure we have the latest refresh_token
-        if self.db and self.account_id:
-            self._load_tokens()
-        
-        if not self.access_token:
-            return {"success": False, "error": "No access token available"}
-        
-        # Check if token is expired and refresh automatically if we have a refresh token
-        if self.token_expires_at and datetime.now(timezone.utc) >= self.token_expires_at:
-             if not self.refresh_token:
-                 logger.warning("Token expired but no refresh token available")
-                 return {"success": False, "error": "Token expired and no refresh token available. Please reconnect Bouncie."}
-             if not self._refresh_access_token():
-                 logger.error("Token refresh failed")
-                 return {"success": False, "error": "Token expired and refresh failed. Please reconnect Bouncie."}
-
-        if not self.access_token:
-            return {"success": False, "error": "No access token available"}
+        # Ensure we have a valid token before making request
+        token_error = self._ensure_valid_token()
+        if token_error:
+            return token_error
         
         try:
             url = f"{BOUNCIE_API_BASE}{endpoint}"
@@ -330,10 +331,10 @@ class BouncieService:
             
             response = requests.request(method, url, headers=headers, timeout=30, **request_kwargs)
             
-            # If we get 401, try refreshing the token automatically
+            # If we get 401, try refreshing the token and retry once
             if response.status_code == 401 and self.refresh_token:
-                logger.info("Received 401, attempting token refresh")
-                if self._refresh_access_token_sync():
+                logger.info("Received 401, attempting token refresh and retry")
+                if self._refresh_access_token():
                     # Reload tokens after refresh
                     self._load_tokens()
                     headers["Authorization"] = self.headers["Authorization"]
@@ -405,10 +406,7 @@ class BouncieService:
         return result
     
     async def get_vehicle_status(self, imei: str) -> Dict[str, Any]:
-        """
-        Get live status for a specific vehicle by IMEI.
-        Returns current location, speed, fuel level, etc.
-        """
+        """Get live status for a specific vehicle by IMEI."""
         logger.debug(f"Fetching vehicle status for IMEI: {imei}")
         result = await self._api_call("GET", f"/vehicles/{imei}")
         if not result.get("success"):
