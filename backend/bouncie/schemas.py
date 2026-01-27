@@ -1,27 +1,23 @@
 # ------------------------------ IMPORTS ------------------------------
-from pydantic import BaseModel, field_serializer
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, List, Any, Dict
 from datetime import datetime
+from .constants import DEFAULT_DAYS_BACK
 
 # ------------------------------ BASE MODELS ------------------------------
 
 class BaseOutModel(BaseModel):
-    """Base model with common datetime serialization."""
+    """Base model for output schemas."""
     
-    @field_serializer('created_at', 'updated_at', 'bouncie_earliest_start', 'bouncie_latest_end', check_fields=False)
-    def serialize_datetime(self, dt: Optional[datetime]) -> Optional[str]:
-        return dt.isoformat() if dt else None
-    
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # ------------------------------ OUTPUT MODELS ------------------------------
 
 class BouncieTripMatchOut(BaseOutModel):
     """Bouncie trip match output model."""
     id: int
-    trip_id: Optional[str] = None 
-    turo_trip_id: int
+    trip_id: Optional[str] = None  
+    turo_trip_id: int 
     bouncie_trip_count: int
     aggregated_distance_km: Optional[float] = None
     aggregated_distance_miles: Optional[float] = None
@@ -55,12 +51,16 @@ class BouncieVehicleMappingOut(BaseOutModel):
 # ------------------------------ REQUEST MODELS ------------------------------
 
 class MatchRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     authorization_code: Optional[str] = None
     trip_id: Optional[str] = None
     imei: Optional[str] = None
-    days_back: int = 30
+    days_back: int = DEFAULT_DAYS_BACK
 
 class VehicleMappingRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     vehicle_id: int
     imei: str
     bouncie_nickname: Optional[str] = None
@@ -68,6 +68,8 @@ class VehicleMappingRequest(BaseModel):
 
 class VehicleMappingUpdateRequest(BaseModel):
     """Request model for updating vehicle mappings."""
+    model_config = ConfigDict(extra='forbid')
+    
     vehicle_id: Optional[int] = None
     imei: Optional[str] = None
     bouncie_nickname: Optional[str] = None
@@ -92,7 +94,8 @@ class BouncieDTCCodeOut(BaseOutModel):
 class APIResponse(BaseModel):
     """Generic API response model."""
     success: bool
-    data: Dict[str, Any]
+    data: Any = None
+    error: Optional[str] = None
 
 # ------------------------------ END OF FILE ------------------------------
 
