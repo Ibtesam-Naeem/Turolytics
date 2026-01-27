@@ -5,12 +5,10 @@ import logging
 
 from .helpers import format_date_for_api
 from .service import BouncieService
+from .constants import CHUNK_DELTA_DAYS
 
 logger = logging.getLogger(__name__)
 
-# ------------------------------ CONSTANTS ------------------------------
-
-CHUNK_DELTA_DAYS = 7
 # ------------------------------ DATA FETCHING ------------------------------
 
 async def fetch_trips_in_date_range(
@@ -20,32 +18,19 @@ async def fetch_trips_in_date_range(
     imei: Optional[str] = None,
     vehicles: Optional[List[Dict[str, Any]]] = None
 ) -> List[Dict[str, Any]]:
-    """
-    Fetch all Bouncie trips within a date range, handling API chunking automatically.
-    
-    Args:
-        service: BouncieService instance
-        start_date: Start date for fetching trips
-        end_date: End date for fetching trips
-        imei: IMEI to filter by specific vehicle
-        vehicles: List of vehicles
-    
-    Returns:
-        List of trip dictionaries
-    """
     if vehicles is None:
         vehicles_result = await service.get_vehicles()
         if not vehicles_result.get("success"):
             logger.warning("Failed to fetch vehicles")
             return []
-        vehicles = vehicles_result.get("data", []) or []
+        vehicles = vehicles_result.get("data", [])
     
     if not vehicles:
         return []
     
     all_trips = []
     chunk_delta = timedelta(days=CHUNK_DELTA_DAYS)
-    failed_chunks = []  # Track failed chunks for retry
+    failed_chunks = []
     
     for vehicle in vehicles:
         vehicle_imei = vehicle.get("imei")
@@ -63,10 +48,9 @@ async def fetch_trips_in_date_range(
             )
             
             if trips_result.get("success"):
-                trips_data = trips_result.get("data", []) or []
+                trips_data = trips_result.get("data", [])
                 all_trips.extend(trips_data)
             else:
-                # Track failed chunks for retry
                 failed_chunks.append((chunk_start, chunk_end, vehicle_imei))
                 logger.warning(
                     f"Failed to fetch Bouncie trips for chunk {format_date_for_api(chunk_start)} to "
@@ -75,7 +59,6 @@ async def fetch_trips_in_date_range(
             
             chunk_end = chunk_start - timedelta(days=1)
     
-    # Retry failed chunks once
     if failed_chunks:
         logger.info(f"Retrying {len(failed_chunks)} failed chunk(s)...")
         for chunk_start, chunk_end, vehicle_imei in failed_chunks:
@@ -86,7 +69,7 @@ async def fetch_trips_in_date_range(
             )
             
             if trips_result.get("success"):
-                trips_data = trips_result.get("data", []) or []
+                trips_data = trips_result.get("data", [])
                 all_trips.extend(trips_data)
                 logger.info(
                     f"Successfully fetched {len(trips_data)} trips on retry for "

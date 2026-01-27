@@ -8,51 +8,67 @@ from .helpers import (
     filter_trips_by_date_range,
     aggregate_bouncie_trips,
     get_trip_polyline,
-    get_trip_coordinates
+    get_trip_coordinates,
+    parse_bouncie_datetime,
+    normalize_to_naive_utc
 )
+from .constants import DEFAULT_TIME_BUFFER_HOURS
 from turo.parsing import parse_turo_trip_datetime_from_dict
 
 logger = logging.getLogger(__name__)
 
 # ------------------------------ MATCHING FUNCTIONS ------------------------------
 
+def _find_closest_bouncie_trips(
+    bouncie_trips: List[Dict[str, Any]],
+    turo_start: datetime,
+    turo_end: datetime
+) -> List[str]:
+    closest_trips = []
+    turo_midpoint = turo_start + (turo_end - turo_start) / 2
+    
+    for bt in bouncie_trips:
+        start = bt.get('startTime')
+        end = bt.get('endTime')
+        if start and end:
+            trip_start = parse_bouncie_datetime(start)
+            trip_end = parse_bouncie_datetime(end)
+            if trip_start and trip_end:
+                bouncie_midpoint = trip_start + (trip_end - trip_start) / 2
+                distance_days = abs((turo_midpoint - bouncie_midpoint).days)
+                closest_trips.append((distance_days, f"{start[:10]} to {end[:10]}"))
+    
+    closest_trips.sort(key=lambda x: x[0])
+    return [date for _, date in closest_trips[:3]]
+
 def _find_matching_trips(
     turo_trip: Dict[str, Any],
     bouncie_trips: List[Dict[str, Any]],
     vehicle_imei: Optional[str] = None,
-    time_buffer_hours: int = 2
+    time_buffer_hours: int = DEFAULT_TIME_BUFFER_HOURS
 ) -> Optional[Tuple[List[Dict[str, Any]], datetime, datetime]]:
-    """Find Bouncie trips that match a Turo trip's time window."""
     trip_id = turo_trip.get('trip_id')
-    vehicle_id = turo_trip.get('vehicle_id')
     
     if not bouncie_trips:
-        logger.warning(f"[Trip {trip_id}] No Bouncie trips available for matching")
+        logger.warning(f"[Trip {trip_id}] No Bouncie trips available")
         return None
     
     if vehicle_imei:
         filtered_trips = [t for t in bouncie_trips if t.get('imei') == vehicle_imei]
         if not filtered_trips:
-            logger.warning(
-                f"[Trip {trip_id}, Vehicle {vehicle_id}] No Bouncie trips found for IMEI {vehicle_imei}. "
-                f"Total Bouncie trips available: {len(bouncie_trips)}"
-            )
+            logger.warning(f"[Trip {trip_id}] No trips for IMEI {vehicle_imei}")
             return None
         bouncie_trips = filtered_trips
-        logger.info(f"[Trip {trip_id}] Filtered to {len(bouncie_trips)} Bouncie trips for IMEI {vehicle_imei}")
-    else:
-        logger.warning(f"[Trip {trip_id}, Vehicle {vehicle_id}] No IMEI provided - matching against all Bouncie trips")
     
-    turo_start = parse_turo_trip_datetime_from_dict(turo_trip, is_start=True)
-    turo_end = parse_turo_trip_datetime_from_dict(turo_trip, is_start=False)
+    turo_start_raw = parse_turo_trip_datetime_from_dict(turo_trip, is_start=True)
+    turo_end_raw = parse_turo_trip_datetime_from_dict(turo_trip, is_start=False)
     
-    if not turo_start or not turo_end:
-        logger.warning(
-            f"[Trip {trip_id}] Could not parse Turo trip times. "
-            f"Start: {turo_trip.get('start_date')} {turo_trip.get('start_time')}, "
-            f"End: {turo_trip.get('end_date')} {turo_trip.get('end_time')}"
-        )
+    if not turo_start_raw or not turo_end_raw:
+        logger.warning(f"[Trip {trip_id}] Could not parse trip times")
         return None
+    
+    turo_start = normalize_to_naive_utc(turo_start_raw)
+    turo_end = normalize_to_naive_utc(turo_end_raw)
     
     matching_trips = filter_trips_by_date_range(
         bouncie_trips,
@@ -63,36 +79,11 @@ def _find_matching_trips(
     )
     
     if not matching_trips:
-        # Find Bouncie trips closest to the Turo trip date range for better debugging
-        from .helpers import parse_bouncie_datetime
-        
-        bouncie_dates = []
-        closest_trips = []
-        
-        for bt in bouncie_trips:
-            start = bt.get('startTime')
-            end = bt.get('endTime')
-            if start and end:
-                trip_start = parse_bouncie_datetime(start)
-                trip_end = parse_bouncie_datetime(end)
-                if trip_start and trip_end:
-                    # Calculate how close this trip is to the Turo trip window
-                    # Use the midpoint of each trip for comparison
-                    turo_midpoint = turo_start + (turo_end - turo_start) / 2
-                    bouncie_midpoint = trip_start + (trip_end - trip_start) / 2
-                    distance_days = abs((turo_midpoint - bouncie_midpoint).days)
-                    closest_trips.append((distance_days, f"{start[:10]} to {end[:10]}"))
-        
-        # Sort by distance and take the 3 closest
-        closest_trips.sort(key=lambda x: x[0])
-        bouncie_dates = [date for _, date in closest_trips[:3]]
-        
+        closest_dates = _find_closest_bouncie_trips(bouncie_trips, turo_start, turo_end)
         logger.warning(
-            f"[Trip {trip_id}] No Bouncie trips found in time window. "
-            f"Turo window: {turo_start.strftime('%Y-%m-%d %H:%M')} to {turo_end.strftime('%Y-%m-%d %H:%M')} "
-            f"(buffer: {time_buffer_hours}h). "
-            f"Available Bouncie trips: {len(bouncie_trips)}. "
-            f"Closest Bouncie dates: {', '.join(bouncie_dates) if bouncie_dates else 'N/A'}"
+            f"[Trip {trip_id}] No matches. Window: {turo_start.strftime('%Y-%m-%d %H:%M')} to "
+            f"{turo_end.strftime('%Y-%m-%d %H:%M')} (buffer: {time_buffer_hours}h). "
+            f"Closest: {', '.join(closest_dates) if closest_dates else 'N/A'}"
         )
         return None
     
@@ -102,7 +93,6 @@ def _build_match_result(
     matching_trips: List[Dict[str, Any]],
     aggregated: Dict[str, Any]
 ) -> Dict[str, Any]:
-    """Build the match result structure with coordinates and polylines."""
     aggregated_trip = matching_trips[0].copy()
     aggregated_trip['aggregated_distance_miles'] = aggregated['total_distance_miles']
     aggregated_trip['aggregated_distance_km'] = aggregated['total_distance_km']
@@ -147,9 +137,8 @@ def match_trip(
     turo_trip: Dict[str, Any],
     bouncie_trips: List[Dict[str, Any]],
     vehicle_imei: Optional[str] = None,
-    time_buffer_hours: int = 2
+    time_buffer_hours: int = DEFAULT_TIME_BUFFER_HOURS
 ) -> Optional[Dict[str, Any]]:
-    """Match a Turo trip to the best matching Bouncie trip(s)."""
     match_data = _find_matching_trips(turo_trip, bouncie_trips, vehicle_imei, time_buffer_hours)
     if not match_data:
         return None
@@ -171,7 +160,6 @@ def match_all_trips(
     bouncie_trips: List[Dict[str, Any]],
     vehicle_imei_map: Optional[Dict[str, str]] = None
 ) -> List[Dict[str, Any]]:
-    """Match multiple Turo trips to Bouncie trips."""
     results = []
     matched_count = 0
     unmatched_count = 0
@@ -179,17 +167,9 @@ def match_all_trips(
     for turo_trip in turo_trips:
         imei = None
         trip_id = turo_trip.get('trip_id')
-        vehicle_id = turo_trip.get('vehicle_id')
         
         if vehicle_imei_map:
-            imei = vehicle_imei_map.get(trip_id) or vehicle_imei_map.get(vehicle_id)
-            if not imei and vehicle_id:
-                logger.warning(
-                    f"[Trip {trip_id}] No IMEI mapping found for vehicle_id {vehicle_id}. "
-                    f"Available mappings: {list(vehicle_imei_map.keys())}"
-                )
-        else:
-            logger.info(f"[Trip {trip_id}] No vehicle_imei_map provided - will match against all Bouncie trips")
+            imei = vehicle_imei_map.get(turo_trip.get('vehicle_id'))
         
         match_result = match_trip(turo_trip, bouncie_trips, imei)
         
