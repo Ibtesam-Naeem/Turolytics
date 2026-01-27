@@ -1,44 +1,57 @@
 # ------------------------------ IMPORTS ------------------------------
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List, Tuple
 import logging
 import polyline
 from core.database.models import Trip
+from .constants import DEFAULT_TIME_BUFFER_HOURS
 
 logger = logging.getLogger(__name__)
 
 # ------------------------------ DATE/TIME PARSING ------------------------------
 
 def parse_bouncie_datetime(iso_string: str) -> Optional[datetime]:
-    """Parse Bouncie ISO datetime string into datetime object."""
     if not iso_string:
         return None
     
     try:
         dt = datetime.fromisoformat(iso_string.replace('Z', '+00:00'))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
         return dt.replace(tzinfo=None)
-   
-    except Exception as e:
-        logger.debug(f"Error parsing Bouncie datetime '{iso_string}': {e}")
+    
+    except Exception:
         return None
 
 def format_date_for_api(date: datetime) -> str:
-    """Format datetime for Bouncie API (YYYY-MM-DD)."""
     return date.strftime("%Y-%m-%d")
 
 # ------------------------------ GPS/POLYLINE CONVERSION ------------------------------
 
 def get_trip_coordinates(trip: Dict[str, Any]) -> List[Tuple[float, float]]:
-    """Extract coordinates from a Bouncie trip as (lat, lon) tuples."""
     gps = trip.get('gps')
     if not gps or not isinstance(gps, dict) or gps.get('type') != 'LineString':
         return []
     
     coords = gps.get('coordinates', [])
-    return [(c[1], c[0]) for c in coords]
+    if not isinstance(coords, list):
+        return []
+    
+    result = []
+    for c in coords:
+        if not isinstance(c, (list, tuple)) or len(c) < 2:
+            continue
+        try:
+            lon, lat = float(c[0]), float(c[1])
+            result.append((lat, lon))
+        except (ValueError, TypeError):
+            continue
+    
+    return result
 
 def get_trip_polyline(trip: Dict[str, Any]) -> Optional[str]:
-    """Get encoded polyline string from a Bouncie trip."""
     coords = get_trip_coordinates(trip)
     if not coords:
         return None
@@ -47,7 +60,6 @@ def get_trip_polyline(trip: Dict[str, Any]) -> Optional[str]:
 # ------------------------------ TRIP AGGREGATION ------------------------------
 
 def aggregate_bouncie_trips(trips: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Aggregate multiple Bouncie trips into summary statistics."""
     if not trips:
         return {
             "total_distance_miles": 0.0,
@@ -62,7 +74,14 @@ def aggregate_bouncie_trips(trips: List[Dict[str, Any]]) -> Dict[str, Any]:
     ends = []
     
     for trip in trips:
-        distance = trip.get('distance', 0) or 0
+        distance = trip.get('distance')
+        if distance is None:
+            distance = 0
+        else:
+            try:
+                distance = float(distance)
+            except (ValueError, TypeError):
+                distance = 0
         total_distance_miles += distance
         
         start_dt = parse_bouncie_datetime(trip.get("startTime"))
@@ -91,12 +110,14 @@ def filter_trips_by_date_range(
     trips: List[Dict[str, Any]], 
     start: datetime, 
     end: datetime,
-    buffer_hours: int = 2,
+    buffer_hours: int = None,
     imei: Optional[str] = None
 ) -> List[Dict[str, Any]]:
-    """Filter Bouncie trips that fall within a date range (with buffer)."""
     if not trips:
         return []
+    
+    if buffer_hours is None:
+        buffer_hours = DEFAULT_TIME_BUFFER_HOURS
     
     buffer = timedelta(hours=buffer_hours)
     matching_trips = []
@@ -123,39 +144,23 @@ def get_odometer_at_time_from_trips(
     target_time: datetime,
     imei: Optional[str] = None
 ) -> Optional[Dict[str, Any]]:
-    """
-    Get odometer reading at a specific timestamp from Bouncie trips.
-    
-    Args:
-        trips: List of Bouncie trip dictionaries
-        target_time: Target datetime to get odometer reading
-        imei: Optional IMEI to filter trips
-    
-    Returns:
-        Dict with odometer reading and metadata, or None if not found
-        {
-            "odometer": float,
-            "timestamp": datetime,
-            "source": "trip_start" | "trip_end" | "interpolated" | "last_trip_before" | "first_trip_after",
-            "trip_id": str (optional)
-        }
-    """
     if not trips:
         return None
     
-    # Filter by IMEI if provided
     if imei:
         trips = [t for t in trips if t.get('imei') == imei]
     
-    # Find trip that contains target_time
+    valid_trips = []
     for trip in trips:
         trip_start = parse_bouncie_datetime(trip.get("startTime"))
         trip_end = parse_bouncie_datetime(trip.get("endTime"))
-        
-        if not trip_start or not trip_end:
-            continue
-        
-        # If target_time is within this trip
+        if trip_start and trip_end:
+            valid_trips.append((trip, trip_start, trip_end))
+    
+    if not valid_trips:
+        return None
+    
+    for trip, trip_start, trip_end in valid_trips:
         if trip_start <= target_time <= trip_end:
             start_odometer = trip.get("startOdometer")
             end_odometer = trip.get("endOdometer")
@@ -163,7 +168,6 @@ def get_odometer_at_time_from_trips(
             if start_odometer is None and end_odometer is None:
                 continue
             
-            # If exactly at start
             if target_time == trip_start and start_odometer is not None:
                 return {
                     "odometer": float(start_odometer),
@@ -172,7 +176,6 @@ def get_odometer_at_time_from_trips(
                     "trip_id": trip.get("transactionId")
                 }
             
-            # If exactly at end
             if target_time == trip_end and end_odometer is not None:
                 return {
                     "odometer": float(end_odometer),
@@ -181,7 +184,6 @@ def get_odometer_at_time_from_trips(
                     "trip_id": trip.get("transactionId")
                 }
             
-            # Interpolate between start and end
             if start_odometer is not None and end_odometer is not None:
                 trip_duration = (trip_end - trip_start).total_seconds()
                 time_elapsed = (target_time - trip_start).total_seconds()
@@ -196,22 +198,9 @@ def get_odometer_at_time_from_trips(
                         "trip_id": trip.get("transactionId")
                     }
     
-    # No trip contains target_time - find nearest trip
-    # Build list of valid trips with parsed timestamps
-    valid_trips = []
-    for trip in trips:
-        trip_start = parse_bouncie_datetime(trip.get("startTime"))
-        trip_end = parse_bouncie_datetime(trip.get("endTime"))
-        if trip_start and trip_end:
-            valid_trips.append((trip, trip_start, trip_end))
-    
-    if not valid_trips:
-        return None
-    
-    # Find last trip before target_time
     trips_before = [(t, s, e) for t, s, e in valid_trips if e <= target_time]
     if trips_before:
-        trips_before.sort(key=lambda x: x[2], reverse=True)  # Sort by endTime desc
+        trips_before.sort(key=lambda x: x[2], reverse=True)
         trip, _, trip_end = trips_before[0]
         end_odometer = trip.get("endOdometer")
         if end_odometer is not None:
@@ -223,10 +212,9 @@ def get_odometer_at_time_from_trips(
                 "note": f"Odometer from last trip before target time ({target_time})"
             }
     
-    # Find first trip after target_time
     trips_after = [(t, s, e) for t, s, e in valid_trips if s >= target_time]
     if trips_after:
-        trips_after.sort(key=lambda x: x[1])  # Sort by startTime asc
+        trips_after.sort(key=lambda x: x[1])
         trip, trip_start, _ = trips_after[0]
         start_odometer = trip.get("startOdometer")
         if start_odometer is not None:
@@ -240,10 +228,37 @@ def get_odometer_at_time_from_trips(
     
     return None
 
+# ------------------------------ DATETIME UTILITIES ------------------------------
+
+def ensure_utc_datetime(dt: Optional[datetime]) -> Optional[datetime]:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+def to_naive_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+def normalize_to_naive_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    return to_naive_utc(ensure_utc_datetime(dt))
+
+def serialize_datetime(obj: Any) -> Any:
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    elif isinstance(obj, dict):
+        return {k: serialize_datetime(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [serialize_datetime(item) for item in obj]
+    return obj
+
 # ------------------------------ MODEL SERIALIZATION ------------------------------
 
 def trip_to_dict(trip: Trip) -> Dict[str, Any]:
-    """Convert Trip SQL model into serialisable dict for matching."""
     return {
         "trip_id": trip.trip_id,
         "vehicle_id": trip.vehicle_id,
