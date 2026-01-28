@@ -65,7 +65,7 @@ def _verify_webhook_signature(body_bytes: bytes, signature: str, secret: str) ->
     Returns:
         True if signature is valid, False otherwise
     """
-    if not signature or not secret:
+    if signature is None or secret is None:
         return False
     
     try:
@@ -169,9 +169,10 @@ async def handle_bouncie_webhook(
     
     account_id = None
     vehicle_id = None
-    if imei:
+    if imei is not None:
+        normalized_imei = imei.strip().replace("-", "").replace(" ", "")
         mapping = db.query(BouncieVehicleMapping).filter(
-            BouncieVehicleMapping.imei == imei
+            BouncieVehicleMapping.imei == normalized_imei
         ).first()
         if mapping:
             account_id = mapping.account_id
@@ -200,10 +201,10 @@ async def handle_bouncie_webhook(
     
     try:
         if event_type == "new_mil_event":
-            if account_id and vehicle_id:
+            if account_id is not None and vehicle_id is not None:
                 await _handle_mil_event(db, account_id, vehicle_id, imei, payload)
         elif event_type == "trip_ended":
-            if account_id and vehicle_id:
+            if account_id is not None and vehicle_id is not None:
                 background_tasks.add_task(
                     _handle_trip_ended_background,
                     account_id,
@@ -211,10 +212,10 @@ async def handle_bouncie_webhook(
                     imei
                 )
         elif event_type in ("device_connected", "device_disconnected"):
-            if account_id and vehicle_id:
+            if account_id is not None and vehicle_id is not None:
                 logger.info(f"Device {event_type} for IMEI {imei}, account {account_id}")
         elif event_type == "vin_change":
-            if account_id and vehicle_id:
+            if account_id is not None and vehicle_id is not None:
                 await _handle_vin_change(db, account_id, vehicle_id, imei, payload)
         elif event_type == "new_trip_data":
             logger.info(f"New trip data for device {imei}, account {account_id}")
@@ -270,11 +271,12 @@ async def _handle_mil_event(
     )
     occurred_at = _parse_webhook_timestamp(timestamp_str)
     
+    normalized_imei = imei.strip().replace("-", "").replace(" ", "") if imei else None
     existing_code = db.query(BouncieDTCCode).filter(
         BouncieDTCCode.account_id == account_id,
-        BouncieDTCCode.imei == imei,
+        BouncieDTCCode.imei == normalized_imei,
         BouncieDTCCode.code == dtc_code,
-        BouncieDTCCode.is_active == True
+        BouncieDTCCode.is_active.is_(True)
     ).first()
     
     if existing_code:
@@ -284,7 +286,7 @@ async def _handle_mil_event(
     dtc_record = BouncieDTCCode(
         account_id=account_id,
         vehicle_id=vehicle_id,
-        imei=imei,
+        imei=normalized_imei,
         code=dtc_code,
         description=description,
         is_active=True,
@@ -351,10 +353,11 @@ async def _handle_vin_change(
         logger.warning(f"No VIN found in vin_change payload: {payload}")
         return
     
+    normalized_imei = imei.strip().replace("-", "").replace(" ", "") if imei else None
     mapping = db.query(BouncieVehicleMapping).filter(
         BouncieVehicleMapping.account_id == account_id,
         BouncieVehicleMapping.vehicle_id == vehicle_id,
-        BouncieVehicleMapping.imei == imei
+        BouncieVehicleMapping.imei == normalized_imei
     ).first()
     
     if not mapping:
@@ -367,7 +370,7 @@ async def _handle_vin_change(
 
 def _parse_webhook_timestamp(timestamp_str: Optional[str]) -> datetime:
     """Parse webhook timestamp string to datetime."""
-    if not timestamp_str:
+    if timestamp_str is None:
         return datetime.now(timezone.utc)
     
     try:

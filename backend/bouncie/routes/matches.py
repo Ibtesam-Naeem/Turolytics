@@ -37,7 +37,7 @@ async def get_stored_matches(
         BouncieTripMatch.account_id == current_user.id
     )
     
-    if trip_id:
+    if trip_id is not None:
         trip = db.query(Trip).filter(
             Trip.account_id == current_user.id,
             Trip.trip_id == trip_id
@@ -46,6 +46,8 @@ async def get_stored_matches(
             return APIResponse(success=True, data={"matches": [], "total": 0, "limit": limit, "offset": offset})
         query = query.filter(BouncieTripMatch.trip_id == trip.id)
     
+    query = query.order_by(BouncieTripMatch.id.desc())
+    
     total = query.count()
     
     matches = query.offset(offset).limit(limit).all()
@@ -53,7 +55,7 @@ async def get_stored_matches(
     if not matches:
         return APIResponse(success=True, data={"matches": [], "total": total, "limit": limit, "offset": offset})
     
-    trip_ids = [match.trip_id for match in matches]
+    trip_ids = [match.trip_id for match in matches if match.trip_id is not None]
     trips_dict = {trip.id: trip for trip in db.query(Trip).filter(
         Trip.id.in_(trip_ids),
         Trip.account_id == current_user.id
@@ -97,7 +99,7 @@ async def get_stored_match_detail(
     ).first()
     match_out = _build_match_out(match, trip, include_full_data=include_full_data)
     
-    return APIResponse(success=True, data=match_out.model_dump())
+    return APIResponse(success=True, data={"match": match_out.model_dump()})
 
 # ------------------------------ ACTION ROUTES ------------------------------
 
@@ -128,7 +130,7 @@ async def match_trips(
     if not all_bouncie_trips:
         return APIResponse(success=True, data={"matches": [], "message": "No Bouncie trips found"})
     
-    if request.trip_id:
+    if request.trip_id is not None:
         turo_trip = turo_trips[0]
         match_result = match_trip(
             turo_trip,
