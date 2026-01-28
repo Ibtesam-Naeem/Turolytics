@@ -115,7 +115,7 @@ async def clear_dtc_code(
     if not code:
         raise HTTPException(status_code=404, detail=f"DTC code {code_id} not found")
     
-    vehicle_name = _get_vehicle_name(db, code.vehicle_id)
+    vehicle_name = _get_vehicle_name(db, code.vehicle_id, current_user.id)
     
     if not code.is_active:
         return APIResponse(

@@ -77,7 +77,7 @@ async def get_vehicle_mapping_detail(
     
     return APIResponse(
         success=True,
-        data={"mapping": _build_mapping_out(mapping, _get_vehicle_name(db, mapping.vehicle_id))}
+        data={"mapping": _build_mapping_out(mapping, _get_vehicle_name(db, mapping.vehicle_id, current_user.id))}
     )
 
 @router.post("/mappings", response_model=APIResponse, tags=["Stored Data"])
@@ -237,7 +237,7 @@ async def update_vehicle_mapping(
     return APIResponse(
         success=True,
         data={
-            "mapping": _build_mapping_out(mapping, _get_vehicle_name(db, mapping.vehicle_id)),
+            "mapping": _build_mapping_out(mapping, _get_vehicle_name(db, mapping.vehicle_id, current_user.id)),
             "message": "Vehicle mapping updated successfully"
         }
     )
