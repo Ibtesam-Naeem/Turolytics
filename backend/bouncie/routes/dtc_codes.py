@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from ..schemas import APIResponse
 from core.database import get_db
-from core.database.models import BouncieDTCCode, Account
+from core.database.models import BouncieDTCCode, Account, Vehicle, BouncieVehicleMapping
 from core.security.auth import get_current_active_user
 from core.utils.route_helpers import handle_route_errors
 from sqlalchemy.orm import Session
@@ -35,21 +35,57 @@ async def get_dtc_codes(
         BouncieDTCCode.account_id == current_user.id
     )
     
-    if vehicle_id:
+    if vehicle_id is not None:
+        vehicle = db.query(Vehicle).filter(
+            Vehicle.id == vehicle_id,
+            Vehicle.account_id == current_user.id
+        ).first()
+        if not vehicle:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Vehicle {vehicle_id} not found for this account"
+            )
         query = query.filter(BouncieDTCCode.vehicle_id == vehicle_id)
     
     if imei:
-        query = query.filter(BouncieDTCCode.imei == imei)
+        normalized_imei = imei.strip().replace("-", "").replace(" ", "")
+        mapping = db.query(BouncieVehicleMapping).filter(
+            BouncieVehicleMapping.account_id == current_user.id,
+            BouncieVehicleMapping.imei == normalized_imei
+        ).first()
+        if not mapping:
+            return APIResponse(
+                success=True,
+                data={
+                    "codes": [],
+                    "total": 0,
+                    "limit": limit,
+                    "offset": offset
+                }
+            )
+        query = query.filter(BouncieDTCCode.imei == normalized_imei)
     
     if active_only:
-        query = query.filter(BouncieDTCCode.is_active == True)
+        query = query.filter(BouncieDTCCode.is_active.is_(True))
     
     total = query.count()
     
-    codes = query.order_by(BouncieDTCCode.occurred_at.desc()).offset(offset).limit(limit).all()
+    codes = query.order_by(
+        BouncieDTCCode.occurred_at.desc(),
+        BouncieDTCCode.id.desc()
+    ).offset(offset).limit(limit).all()
+    
+    vehicle_ids = list({code.vehicle_id for code in codes if code.vehicle_id})
+    vehicle_dict = {}
+    if vehicle_ids:
+        vehicles = db.query(Vehicle.id, Vehicle.name).filter(
+            Vehicle.id.in_(vehicle_ids),
+            Vehicle.account_id == current_user.id
+        ).all()
+        vehicle_dict = {v.id: v.name for v in vehicles}
     
     codes_data = [
-        _build_dtc_code_out(code, _get_vehicle_name(db, code.vehicle_id))
+        _build_dtc_code_out(code, vehicle_dict.get(code.vehicle_id))
         for code in codes
     ]
     
@@ -79,8 +115,9 @@ async def clear_dtc_code(
     if not code:
         raise HTTPException(status_code=404, detail=f"DTC code {code_id} not found")
     
+    vehicle_name = _get_vehicle_name(db, code.vehicle_id)
+    
     if not code.is_active:
-        vehicle_name = _get_vehicle_name(db, code.vehicle_id)
         return APIResponse(
             success=True,
             data={"message": "Code already cleared", "code": _build_dtc_code_out(code, vehicle_name)}
@@ -98,6 +135,8 @@ async def clear_dtc_code(
         success=True,
         data={
             "message": "DTC code cleared successfully",
-            "code": _build_dtc_code_out(code, _get_vehicle_name(db, code.vehicle_id))
+            "code": _build_dtc_code_out(code, vehicle_name)
         }
     )
+
+# ------------------------------ END OF FILE ------------------------------
