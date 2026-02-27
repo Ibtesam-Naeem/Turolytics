@@ -28,8 +28,6 @@ import VehicleDetails from "./pages/VehicleDetails";
 import TripHistory from "./pages/TripHistory";
 import NotFound from "./pages/NotFound";
 import BouncieCallback from "./pages/BouncieCallback";
-import Waitlist from "./pages/Waitlist";
-import WaitlistAdmin from "./pages/WaitlistAdmin";
 
 const queryClient = new QueryClient();
 
@@ -47,10 +45,10 @@ const DemoBanner = () => {
       <Eye className="h-3 w-3 text-primary" />
       <span className="text-muted-foreground">Demo</span>
       <button
-        onClick={() => navigate("/waitlist")}
+        onClick={() => navigate("/auth?mode=signup")}
         className="text-primary hover:underline font-medium"
       >
-        Join waitlist
+        Sign up
       </button>
     </div>
   );
@@ -120,8 +118,6 @@ const App = () => (
               <Route path="/" element={<Landing />} />
               <Route path="/auth" element={<Auth />} />
               <Route path="/auth/bouncie/callback" element={<BouncieCallback />} />
-              <Route path="/waitlist" element={<Waitlist />} />
-              <Route path="/waitlist/admin" element={<AuthenticatedLayout><WaitlistAdmin /></AuthenticatedLayout>} />
               
               {/* Authenticated routes with sidebar */}
               <Route path="/dashboard" element={<AuthenticatedLayout><Index /></AuthenticatedLayout>} />

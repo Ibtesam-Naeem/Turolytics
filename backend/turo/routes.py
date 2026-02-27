@@ -116,8 +116,8 @@ async def _try_auto_scrape_on_first_connection(
 # ------------------------------ PYDANTIC MODELS ------------------------------
 
 class ScrapeRequest(BaseModel):
-    email: Optional[str] = None  # Optional if credentials are stored
-    password: Optional[str] = None  # Optional if credentials are stored
+    email: Optional[str] = None
+    password: Optional[str] = None
 
 class TuroConnectRequest(BaseModel):
     email: str
@@ -184,15 +184,13 @@ async def connect_turo(
     Start Turo login process and store credentials.
     If 2FA is required, returns session_id for 2FA submission.
     """
-    # Store credentials first (encrypted)
     encrypted_password = encrypt_password(request.password)
     integration = _get_or_create_integration(
         db, current_user.id, request.email, encrypted_password, has_active_session=False
     )
     db.commit()
     logger.info(f"Turo credentials stored for account {current_user.id}")
-    
-    # Start login process
+
     login_result = await start_turo_login(
         account_id=current_user.user_id,
         email=request.email,
@@ -204,8 +202,7 @@ async def connect_turo(
             status_code=400,
             detail=login_result.get("error", "Login failed")
         )
-    
-    # If 2FA is required, return session_id
+
     if login_result.get("requires_2fa"):
         return APIResponse(
             success=True,
@@ -215,8 +212,7 @@ async def connect_turo(
                 "message": "2FA code required. Please submit the code using /auth/connect/2fa"
             }
         )
-    
-    # Login successful without 2FA (or session restored) - update session status
+
     integration.has_active_session = True
     db.commit()
     
@@ -231,7 +227,7 @@ async def connect_turo(
             "email": integration.turo_email,
             "account_id": current_user.id,
             "requires_2fa": False,
-            "auto_scrape_task_id": task_id  # Include task_id if scraping started
+            "auto_scrape_task_id": task_id
         }
     )
 
@@ -252,25 +248,21 @@ async def submit_turo_2fa(
             status_code=400,
             detail=result.get("error", "2FA submission failed")
         )
-    
-    # Get email and password from result (session is cleaned up in submit_turo_2fa_code)
+
     email = result.get("email")
-    password = result.get("password")  # Password from session (temporary, in-memory)
-    
+    password = result.get("password")
+
     if not email:
         raise HTTPException(
             status_code=400,
             detail="Failed to retrieve email from login session"
         )
-    
-    # Update integration to mark session as active
+
     integration = get_turo_integration(db, current_user.id)
-    
+
     if integration:
-        # Update existing - session is now active
         integration.has_active_session = True
     else:
-        # This shouldn't happen, but handle gracefully
         logger.warning(f"Integration not found for account {current_user.id} after 2FA success")
     
     db.commit()
@@ -285,7 +277,7 @@ async def submit_turo_2fa(
             "message": "Turo account connected successfully",
             "email": email,
             "account_id": current_user.id,
-            "auto_scrape_task_id": task_id  # Include task_id if scraping started
+            "auto_scrape_task_id": task_id
         }
     )
 
@@ -346,50 +338,43 @@ async def delete_all_turo_data(
         "session_storage_deleted": 0,
         "integration_deleted": False
     }
-    
-    # Delete trips
+
     trips = db.query(Trip).filter(Trip.account_id == current_user.id).all()
     deletion_summary["trips_deleted"] = len(trips)
     for trip in trips:
         db.delete(trip)
-    
-    # Delete vehicles (cascade will handle related trips/reviews)
+
     vehicles = db.query(Vehicle).filter(Vehicle.account_id == current_user.id).all()
     deletion_summary["vehicles_deleted"] = len(vehicles)
     for vehicle in vehicles:
         db.delete(vehicle)
-    
-    # Delete reviews
+
     reviews = db.query(Review).filter(Review.account_id == current_user.id).all()
     deletion_summary["reviews_deleted"] = len(reviews)
     for review in reviews:
         db.delete(review)
-    
-    # Delete earnings breakdowns
+
     earnings_breakdowns = db.query(EarningsBreakdown).filter(
         EarningsBreakdown.account_id == current_user.id
     ).all()
     deletion_summary["earnings_breakdowns_deleted"] = len(earnings_breakdowns)
     for breakdown in earnings_breakdowns:
         db.delete(breakdown)
-    
-    # Delete vehicle earnings
+
     vehicle_earnings = db.query(VehicleEarnings).filter(
         VehicleEarnings.account_id == current_user.id
     ).all()
     deletion_summary["vehicle_earnings_deleted"] = len(vehicle_earnings)
     for earnings in vehicle_earnings:
         db.delete(earnings)
-    
-    # Delete session storage
+
     session_storage = db.query(SessionStorage).filter(
         SessionStorage.account_id == current_user.id
     ).all()
     deletion_summary["session_storage_deleted"] = len(session_storage)
     for session in session_storage:
         db.delete(session)
-    
-    # Delete integration
+
     integration = get_turo_integration(db, current_user.id)
     if integration:
         db.delete(integration)
@@ -445,11 +430,9 @@ async def scrape_data(
     
     Will try to use existing session first. If session fails, will fall back to stored credentials.
     """
-    # Get credentials from request or stored integration
     email = request.email
     password = request.password
-    
-    # If not provided in request, try to get from stored integration
+
     if not email or not password:
         integration = get_turo_integration(db, current_user.id)
         
@@ -458,19 +441,14 @@ async def scrape_data(
             try:
                 password = decrypt_password(integration.turo_password_encrypted)
             except Exception as e:
-                # If decryption fails (e.g., encryption key changed), log warning but continue
-                # complete_turo_login will try to use session first, which might work
                 logger.warning(f"Could not decrypt stored credentials for account {current_user.id}: {e}. Will attempt to use existing session.")
-                password = None  # Will rely on session restore
+                password = None
         else:
             raise HTTPException(
                 status_code=400,
                 detail="Turo credentials required. Either provide email/password in request or connect Turo account first."
             )
-    
-    # Note: complete_turo_login will try to restore session first before using credentials
-    # So even if we have credentials, it will prefer the session if available
-    
+
     if scraper_type not in SCRAPER_MAP:
         raise HTTPException(status_code=400, detail=f"Invalid scraper type: {scraper_type}")
     
@@ -491,7 +469,6 @@ async def seed_turo_integration(
     Create Turo integration record for seed data (without attempting login).
     This is used by the seed script to create the integration so frontend shows 'connected' status.
     """
-    # Create or update integration
     integration = _get_or_create_integration(
         db, current_user.id, turo_email, encrypt_password("seed_password"), has_active_session=False
     )
@@ -524,8 +501,7 @@ async def seed_data(
             status_code=400,
             detail="No seed data provided. Include at least one of: vehicles, trips, reviews, earnings"
         )
-    
-    # Automatically create Turo integration if it doesn't exist (for seed data)
+
     integration = get_turo_integration(db, current_user.id)
     if not integration:
         integration = _get_or_create_integration(
@@ -533,8 +509,7 @@ async def seed_data(
         )
         db.commit()
         logger.info(f"Auto-created Turo integration for seed data: account {current_user.id}")
-    
-    # Save data using DatabaseService (handles overwriting automatically)
+
     counts = {}
     if request.vehicles:
         vehicles = DatabaseService.save_vehicles(db, current_user, request.vehicles)
@@ -634,16 +609,13 @@ async def get_vehicles(
             limit=limit,
             offset=offset
         )
-        # Debug: Log odometer values before conversion
         import logging
         logger = logging.getLogger(__name__)
         for v in vehicles_data:
             logger.info(f"Vehicle {v.get('id')} ({v.get('name')}): total_odometer = {v.get('total_odometer')} km")
-        
-        # Convert dict to VehicleOut models
+
         vehicles = [VehicleOut(**v) for v in vehicles_data]
-        
-        # Debug: Log odometer values after conversion
+
         for v in vehicles:
             logger.info(f"VehicleOut {v.id} ({v.name}): total_odometer = {v.total_odometer} km")
     else:
@@ -656,16 +628,13 @@ async def get_vehicles(
             offset=offset
         )
         vehicles = [VehicleOut.model_validate(v, from_attributes=True) for v in vehicles]
-    
-    # Debug: Log final odometer values before sending
+
     import logging
     logger = logging.getLogger(__name__)
-    
-    # Serialize vehicles and ensure total_odometer is always included
+
     serialized_vehicles = []
     for v in vehicles:
         dumped = v.model_dump(exclude_none=True)
-        # Ensure total_odometer is always included (even if 0)
         if 'total_odometer' not in dumped or dumped['total_odometer'] is None:
             dumped['total_odometer'] = 0
         logger.info(f"Final API response - Vehicle {v.id} ({v.name}): total_odometer = {dumped.get('total_odometer')} km (type: {type(dumped.get('total_odometer'))})")
@@ -690,7 +659,6 @@ async def update_vehicle(
     db: Session = Depends(get_db)
 ) -> APIResponse:
     """Update vehicle configuration (e.g., listed_on_turo_date)."""
-    # Get vehicle and verify ownership
     vehicle = db.query(Vehicle).filter(
         Vehicle.id == vehicle_id,
         Vehicle.account_id == current_user.id
@@ -701,20 +669,16 @@ async def update_vehicle(
             status_code=404,
             detail="Vehicle not found"
         )
-    
-    # Update listed_on_turo_date if provided
+
     if request.listed_on_turo_date is not None:
         vehicle.listed_on_turo_date = request.listed_on_turo_date
         logger.info(f"Updated listed_on_turo_date for vehicle {vehicle_id} to {request.listed_on_turo_date}")
-    
-    # Update removed_from_turo_date if provided
+
     if request.removed_from_turo_date is not None:
         vehicle.removed_from_turo_date = request.removed_from_turo_date
         logger.info(f"Updated removed_from_turo_date for vehicle {vehicle_id} to {request.removed_from_turo_date}")
-    
-    # Update utilization_goal if provided
+
     if request.utilization_goal is not None:
-        # Validate goal is between 0 and 100
         if request.utilization_goal < 0 or request.utilization_goal > 100:
             raise HTTPException(
                 status_code=400,

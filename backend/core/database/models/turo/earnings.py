@@ -57,3 +57,4 @@ class VehicleEarnings(Base):
     def __repr__(self):
         return f"<VehicleEarnings(id={self.id}, vehicle_name={self.vehicle_name}, earnings={self.earnings_amount})>"
 
+# ------------------------------ END OF FILE ------------------------------ 

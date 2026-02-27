@@ -5,6 +5,7 @@ import logging
 from datetime import datetime, timezone
 
 from ..schemas import APIResponse
+from ..helpers import normalize_imei
 from core.database import get_db
 from core.database.models import BouncieDTCCode, Account, Vehicle, BouncieVehicleMapping
 from core.security.auth import get_current_active_user
@@ -48,7 +49,7 @@ async def get_dtc_codes(
         query = query.filter(BouncieDTCCode.vehicle_id == vehicle_id)
     
     if imei:
-        normalized_imei = imei.strip().replace("-", "").replace(" ", "")
+        normalized_imei = normalize_imei(imei)
         mapping = db.query(BouncieVehicleMapping).filter(
             BouncieVehicleMapping.account_id == current_user.id,
             BouncieVehicleMapping.imei == normalized_imei

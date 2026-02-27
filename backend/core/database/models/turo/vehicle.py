@@ -88,3 +88,4 @@ class VehicleUtilizationHistory(Base):
     def __repr__(self):
         return f"<VehicleUtilizationHistory(id={self.id}, vehicle_id={self.vehicle_id}, year={self.year}, month={self.month}, utilization={self.utilization:.1f}%, calculated_at={self.calculated_at})>"
 
+# ------------------------------ END OF FILE ------------------------------ 

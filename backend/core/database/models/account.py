@@ -13,30 +13,26 @@ class Account(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, unique=True, nullable=False, index=True, comment="Hash-based user ID generated from email")
-    email = Column(String, unique=True, nullable=False, index=True, comment="User email address")
-    password_hash = Column(String, nullable=True, comment="Hashed password for authentication")
+    email = Column(String(255), unique=True, nullable=False, index=True, comment="User email address")
+    password_hash = Column(String(255), nullable=True, comment="Hashed password for authentication")
     
-    # Profile fields
-    first_name = Column(String, nullable=True, comment="User's first name")
-    last_name = Column(String, nullable=True, comment="User's last name")
-    phone_number = Column(String, nullable=True, comment="User's phone number")
-    country = Column(String, nullable=True, comment="User's country")
-    state = Column(String, nullable=True, comment="User's state/province")
+    first_name = Column(String(100), nullable=True, comment="User's first name")
+    last_name = Column(String(100), nullable=True, comment="User's last name")
+    phone_number = Column(String(20), nullable=True, comment="User's phone number")
+    country = Column(String(100), nullable=True, comment="User's country")
+    state = Column(String(100), nullable=True, comment="User's state/province")
     
-    # 2FA fields (with defaults for existing database)
     two_factor_enabled = Column(Boolean, default=False, nullable=False)
-    two_factor_secret = Column(String, nullable=True)
-    two_factor_method = Column(String, nullable=True)
+    two_factor_secret = Column(String(100), nullable=True)
+    two_factor_method = Column(String(50), nullable=True)
     email_verified = Column(Boolean, default=False, nullable=False)
     phone_verified = Column(Boolean, default=False, nullable=False)
     
-    # Password reset
-    password_reset_token = Column(String, nullable=True, comment="Token for password reset")
+    password_reset_token = Column(String(255), nullable=True, comment="Token for password reset")
     password_reset_expires = Column(DateTime(timezone=True), nullable=True, comment="Password reset token expiration")
     password_changed_at = Column(DateTime(timezone=True), nullable=True, comment="Timestamp when password was last changed")
     
-    # Email verification
-    email_verification_token = Column(String, nullable=True, comment="Token for email verification")
+    email_verification_token = Column(String(255), nullable=True, comment="Token for email verification")
     email_verification_expires = Column(DateTime(timezone=True), nullable=True, comment="Email verification token expiration")
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -71,3 +67,4 @@ class Account(Base):
     def __repr__(self):
         return f"<Account(id={self.id}, user_id={self.user_id}, email={self.email})>"
 
+# ------------------------------ END OF FILE ------------------------------

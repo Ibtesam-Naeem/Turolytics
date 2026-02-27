@@ -8,20 +8,18 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ------------------------------ TIMEOUT CONSTANTS ------------------------------
-# Timeout values
-TIMEOUT_SELECTOR_WAIT = 10000  # Standard selector wait timeout
-TIMEOUT_PAGE_LOAD = 30000  # Page load timeout
-TIMEOUT_IFRAME = 8000  # Iframe content wait timeout
-TIMEOUT_QUICK_CHECK = 5000  # Quick element check timeout
-TIMEOUT_SHORT_CHECK = 2000  # Short element check timeout
+TIMEOUT_SELECTOR_WAIT = 10000
+TIMEOUT_PAGE_LOAD = 30000
+TIMEOUT_IFRAME = 8000
+TIMEOUT_QUICK_CHECK = 5000
+TIMEOUT_SHORT_CHECK = 2000  
 
-# Delay values
-DELAY_SHORT = 300  # Short delay between actions
-DELAY_MEDIUM = 800  # Medium delay between actions
-DELAY_LONG = 1500  # Long delay between actions
-DELAY_VERY_LONG = 2000  # Very long delay between actions
-DELAY_PAGE_LOAD = 1200  # Delay after page load
-DELAY_FORM_SUBMIT = 1000  # Delay after form submission
+DELAY_SHORT = 300
+DELAY_MEDIUM = 800
+DELAY_LONG = 1500
+DELAY_VERY_LONG = 2000
+DELAY_PAGE_LOAD = 1200
+DELAY_FORM_SUBMIT = 1000
 
 # ------------------------------ CONFIGURATION CLASSES ------------------------------
 @dataclass
@@ -84,16 +82,6 @@ class S3Config:
     endpoint_url: Optional[str] = os.getenv("S3_ENDPOINT_URL", None)
     max_file_size_mb: int = int(os.getenv("S3_MAX_FILE_SIZE_MB", "50"))
 
-@dataclass
-class EmailConfig:
-    """Email configuration."""
-    provider: str = os.getenv("EMAIL_PROVIDER", "sendgrid")  # sendgrid, smtp, lambda
-    sendgrid_api_key: str = os.getenv("SENDGRID_API_KEY", "")
-    from_email: str = os.getenv("EMAIL_FROM", "noreply@turolytics.com")
-    from_name: str = os.getenv("EMAIL_FROM_NAME", "Turolytics")
-    use_lambda: bool = os.getenv("EMAIL_USE_LAMBDA", "false").lower() == "true"
-    lambda_function_name: Optional[str] = os.getenv("EMAIL_LAMBDA_FUNCTION", None)
-
 # ------------------------------ MAIN SETTINGS CLASS ------------------------------
 
 class Settings:
@@ -106,8 +94,7 @@ class Settings:
         self.api = APIConfig()
         self.database = DatabaseConfig()
         self.s3 = S3Config()
-        self.email = EmailConfig()
-        
+
         self._setup_logging()
     
     def _setup_logging(self):

@@ -17,19 +17,17 @@ class TuroIntegration(Base):
     
     account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, unique=True, index=True)
     
-    # Encrypted Turo Credentials
-    turo_email = Column(String, nullable=False)
-    turo_password_encrypted = Column(String, nullable=False)  # Encrypted password
+    turo_email = Column(String(255), nullable=False)
+    turo_password_encrypted = Column(String(500), nullable=False)
     
-    # Session info
     has_active_session = Column(Boolean, default=False, nullable=False)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
-    # Relationships
     account = relationship("Account", back_populates="turo_integration")
     
     def __repr__(self):
         return f"<TuroIntegration(id={self.id}, account_id={self.account_id}, email={self.turo_email})>"
 
+# ------------------------------ END OF FILE ------------------------------

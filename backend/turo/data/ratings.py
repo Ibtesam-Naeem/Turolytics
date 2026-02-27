@@ -100,8 +100,7 @@ async def extract_all_reviews(page: Page, existing_customer_ids: set[str] = None
             extract_individual_review,
             item_type="review"
         )
-        
-        # Filter out reviews we already have
+
         new_reviews = [review for review in reviews if review.get('customer_id') not in existing_customer_ids]
         skipped_count = len(reviews) - len(new_reviews)
         

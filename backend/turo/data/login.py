@@ -210,13 +210,11 @@ async def complete_turo_login(account_id: int = 1, email: str = None, password: 
     browser = None
     try:
         headless = settings.scraping.headless
-        
-        # First, try to restore existing session (works even without credentials)
+
         restored = await _try_restore_session(account_id, headless)
         if restored:
             return restored
-        
-        # If no session exists and no credentials provided, we can't proceed
+
         if not email or not password:
             logger.warning(f"No existing session found for account {account_id} and no credentials provided")
             return None
@@ -265,7 +263,7 @@ def _create_session(account_id: int, email: str, page: Page, context: BrowserCon
     _sessions[session_id] = {
         "account_id": account_id,
         "email": email,
-        "password": password,  # Store password temporarily for auto-scrape
+        "password": password,
         "page": page,
         "context": context,
         "browser": browser,
@@ -317,7 +315,7 @@ def _success_response(requires_2fa: bool = False, message: str = "", session_id:
     if account_id:
         response["account_id"] = account_id
     if password:
-        response["password"] = password  # Include password for auto-scrape (temporary, in-memory only)
+        response["password"] = password
     return response
 
 # ------------------------------ API LOGIN FLOW (FOR FRONTEND) ------------------------------
@@ -394,7 +392,7 @@ async def submit_turo_2fa_code(session_id: str, code: str) -> Dict[str, Any]:
         if await check_login_success(page):
             email = session["email"]
             account_id = session["account_id"]
-            password = session.get("password")  # Get password from session for auto-scrape
+            password = session.get("password")
             
             await save_storage_state(session["context"], account_id=account_id, email=email)
             await _cleanup_and_remove_session(session_id)

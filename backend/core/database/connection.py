@@ -38,23 +38,29 @@ def get_db() -> Generator:
 def init_db() -> None:
     """Initialize database - create all tables."""
     try:
+        # Import all models so their tables are registered with Base (safe for standalone init scripts)
         from core.database.models import (
             Account,
+            AccountDeletionLog,
             Vehicle,
             VehicleUtilizationHistory,
             Trip,
             Review,
             EarningsBreakdown,
             VehicleEarnings,
+            Transaction,
             SessionStorage,
+            Receipt,
             Document,
             BouncieIntegration,
             BouncieVehicleMapping,
             BouncieTripMatch,
+            BouncieDTCCode,
+            BouncieWebhookLog,
+            TuroIntegration,
             UserSession,
             VehicleOdometerHistory,
-            Receipt,
-            Waitlist,
+            ROICalculation,
         )
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created successfully")

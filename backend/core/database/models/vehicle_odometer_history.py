@@ -1,5 +1,5 @@
 # ------------------------------ IMPORTS ------------------------------
-from sqlalchemy import Column, Integer, ForeignKey, DateTime, Float, String, func, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, ForeignKey, DateTime, Date, Float, String, func, UniqueConstraint, Index
 from sqlalchemy.orm import relationship
 from core.database.connection import Base
 
@@ -20,21 +20,17 @@ class VehicleOdometerHistory(Base):
     vehicle_id = Column(Integer, ForeignKey("turo_vehicles.id"), nullable=False, index=True, comment="Foreign key to Vehicle table")
     account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
     imei = Column(String(50), nullable=True, index=True, comment="Bouncie IMEI if available")
+    odometer_miles = Column(Float, nullable=False, comment="Odometer reading in miles (convert to km in app: miles * 1.60934)")
     
-    # Odometer reading (in miles from Bouncie)
-    odometer_miles = Column(Float, nullable=False, comment="Odometer reading in miles")
+    date = Column(Date, nullable=False, index=True, comment="Date of the snapshot (YYYY-MM-DD)")
     
-    # Date for this snapshot (date only, no time)
-    date = Column(DateTime(timezone=False), nullable=False, index=True, comment="Date of the snapshot (YYYY-MM-DD)")
-    
-    # Metadata
     source = Column(String(50), nullable=True, default="bouncie", comment="Source of odometer reading (bouncie, manual, etc.)")
     recorded_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), comment="When this snapshot was recorded")
     
-    # Relationships
     vehicle = relationship("Vehicle", back_populates="odometer_history")
     account = relationship("Account", back_populates="vehicle_odometer_history")
     
     def __repr__(self):
         return f"<VehicleOdometerHistory(id={self.id}, vehicle_id={self.vehicle_id}, date={self.date}, odometer={self.odometer_miles} miles)>"
 
+# ------------------------------ END OF FILE ------------------------------

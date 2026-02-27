@@ -50,3 +50,4 @@ class Document(Base):
     def __repr__(self):
         return f"<Document(id={self.id}, file_name={self.file_name}, category={self.category}, vehicle_id={self.vehicle_id})>"
 
+# ------------------------------ END OF FILE ------------------------------

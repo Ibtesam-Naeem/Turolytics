@@ -20,18 +20,15 @@ class Transaction(Base):
     account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
     vehicle_id = Column(Integer, ForeignKey("turo_vehicles.id"), nullable=True, index=True, comment="Foreign key to Vehicle table")
     
-    # Transaction type and details
     type = Column(String, nullable=False, index=True, comment="Transaction type (trip, payment, etc.)")
     trip_name = Column(String, nullable=True, comment="Trip name (e.g., 'John's trip')")
     vehicle_name = Column(String, nullable=True, comment="Vehicle name (e.g., 'Hyundai Elantra 2017')")
     payment_details = Column(String, nullable=True, comment="Payment details (e.g., '*******2842')")
     
-    # Transaction identifiers
     reservation_id = Column(String, nullable=True, index=True, comment="Turo reservation ID")
     date = Column(String, nullable=True, index=True, comment="Transaction date (e.g., 'Aug 30, 2025')")
     year = Column(String, nullable=True, index=True, comment="Year for transaction")
     
-    # Amounts
     earnings_amount = Column(String, nullable=True, comment="Earnings amount as string (e.g., 'CA$18.75')")
     earnings_amount_numeric = Column(Float, nullable=True, comment="Earnings amount as numeric")
     payment_amount = Column(String, nullable=True, comment="Payment amount as string (e.g., 'CA$205.49')")
@@ -40,7 +37,6 @@ class Transaction(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
-    # Relationships
     account = relationship("Account", back_populates="transactions")
     vehicle = relationship("Vehicle", backref="transactions")
     

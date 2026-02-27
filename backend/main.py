@@ -10,14 +10,14 @@ from typing import Optional
 
 from core.database import init_db, get_db
 from core.database.db_service import DatabaseService
+from core.config.settings import settings
 from core.security.routes import router as auth_router
 from turo.routes import router as turo_router
 from bouncie.routes import router as bouncie_router
 from bouncie.service import BouncieService
-from bouncie.auto_match import handle_bouncie_auto_processing
+from bouncie.trip_processor import handle_bouncie_auto_processing
 from s3.routes import router as s3_router
 from roi.routes import router as roi_router
-from waitlist.routes import router as waitlist_router
 from sqlalchemy.orm import Session
 
 # ------------------------------ SETUP ------------------------------
@@ -49,8 +49,8 @@ app = FastAPI(
 # ------------------------------ CORS ------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=settings.cors.get_origins_list(),
+    allow_credentials=settings.cors.credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -61,7 +61,6 @@ app.include_router(turo_router, prefix="/api/turo")
 app.include_router(bouncie_router, prefix="/api/bouncie")
 app.include_router(s3_router, prefix="/api/documents")
 app.include_router(roi_router, prefix="/api/roi")
-app.include_router(waitlist_router, prefix="/api", tags=["Waitlist"])
 
 # ------------------------------ HELPER FUNCTIONS ------------------------------
 
@@ -148,6 +147,11 @@ async def health():
 # ------------------------------ MAIN ------------------------------
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(
+        "main:app",
+        host=settings.api.host,
+        port=settings.api.port,
+        reload=settings.api.debug,
+    )
 
 # ------------------------------ END OF FILE ------------------------------

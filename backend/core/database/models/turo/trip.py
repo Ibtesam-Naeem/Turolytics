@@ -1,5 +1,5 @@
 # ------------------------------ IMPORTS ------------------------------
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, func
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, func, UniqueConstraint
 from sqlalchemy.orm import relationship
 from core.database.connection import Base
 
@@ -9,13 +9,16 @@ class Trip(Base):
     """Trip model - represents a Turo trip/reservation with all related data."""
     
     __tablename__ = "turo_trips"
+    __table_args__ = (
+        UniqueConstraint('account_id', 'trip_id', name='uq_account_trip'),
+    )
     
     id = Column(Integer, primary_key=True, index=True)
     
     account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
     vehicle_id = Column(Integer, ForeignKey("turo_vehicles.id"), nullable=True, index=True)
     
-    trip_id = Column(String, nullable=False, index=True, comment="Turo trip ID")
+    trip_id = Column(String(100), nullable=False, index=True, comment="Turo trip ID")
     
     customer_name = Column(String, nullable=True, comment="Customer name")
     status = Column(String, nullable=False, index=True, comment="Trip status (COMPLETED, CANCELLED, etc.)")
@@ -52,3 +55,4 @@ class Trip(Base):
     def __repr__(self):
         return f"<Trip(id={self.id}, trip_id={self.trip_id}, status={self.status})>"
 
+# ------------------------------ END OF FILE ------------------------------

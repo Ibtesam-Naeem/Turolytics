@@ -56,7 +56,6 @@ class ScrapingService:
         }
         self._semaphore = asyncio.Semaphore(settings.scraping.max_concurrent_tasks)
         self._background_tasks: set = set()
-        # Exclude ALL from the list of scraper types to run
         self._all_scraper_types = [st for st in self._scrapers.keys() if st != ScrapingType.ALL]
     
     async def _execute_scraping_session(self, scrapers: Sequence[ScrapingType], user_id: int, task_id: str, email: str = None, password: str = None) -> Dict[str, Any]:
@@ -92,8 +91,7 @@ class ScrapingService:
                 
                 page, context, browser = login_result
                 self._update_task_status(task_id, TaskStatus.RUNNING, "Login successful, starting scraping...", scraper_types=[t.value for t in scrapers])
-                
-                # Check if this is an initial scrape for earnings and transactions
+
                 db_check = SessionLocal()
                 try:
                     is_initial_earnings_scrape = not DatabaseService.has_existing_earnings(db_check, user_id)
@@ -109,10 +107,9 @@ class ScrapingService:
                     is_initial_transactions_scrape = False
                 finally:
                     db_check.close()
-                
-                # Track trip_ids from scraped trips for receipts scraping
+
                 scraped_trip_ids = []
-                
+
                 for scraper_type in scrapers:
                     try:
                         logger.info(f"Scraping {scraper_type.value}...")
@@ -120,7 +117,6 @@ class ScrapingService:
                         
                         if scraper_type == ScrapingType.TRIPS:
                             data = await scraper_func(page, existing_trip_ids=existing_trip_ids)
-                            # Extract trip_ids from scraped trips for receipts
                             if data and "trips" in data:
                                 scraped_trip_ids = [trip.get("trip_id") for trip in data.get("trips", []) if trip.get("trip_id")]
                         elif scraper_type == ScrapingType.REVIEWS:
@@ -130,11 +126,9 @@ class ScrapingService:
                         elif scraper_type == ScrapingType.TRANSACTIONS:
                             data = await scraper_func(page, is_initial_scrape=is_initial_transactions_scrape)
                         elif scraper_type == ScrapingType.RECEIPTS:
-                            # Use scraped trip_ids if available, otherwise query database for trips without receipts
                             if scraped_trip_ids:
                                 data = await scraper_func(page, trip_ids=scraped_trip_ids)
                             else:
-                                # Query database for trips without receipts
                                 db_receipts = SessionLocal()
                                 try:
                                     account = DatabaseService.get_account_by_user_id(db_receipts, user_id)
@@ -318,13 +312,11 @@ class ScrapingService:
             results = {}
             
             try:
-                # Get trip IDs if not provided
                 if trip_ids is None:
                     db = SessionLocal()
                     try:
                         account = DatabaseService.get_account_by_user_id(db, user_id)
                         if account:
-                            # Log which account and Turo email we're using
                             from core.database.models import TuroIntegration
                             turo_integration = db.query(TuroIntegration).filter(
                                 TuroIntegration.account_id == account.id
@@ -334,31 +326,24 @@ class ScrapingService:
                                 logger.info(f"Querying trips for Account ID {account.id} (Turolytics email: {account.email}, Turo email: {turo_integration.turo_email})")
                             else:
                                 logger.info(f"Querying trips for Account ID {account.id} (Turolytics email: {account.email}, no Turo integration found)")
-                            
-                            # First, check total trips for this account
+
                             total_trips = db.query(Trip).filter(Trip.account_id == account.id).count()
                             logger.info(f"Total trips in database for Account ID {account.id}: {total_trips}")
-                            
-                            # Check how many receipts exist
+
                             total_receipts = db.query(Receipt).filter(Receipt.account_id == account.id).count()
                             logger.info(f"Total receipts in database for Account ID {account.id}: {total_receipts}")
-                            
-                            # Get all trips that don't have a receipt record
-                            # Match by reservation_id (trip_id in Trip matches reservation_id in Receipt)
+
                             trips_with_receipts = db.query(Receipt.reservation_id).filter(
                                 Receipt.account_id == account.id
                             ).subquery()
-                            
-                            # If there are no receipts, the subquery will be empty, so we need to handle that
+
                             trips_query = db.query(Trip).filter(Trip.account_id == account.id)
-                            
-                            # Only exclude trips with receipts if there are any receipts
+
                             if total_receipts > 0:
                                 trips = trips_query.filter(
                                     ~Trip.trip_id.in_(db.query(trips_with_receipts.c.reservation_id))
                                 ).all()
                             else:
-                                # No receipts exist, so all trips need receipts
                                 trips = trips_query.all()
                             
                             trip_ids = [trip.trip_id for trip in trips if trip.trip_id]
@@ -386,8 +371,7 @@ class ScrapingService:
                 
                 page, context, browser = login_result
                 self._update_task_status(task_id, TaskStatus.RUNNING, f"Login successful, scraping receipts for {len(trip_ids)} trips...", scraper_types=["receipts"])
-                
-                # Scrape receipts
+
                 data = await scrape_receipts_data(page, trip_ids=trip_ids, batch_size=5)
                 
                 if data:
@@ -395,8 +379,7 @@ class ScrapingService:
                     logger.info(f"Successfully scraped {data.get('total_receipts', 0)} receipts")
                 else:
                     logger.warning("No receipt data was scraped")
-                
-                # Save receipt data
+
                 if results:
                     db = SessionLocal()
                     try:

@@ -1,8 +1,9 @@
 import logging
 import re
 from typing import Dict, Any, Optional, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from core.database.models import (
     Account,
@@ -44,12 +45,12 @@ class DatabaseService:
         Returns:
             Account if found, None otherwise
         """
-        if account_id:
+        if account_id is not None:
             account = db.query(Account).filter(Account.id == account_id).first()
             if account:
                 return account
         
-        if user_id:
+        if user_id is not None:
             return DatabaseService.get_account_by_user_id(db, user_id)
         
         return None
@@ -100,20 +101,51 @@ class DatabaseService:
         return existing_ids
     
     @staticmethod
-    def _save_entity(
-        db: Session,
-        entity,
-        error_context: str = "entity"
-    ) -> bool:
-        """Generic method to save a single entity with error handling."""
-        try:
-            db.commit()
-            db.refresh(entity)
-            return True
-        except Exception as e:
-            logger.error(f"Error saving {error_context}: {e}")
-            db.rollback()
-            return False
+    def _truncate_string(value: Optional[str], max_length: int) -> Optional[str]:
+        """Truncate string to max_length if it exceeds the limit."""
+        if value is None:
+            return None
+        if len(value) > max_length:
+            logger.warning(f"String truncated from {len(value)} to {max_length} characters: {value[:50]}...")
+            return value[:max_length]
+        return value
+    
+    @staticmethod
+    def _parse_float(value):
+        """Parse a value to float, handling None, int, float, and string types."""
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            return parse_amount(value)
+        return None
+    
+    @staticmethod
+    def _clean_string_value(value: Optional[str]) -> Optional[str]:
+        """Replace '-' with None for string fields."""
+        if value is None:
+            return None
+        if isinstance(value, str) and value.strip() == '-':
+            return None
+        return value if value else None
+    
+    @staticmethod
+    def _split_vehicle_name_year(vehicle_name: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+        """Extract year from vehicle name and return cleaned name and year separately."""
+        if not vehicle_name:
+            return None, None
+        
+        year_match = re.search(r'(19\d{2}|20\d{2})$', vehicle_name.strip())
+        if year_match:
+            year = year_match.group(1)
+            # Validate year is in reasonable range
+            year_int = int(year)
+            if 1900 <= year_int <= 2099:
+                cleaned_name = vehicle_name[:year_match.start()].strip()
+                return cleaned_name, year
+        
+        return vehicle_name, None
     
     # ------------------------------ PUBLIC METHODS ------------------------------
     
@@ -122,10 +154,8 @@ class DatabaseService:
         """
         Get or create an account by user_id and email.
         
-        Note: If account already exists, we do NOT update the email.
         The email parameter is only used when creating a new account.
         This prevents Turo email from overwriting the Turolytics account email.
-        The Turo email should be stored in TuroIntegration.turo_email, not Account.email.
         """
         account = DatabaseService.get_account_by_user_id(db, user_id)
         if not account:
@@ -134,8 +164,6 @@ class DatabaseService:
             db.commit()
             db.refresh(account)
             logger.info(f"Created new account: user_id={user_id}, email={email}")
-        # Do NOT update email if account exists - preserve the original Turolytics account email
-        # The email parameter here might be a Turo email, which should be stored in TuroIntegration, not Account
         return account
     
     @staticmethod
@@ -158,33 +186,53 @@ class DatabaseService:
         if not vehicles_data or "vehicles" not in vehicles_data:
             return []
         
+        vehicles_list = vehicles_data.get("vehicles", [])
+        if not vehicles_list:
+            return []
+        
+        license_plates = [v.get("license_plate") for v in vehicles_list if v.get("license_plate")]
+        existing_vehicles = {}
+        if license_plates:
+            existing_vehicles_query = db.query(Vehicle).filter(
+                Vehicle.account_id == account.id,
+                Vehicle.license_plate.in_(license_plates)
+            ).all()
+            existing_vehicles = {v.license_plate: v for v in existing_vehicles_query}
+        
         saved_vehicles = []
         
-        for vehicle_data in vehicles_data.get("vehicles", []):
-            vehicle = None
-            if vehicle_data.get("license_plate"):
-                vehicle = db.query(Vehicle).filter(
-                    Vehicle.account_id == account.id,
-                    Vehicle.license_plate == vehicle_data["license_plate"]
-                ).first()
+        for vehicle_data in vehicles_list:
+            license_plate = vehicle_data.get("license_plate")
+            vehicle = existing_vehicles.get(license_plate) if license_plate else None
             
             if not vehicle:
                 vehicle = Vehicle(account_id=account.id)
                 db.add(vehicle)
             
-            vehicle.name = vehicle_data.get("name")
+            vehicle.name = DatabaseService._truncate_string(vehicle_data.get("name"), 255) if vehicle_data.get("name") else None
             vehicle.year = vehicle_data.get("year")
             vehicle.trim = vehicle_data.get("trim")
-            vehicle.license_plate = vehicle_data.get("license_plate")
-            vehicle.status = vehicle_data.get("status")
+            vehicle.license_plate = license_plate
+            vehicle.status = DatabaseService._truncate_string(vehicle_data.get("status"), 255) if vehicle_data.get("status") else None
             vehicle.trip_info = vehicle_data.get("trip_info")
             vehicle.rating = vehicle_data.get("rating")
             vehicle.trip_count = vehicle_data.get("trip_count")
-            
-            if DatabaseService._save_entity(db, vehicle, f"vehicle {vehicle_data.get('license_plate', 'unknown')}"):
-                saved_vehicles.append(vehicle)
+            saved_vehicles.append(vehicle)
         
-        logger.info(f"Saved {len(saved_vehicles)} vehicles for account {account.user_id}")
+        try:
+            db.commit()
+            for vehicle in saved_vehicles:
+                db.refresh(vehicle)
+            logger.info(f"Saved {len(saved_vehicles)} vehicles for account {account.user_id}")
+        except IntegrityError as e:
+            logger.error(f"Integrity error saving vehicles: {e}")
+            db.rollback()
+            return []
+        except Exception as e:
+            logger.error(f"Error saving vehicles: {e}")
+            db.rollback()
+            return []
+        
         return saved_vehicles
     
     @staticmethod
@@ -193,10 +241,15 @@ class DatabaseService:
         saved_trips = []
         
         def parse_datetime(dt_str: Optional[str]) -> Optional[datetime]:
-            """Parse datetime string, handling Z suffix."""
+            """Parse datetime string, handling Z suffix and converting to UTC-aware."""
             if not dt_str:
                 return None
-            return datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+            dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            else:
+                dt = dt.astimezone(timezone.utc)
+            return dt
         
         booked_data = trips_data.get("booked_trips", {})
         booked_trips = booked_data.get("trips", [])
@@ -214,33 +267,46 @@ class DatabaseService:
             for trip_data in history_trips
         ]
         
+        trip_ids = [t.get("trip_id") for t in all_trips if t.get("trip_id")]
+        existing_trips = {}
+        if trip_ids:
+            existing_trips_query = db.query(Trip).filter(
+                Trip.account_id == account.id,
+                Trip.trip_id.in_(trip_ids)
+            ).all()
+            existing_trips = {t.trip_id: t for t in existing_trips_query}
+        
+        license_plates = list({t.get("license_plate") for t in all_trips if t.get("license_plate")})
+        vehicles_by_plate = {}
+        if license_plates:
+            vehicles_query = db.query(Vehicle).filter(
+                Vehicle.account_id == account.id,
+                Vehicle.license_plate.in_(license_plates)
+            ).all()
+            vehicles_by_plate = {v.license_plate: v for v in vehicles_query}
+        
         for trip_data in all_trips:
             trip_id_str = trip_data.get("trip_id")
             if not trip_id_str:
                 continue
             
-            trip = db.query(Trip).filter(
-                Trip.account_id == account.id,
-                Trip.trip_id == trip_id_str
-            ).first()
+            trip = existing_trips.get(trip_id_str)
             
             if not trip:
                 trip = Trip(account_id=account.id)
                 db.add(trip)
             
-            if trip_data.get("license_plate"):
-                vehicle = db.query(Vehicle).filter(
-                    Vehicle.account_id == account.id,
-                    Vehicle.license_plate == trip_data["license_plate"]
-                ).first()
+            license_plate = trip_data.get("license_plate")
+            if license_plate:
+                vehicle = vehicles_by_plate.get(license_plate)
                 if vehicle:
                     trip.vehicle_id = vehicle.id
             
-            trip.trip_id = trip_id_str
+            trip.trip_id = DatabaseService._truncate_string(trip_id_str, 100)
             trip.customer_name = trip_data.get("customer_name")
-            trip.status = trip_data.get("status")
+            trip.status = DatabaseService._truncate_string(trip_data.get("status"), 255) if trip_data.get("status") else None
             trip.trip_type = trip_data.get("trip_type")
-            trip.cancellation_info = trip_data.get("cancellation_info")
+            trip.cancellation_info = DatabaseService._truncate_string(trip_data.get("cancellation_info"), 255)
             trip.cancelled_by = trip_data.get("cancelled_by")
             trip.cancelled_date = trip_data.get("cancelled_date")
             
@@ -252,7 +318,7 @@ class DatabaseService:
             
             location_data = trip_data.get("location", {})
             trip.location_type = location_data.get("location_type")
-            trip.location = location_data.get("address")
+            trip.location = DatabaseService._truncate_string(location_data.get("address"), 255)
             
             kilometers_data = trip_data.get("kilometers", {})
             trip.kilometers_included = kilometers_data.get("kilometers_included")
@@ -266,12 +332,22 @@ class DatabaseService:
             trip.protection_plan = protection_data.get("protection_plan")
             trip.deductible = protection_data.get("deductible")
             
-            # Save receipt data if present
-            
-            if DatabaseService._save_entity(db, trip, f"trip {trip_id_str}"):
-                saved_trips.append(trip)
+            saved_trips.append(trip)
         
-        logger.info(f"Saved {len(saved_trips)} trips for account {account.user_id}")
+        try:
+            db.commit()
+            for trip in saved_trips:
+                db.refresh(trip)
+            logger.info(f"Saved {len(saved_trips)} trips for account {account.user_id}")
+        except IntegrityError as e:
+            logger.error(f"Integrity error saving trips: {e}")
+            db.rollback()
+            return []
+        except Exception as e:
+            logger.error(f"Error saving trips: {e}")
+            db.rollback()
+            return []
+        
         return saved_trips
     
     
@@ -292,12 +368,24 @@ class DatabaseService:
         
         receipts_raw = receipts_data.get("receipts", {})
         
-        # Handle both dict (trip_id -> receipt_data) and list formats
         if isinstance(receipts_raw, dict):
             receipts_list = [dict(receipt_data, reservation_id=trip_id) for trip_id, receipt_data in receipts_raw.items()]
         else:
             receipts_list = receipts_raw
-        saved_count = 0
+        
+        if not receipts_list:
+            return 0
+        
+        reservation_ids = [r.get("reservation_id") for r in receipts_list if r.get("reservation_id")]
+        existing_receipts = {}
+        if reservation_ids:
+            existing_receipts_query = db.query(Receipt).filter(
+                Receipt.account_id == account.id,
+                Receipt.reservation_id.in_(reservation_ids)
+            ).all()
+            existing_receipts = {r.reservation_id: r for r in existing_receipts_query}
+        
+        saved_receipts = []
         
         for receipt_data in receipts_list:
             if not receipt_data:
@@ -308,119 +396,87 @@ class DatabaseService:
                 logger.warning("Receipt data missing reservation_id, skipping.")
                 continue
             
-            # Check if receipt already exists (by reservation_id)
-            receipt = db.query(Receipt).filter(
-                Receipt.account_id == account.id,
-                Receipt.reservation_id == reservation_id
-            ).first()
-            
-            # Parse amounts from strings to floats
-            def parse_float(value):
-                if value is None:
-                    return None
-                if isinstance(value, (int, float)):
-                    return float(value)
-                if isinstance(value, str):
-                    return parse_amount(value)
-                return None
-            
-            # Helper to replace '-' with None
-            def clean_string_value(value: Optional[str]) -> Optional[str]:
-                """Replace '-' with None for string fields."""
-                if value is None:
-                    return None
-                if isinstance(value, str) and value.strip() == '-':
-                    return None
-                return value if value else None
-            
-            # Clean vehicle_name - remove year if present (e.g., "Hyundai Elantra2017" -> "Hyundai Elantra")
-            def clean_vehicle_name(vehicle_name: Optional[str]) -> tuple[Optional[str], Optional[str]]:
-                """Extract year from vehicle name and return cleaned name and year separately."""
-                if not vehicle_name:
-                    return None, None
-                
-                import re
-                # Look for 4-digit year at the end, but only valid years (1900-2099)
-                # This prevents matching invalid years like "7020" from "Genesis G70"
-                year_match = re.search(r'(19\d{2}|20\d{2})$', vehicle_name.strip())
-                if year_match:
-                    year = year_match.group(1)
-                    # Validate year is in reasonable range
-                    year_int = int(year)
-                    if 1900 <= year_int <= 2099:
-                        cleaned_name = vehicle_name[:year_match.start()].strip()
-                        return cleaned_name, year
-                
-                return vehicle_name, None
+            receipt = existing_receipts.get(reservation_id)
             
             # Extract trip_price and delivery_fee from receipt_data
-            trip_price = parse_float(receipt_data.get("trip_price"))
-            delivery_fee = parse_float(receipt_data.get("delivery_fee"))
-            turo_fees = parse_float(receipt_data.get("turo_fees"))
-            sales_tax = parse_float(receipt_data.get("sales_tax"))
+            trip_price = DatabaseService._parse_float(receipt_data.get("trip_price"))
+            delivery_fee = DatabaseService._parse_float(receipt_data.get("delivery_fee"))
+            turo_fees = DatabaseService._parse_float(receipt_data.get("turo_fees"))
+            sales_tax = DatabaseService._parse_float(receipt_data.get("sales_tax"))
             
             # Clean vehicle_name
             vehicle_name_raw = receipt_data.get("vehicle_name")
-            vehicle_name_cleaned, extracted_year = clean_vehicle_name(vehicle_name_raw)
+            vehicle_name_cleaned, extracted_year = DatabaseService._split_vehicle_name_year(vehicle_name_raw)
             # Use extracted year if vehicle_year not already set
             vehicle_year = receipt_data.get("vehicle_year") or extracted_year
             
             # Clean string values (replace '-' with None)
-            booked_date_clean = clean_string_value(receipt_data.get("booked_date") or receipt_data.get("booked_at"))
-            trip_start_clean = clean_string_value(receipt_data.get("trip_start") or receipt_data.get("trip_start_date"))
-            trip_end_clean = clean_string_value(receipt_data.get("trip_end") or receipt_data.get("trip_end_date"))
-            pickup_location_clean = clean_string_value(receipt_data.get("pickup_location"))
-            return_location_clean = clean_string_value(receipt_data.get("return_location"))
-            guest_name_clean = clean_string_value(receipt_data.get("guest_name"))
+            booked_date_clean = DatabaseService._clean_string_value(receipt_data.get("booked_date") or receipt_data.get("booked_at"))
+            trip_start_clean = DatabaseService._clean_string_value(receipt_data.get("trip_start") or receipt_data.get("trip_start_date"))
+            trip_end_clean = DatabaseService._clean_string_value(receipt_data.get("trip_end") or receipt_data.get("trip_end_date"))
+            pickup_location_clean = DatabaseService._clean_string_value(receipt_data.get("pickup_location"))
+            return_location_clean = DatabaseService._clean_string_value(receipt_data.get("return_location"))
+            guest_name_clean = DatabaseService._clean_string_value(receipt_data.get("guest_name"))
             
             if not receipt:
                 # Create new receipt
                 receipt = Receipt(
                     account_id=account.id,
                     reservation_id=reservation_id,
-                    vehicle_name=vehicle_name_cleaned,
+                    vehicle_name=DatabaseService._truncate_string(vehicle_name_cleaned, 255),
                     vehicle_year=vehicle_year,
                     booked_date=booked_date_clean,
                     trip_start=trip_start_clean,
                     trip_end=trip_end_clean,
-                    pickup_location=pickup_location_clean,
-                    return_location=return_location_clean,
-                    guest_name=guest_name_clean,
+                    pickup_location=DatabaseService._truncate_string(pickup_location_clean, 255),
+                    return_location=DatabaseService._truncate_string(return_location_clean, 255),
+                    guest_name=DatabaseService._truncate_string(guest_name_clean, 255),
                     distance_included=receipt_data.get("distance_included"),
-                    overage_rate=parse_float(receipt_data.get("overage_rate") or receipt_data.get("overage_fee_per_km")),
+                    overage_rate=DatabaseService._parse_float(receipt_data.get("overage_rate") or receipt_data.get("overage_fee_per_km")),
                     trip_price=trip_price,
                     delivery_fee=delivery_fee,
-                    trip_total=parse_float(receipt_data.get("trip_total")),
-                    turo_fees=parse_float(receipt_data.get("turo_fees")) or turo_fees,
-                    sales_tax=parse_float(receipt_data.get("sales_tax")) or sales_tax,
-                    you_earned=parse_float(receipt_data.get("you_earned"))
+                    trip_total=DatabaseService._parse_float(receipt_data.get("trip_total")),
+                    turo_fees=DatabaseService._parse_float(receipt_data.get("turo_fees")) or turo_fees,
+                    sales_tax=DatabaseService._parse_float(receipt_data.get("sales_tax")) or sales_tax,
+                    you_earned=DatabaseService._parse_float(receipt_data.get("you_earned"))
                 )
                 db.add(receipt)  # Add to session before saving
             else:
                 # Update existing receipt
-                receipt.vehicle_name = vehicle_name_cleaned or receipt.vehicle_name
+                receipt.vehicle_name = DatabaseService._truncate_string(vehicle_name_cleaned, 255) or receipt.vehicle_name
                 receipt.vehicle_year = vehicle_year or receipt.vehicle_year
                 receipt.booked_date = booked_date_clean or receipt.booked_date
                 receipt.trip_start = trip_start_clean or receipt.trip_start
                 receipt.trip_end = trip_end_clean or receipt.trip_end
-                receipt.pickup_location = pickup_location_clean or receipt.pickup_location
-                receipt.return_location = return_location_clean or receipt.return_location
-                receipt.guest_name = guest_name_clean or receipt.guest_name
+                receipt.pickup_location = DatabaseService._truncate_string(pickup_location_clean, 255) or receipt.pickup_location
+                receipt.return_location = DatabaseService._truncate_string(return_location_clean, 255) or receipt.return_location
+                receipt.guest_name = DatabaseService._truncate_string(guest_name_clean, 255) or receipt.guest_name
                 receipt.distance_included = receipt_data.get("distance_included") or receipt.distance_included
-                receipt.overage_rate = parse_float(receipt_data.get("overage_rate") or receipt_data.get("overage_fee_per_km")) or receipt.overage_rate
+                receipt.overage_rate = DatabaseService._parse_float(receipt_data.get("overage_rate") or receipt_data.get("overage_fee_per_km")) or receipt.overage_rate
                 receipt.trip_price = trip_price or receipt.trip_price
                 receipt.delivery_fee = delivery_fee or receipt.delivery_fee
-                receipt.trip_total = parse_float(receipt_data.get("trip_total")) or receipt.trip_total
+                receipt.trip_total = DatabaseService._parse_float(receipt_data.get("trip_total")) or receipt.trip_total
                 receipt.turo_fees = turo_fees or receipt.turo_fees
                 receipt.sales_tax = sales_tax or receipt.sales_tax
-                receipt.you_earned = parse_float(receipt_data.get("you_earned")) or receipt.you_earned
+                receipt.you_earned = DatabaseService._parse_float(receipt_data.get("you_earned")) or receipt.you_earned
             
-            if DatabaseService._save_entity(db, receipt, f"receipt for trip {reservation_id}"):
-                saved_count += 1
-                logger.debug(f"Saved receipt data for trip {reservation_id}")
+            saved_receipts.append(receipt)
         
-        logger.info(f"Saved {saved_count} receipts for account {account.user_id}")
-        return saved_count
+        try:
+            db.commit()
+            for receipt in saved_receipts:
+                db.refresh(receipt)
+            logger.info(f"Saved {len(saved_receipts)} receipts for account {account.user_id}")
+        except IntegrityError as e:
+            logger.error(f"Integrity error saving receipts: {e}")
+            db.rollback()
+            return 0
+        except Exception as e:
+            logger.error(f"Error saving receipts: {e}")
+            db.rollback()
+            return 0
+        
+        return len(saved_receipts)
     
     @staticmethod
     def _clean_host_response(response_text: Optional[str]) -> Optional[str]:
@@ -428,7 +484,6 @@ class DatabaseService:
         if not response_text:
             return None
         
-        # Remove 'Your response' or 'Your Response' from the beginning (case-insensitive)
         cleaned = re.sub(r'^Your\s+response\s*', '', response_text, flags=re.IGNORECASE)
         return cleaned.strip() if cleaned.strip() else None
     
@@ -438,17 +493,47 @@ class DatabaseService:
         if not reviews_data or "reviews" not in reviews_data:
             return []
         
+        reviews_list = reviews_data.get("reviews", [])
+        if not reviews_list:
+            return []
+        
+        customer_ids = [r.get("customer_id") for r in reviews_list if r.get("customer_id")]
+        existing_reviews = {}
+        if customer_ids:
+            existing_reviews_query = db.query(Review).filter(
+                Review.account_id == account.id,
+                Review.customer_id.in_(customer_ids)
+            ).all()
+            existing_reviews = {r.customer_id: r for r in existing_reviews_query}
+        
+        license_plates = []
+        for review_data in reviews_list:
+            vehicle_info = review_data.get("vehicle_info")
+            if vehicle_info:
+                plate_match = re.search(r'•\s*([A-Z0-9-]+)', vehicle_info)
+                if plate_match:
+                    license_plates.append(plate_match.group(1))
+                else:
+                    parts = vehicle_info.split()
+                    if len(parts) > 0:
+                        potential_plate = parts[-1]
+                        if re.match(r'^[A-Z0-9-]{4,}$', potential_plate):
+                            license_plates.append(potential_plate)
+        
+        vehicles_by_plate = {}
+        if license_plates:
+            vehicles_query = db.query(Vehicle).filter(
+                Vehicle.account_id == account.id,
+                Vehicle.license_plate.in_(license_plates)
+            ).all()
+            vehicles_by_plate = {v.license_plate: v for v in vehicles_query}
+        
         saved_reviews = []
         
-        for review_data in reviews_data.get("reviews", []):
+        for review_data in reviews_list:
             customer_id = review_data.get("customer_id")
             
-            review = None
-            if customer_id:
-                review = db.query(Review).filter(
-                    Review.account_id == account.id,
-                    Review.customer_id == customer_id
-                ).first()
+            review = existing_reviews.get(customer_id) if customer_id else None
             
             if not review:
                 review = Review(account_id=account.id)
@@ -460,52 +545,57 @@ class DatabaseService:
             review.vehicle_info = review_data.get("vehicle_info")
             review.review_text = review_data.get("review_text")
             review.areas_of_improvement = review_data.get("areas_of_improvement", [])
-            # Clean the host_response to remove "Your response" prefix
             raw_response = review_data.get("host_response")
             review.host_response = DatabaseService._clean_host_response(raw_response)
             review.has_host_response = bool(review.host_response)
             
-            # Link review to vehicle by extracting license plate from vehicle_info
             vehicle_info = review_data.get("vehicle_info")
             if vehicle_info:
                 license_plate = None
-                # Extract license plate from vehicle_info (format: "Vehicle Name Year • LICENSE-PLATE")
-                # Try to match pattern like "• ABC-1234" or "• ABC1234"
                 plate_match = re.search(r'•\s*([A-Z0-9-]+)', vehicle_info)
                 if plate_match:
                     license_plate = plate_match.group(1)
                 else:
-                    # Try to extract from end of string (license plate might be last part)
                     parts = vehicle_info.split()
                     if len(parts) > 0:
                         potential_plate = parts[-1]
-                        # Check if it looks like a license plate (alphanumeric, 4+ chars)
                         if re.match(r'^[A-Z0-9-]{4,}$', potential_plate):
                             license_plate = potential_plate
                 
                 if license_plate:
-                    # Find vehicle by license plate
-                    vehicle = db.query(Vehicle).filter(
-                        Vehicle.account_id == account.id,
-                        Vehicle.license_plate == license_plate
-                    ).first()
+                    vehicle = vehicles_by_plate.get(license_plate)
                     if vehicle:
                         review.vehicle_id = vehicle.id
                         logger.debug(f"Linked review to vehicle {vehicle.id} via license plate {license_plate}")
             
-            # Parse date if provided
             date_str = review_data.get("date")
             if date_str:
                 try:
-                    review.date = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                    dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    else:
+                        dt = dt.astimezone(timezone.utc)
+                    review.date = dt
                 except (ValueError, AttributeError):
                     logger.warning(f"Could not parse review date: {date_str}")
             
-            
-            if DatabaseService._save_entity(db, review, f"review for customer {customer_id or 'unknown'}"):
-                saved_reviews.append(review)
+            saved_reviews.append(review)
         
-        logger.info(f"Saved {len(saved_reviews)} reviews for account {account.user_id}")
+        try:
+            db.commit()
+            for review in saved_reviews:
+                db.refresh(review)
+            logger.info(f"Saved {len(saved_reviews)} reviews for account {account.user_id}")
+        except IntegrityError as e:
+            logger.error(f"Integrity error saving reviews: {e}")
+            db.rollback()
+            return []
+        except Exception as e:
+            logger.error(f"Error saving reviews: {e}")
+            db.rollback()
+            return []
+        
         return saved_reviews
     
     @staticmethod
@@ -515,12 +605,21 @@ class DatabaseService:
         saved_vehicle_earnings = []
         
         if earnings_data.get("earnings_breakdown"):
-            for breakdown_data in earnings_data["earnings_breakdown"]:
-                breakdown = db.query(EarningsBreakdown).filter(
+            breakdowns_list = earnings_data["earnings_breakdown"]
+            breakdown_keys = [(b.get("type"), b.get("year")) for b in breakdowns_list if b.get("type") and b.get("year")]
+            existing_breakdowns = {}
+            if breakdown_keys:
+                # Query only the breakdowns we need, not all for the account
+                existing_breakdowns_query = db.query(EarningsBreakdown).filter(
                     EarningsBreakdown.account_id == account.id,
-                    EarningsBreakdown.type == breakdown_data.get("type"),
-                    EarningsBreakdown.year == breakdown_data.get("year")
-                ).first()
+                    EarningsBreakdown.type.in_([k[0] for k in breakdown_keys]),
+                    EarningsBreakdown.year.in_([k[1] for k in breakdown_keys])
+                ).all()
+                existing_breakdowns = {(b.type, b.year): b for b in existing_breakdowns_query if (b.type, b.year) in breakdown_keys}
+            
+            for breakdown_data in breakdowns_list:
+                breakdown_key = (breakdown_data.get("type"), breakdown_data.get("year"))
+                breakdown = existing_breakdowns.get(breakdown_key) if breakdown_key[0] and breakdown_key[1] else None
                 
                 if not breakdown:
                     breakdown = EarningsBreakdown(
@@ -535,29 +634,37 @@ class DatabaseService:
                     breakdown.amount = breakdown_data.get("amount")
                     breakdown.amount_numeric = parse_amount(breakdown_data.get("amount"))
                 
-                if DatabaseService._save_entity(db, breakdown, f"earnings breakdown {breakdown_data.get('type', 'unknown')}"):
-                    saved_breakdowns.append(breakdown)
+                saved_breakdowns.append(breakdown)
         
         if earnings_data.get("vehicle_earnings"):
-            for vehicle_earnings_data in earnings_data["vehicle_earnings"]:
-                vehicle_earnings = None
+            vehicle_earnings_list = earnings_data["vehicle_earnings"]
+            vehicle_earnings_keys = []
+            for ve_data in vehicle_earnings_list:
+                if ve_data.get("license_plate") and ve_data.get("year"):
+                    vehicle_earnings_keys.append(("plate", ve_data.get("license_plate"), ve_data.get("year")))
+                elif ve_data.get("vehicle_name") and ve_data.get("trim") and ve_data.get("year"):
+                    vehicle_earnings_keys.append(("name", ve_data.get("vehicle_name"), ve_data.get("trim"), ve_data.get("year")))
+            
+            existing_vehicle_earnings = {}
+            if vehicle_earnings_list:
+                existing_ve_query = db.query(VehicleEarnings).filter(
+                    VehicleEarnings.account_id == account.id
+                ).all()
+                for ve in existing_ve_query:
+                    if ve.license_plate and ve.year:
+                        existing_vehicle_earnings[("plate", ve.license_plate, ve.year)] = ve
+                    if ve.vehicle_name and ve.trim and ve.year:
+                        existing_vehicle_earnings[("name", ve.vehicle_name, ve.trim, ve.year)] = ve
+            
+            for vehicle_earnings_data in vehicle_earnings_list:
                 year = vehicle_earnings_data.get("year")
+                vehicle_earnings = None
                 
-                # Lookup should include year to find the correct record for each year
-                if vehicle_earnings_data.get("license_plate"):
-                    vehicle_earnings = db.query(VehicleEarnings).filter(
-                        VehicleEarnings.account_id == account.id,
-                        VehicleEarnings.license_plate == vehicle_earnings_data.get("license_plate"),
-                        VehicleEarnings.year == year
-                    ).first()
+                if vehicle_earnings_data.get("license_plate") and year:
+                    vehicle_earnings = existing_vehicle_earnings.get(("plate", vehicle_earnings_data.get("license_plate"), year))
                 
-                if not vehicle_earnings and vehicle_earnings_data.get("vehicle_name"):
-                    vehicle_earnings = db.query(VehicleEarnings).filter(
-                        VehicleEarnings.account_id == account.id,
-                        VehicleEarnings.vehicle_name == vehicle_earnings_data.get("vehicle_name"),
-                        VehicleEarnings.trim == vehicle_earnings_data.get("trim"),
-                        VehicleEarnings.year == year
-                    ).first()
+                if not vehicle_earnings and vehicle_earnings_data.get("vehicle_name") and vehicle_earnings_data.get("trim") and year:
+                    vehicle_earnings = existing_vehicle_earnings.get(("name", vehicle_earnings_data.get("vehicle_name"), vehicle_earnings_data.get("trim"), year))
                 
                 if not vehicle_earnings:
                     vehicle_earnings = VehicleEarnings(
@@ -578,10 +685,24 @@ class DatabaseService:
                     vehicle_earnings.earnings_amount_numeric = parse_amount(vehicle_earnings_data.get("earnings_amount"))
                     vehicle_earnings.year = year
                 
-                if DatabaseService._save_entity(db, vehicle_earnings, f"vehicle earnings {vehicle_earnings_data.get('vehicle_name', 'unknown')}"):
-                    saved_vehicle_earnings.append(vehicle_earnings)
+                saved_vehicle_earnings.append(vehicle_earnings)
         
-        logger.info(f"Saved {len(saved_breakdowns)} earnings breakdowns and {len(saved_vehicle_earnings)} vehicle earnings for account {account.user_id}")
+        try:
+            db.commit()
+            for breakdown in saved_breakdowns:
+                db.refresh(breakdown)
+            for vehicle_earnings in saved_vehicle_earnings:
+                db.refresh(vehicle_earnings)
+            logger.info(f"Saved {len(saved_breakdowns)} earnings breakdowns and {len(saved_vehicle_earnings)} vehicle earnings for account {account.user_id}")
+        except IntegrityError as e:
+            logger.error(f"Integrity error saving earnings: {e}")
+            db.rollback()
+            return [], []
+        except Exception as e:
+            logger.error(f"Error saving earnings: {e}")
+            db.rollback()
+            return [], []
+        
         return saved_breakdowns, saved_vehicle_earnings
     
     @staticmethod
@@ -622,58 +743,103 @@ class DatabaseService:
         
         transactions_list = transactions_data.get("transactions", [])
         
+        if not transactions_list:
+            return saved_transactions
+        
         logger.info(f"Attempting to save {len(transactions_list)} transactions for account {account.user_id}")
+        
+        reservation_ids = [t.get("reservation_id") for t in transactions_list if t.get("reservation_id")]
+        trips_by_reservation = {}
+        if reservation_ids:
+            trips_query = db.query(Trip).filter(
+                Trip.account_id == account.id,
+                Trip.trip_id.in_(reservation_ids)
+            ).all()
+            trips_by_reservation = {t.trip_id: t for t in trips_query}
+        
+        vehicle_names = list({t.get("vehicle_name") for t in transactions_list if t.get("vehicle_name")})
+        vehicles_by_name = {}
+        if vehicle_names:
+            vehicles_query = db.query(Vehicle).filter(
+                Vehicle.account_id == account.id,
+                Vehicle.name.in_(vehicle_names)
+            ).all()
+            vehicles_by_name = {v.name: v for v in vehicles_query}
+        
+        transaction_keys = []
+        for t in transactions_list:
+            reservation_id = t.get("reservation_id")
+            date = t.get("date")
+            transaction_type = t.get("type")
+            year = t.get("year")
+            if reservation_id and date and transaction_type and year:
+                transaction_keys.append(("reservation", reservation_id, date, transaction_type, year))
+            elif date and transaction_type and year:
+                payment_details = t.get("payment_details")
+                transaction_keys.append(("payment", date, transaction_type, year, payment_details))
+        
+        existing_transactions = {}
+        if transaction_keys:
+            # Extract unique dates, types, and years to query only what we need
+            dates = list({k[1] if k[0] == "reservation" else k[1] for k in transaction_keys})
+            types = list({k[2] if k[0] == "reservation" else k[2] for k in transaction_keys})
+            years = list({k[3] if k[0] == "reservation" else k[3] for k in transaction_keys})
+            reservation_ids = list({k[1] for k in transaction_keys if k[0] == "reservation"})
+            
+            # Query only transactions matching our keys (much more efficient than loading all)
+            query = db.query(Transaction).filter(
+                Transaction.account_id == account.id,
+                Transaction.date.in_(dates),
+                Transaction.type.in_(types),
+                Transaction.year.in_(years)
+            )
+            # If we have reservation-based keys, also filter by reservation_id
+            if reservation_ids:
+                from sqlalchemy import or_
+                query = query.filter(
+                    or_(
+                        Transaction.reservation_id.in_(reservation_ids),
+                        Transaction.reservation_id.is_(None)
+                    )
+                )
+            
+            all_existing = query.all()
+            for trans in all_existing:
+                if trans.reservation_id and trans.date and trans.type and trans.year:
+                    key = ("reservation", trans.reservation_id, trans.date, trans.type, trans.year)
+                    if key in transaction_keys:
+                        existing_transactions[key] = trans
+                elif trans.date and trans.type and trans.year and trans.payment_details:
+                    key = ("payment", trans.date, trans.type, trans.year, trans.payment_details)
+                    if key in transaction_keys:
+                        existing_transactions[key] = trans
         
         for idx, transaction_data in enumerate(transactions_list, 1):
             logger.debug(f"Processing transaction {idx}/{len(transactions_list)}: {transaction_data.get('type')} | {transaction_data.get('date')} | {transaction_data.get('reservation_id') or 'N/A'}")
-            # Try to find existing transaction by unique combination
-            # Use reservation_id + date + type + year as unique identifier
             reservation_id = transaction_data.get("reservation_id")
             date = transaction_data.get("date")
             transaction_type = transaction_data.get("type")
             year = transaction_data.get("year")
             
-            existing_transaction = None
-            
-            # If we have a reservation_id, try to link to a vehicle via trip
             vehicle_id = None
             
             if reservation_id:
-                # Try to find trip by reservation_id (trip_id in Trip model) to get vehicle_id
-                trip = db.query(Trip).filter(
-                    Trip.account_id == account.id,
-                    Trip.trip_id == reservation_id
-                ).first()
+                trip = trips_by_reservation.get(reservation_id)
                 if trip:
                     vehicle_id = trip.vehicle_id
             
-            # If we have vehicle_name but no vehicle_id, try to find vehicle
             if not vehicle_id and transaction_data.get("vehicle_name"):
-                vehicle = db.query(Vehicle).filter(
-                    Vehicle.account_id == account.id,
-                    Vehicle.name == transaction_data.get("vehicle_name")
-                ).first()
+                vehicle = vehicles_by_name.get(transaction_data.get("vehicle_name"))
                 if vehicle:
                     vehicle_id = vehicle.id
             
-            # Look for existing transaction
+            existing_transaction = None
             if reservation_id and date and transaction_type and year:
-                existing_transaction = db.query(Transaction).filter(
-                    Transaction.account_id == account.id,
-                    Transaction.reservation_id == reservation_id,
-                    Transaction.date == date,
-                    Transaction.type == transaction_type,
-                    Transaction.year == year
-                ).first()
+                key = ("reservation", reservation_id, date, transaction_type, year)
+                existing_transaction = existing_transactions.get(key)
             elif date and transaction_type and year:
-                # For payments without reservation_id, use date + type + year + payment_details
-                existing_transaction = db.query(Transaction).filter(
-                    Transaction.account_id == account.id,
-                    Transaction.date == date,
-                    Transaction.type == transaction_type,
-                    Transaction.year == year,
-                    Transaction.payment_details == transaction_data.get("payment_details")
-                ).first()
+                key = ("payment", date, transaction_type, year, transaction_data.get("payment_details"))
+                existing_transaction = existing_transactions.get(key)
             
             if not existing_transaction:
                 existing_transaction = Transaction(
@@ -694,7 +860,6 @@ class DatabaseService:
                 db.add(existing_transaction)
                 logger.info(f"  [{idx}] NEW transaction: {transaction_type} | {transaction_data.get('trip_name') or transaction_data.get('payment_details')} | {date} | {reservation_id or 'N/A'}")
             else:
-                # Update existing transaction
                 existing_transaction.vehicle_id = vehicle_id or existing_transaction.vehicle_id
                 existing_transaction.trip_name = transaction_data.get("trip_name") or existing_transaction.trip_name
                 existing_transaction.vehicle_name = transaction_data.get("vehicle_name") or existing_transaction.vehicle_name
@@ -705,18 +870,38 @@ class DatabaseService:
                 existing_transaction.payment_amount_numeric = transaction_data.get("payment_amount_numeric") or existing_transaction.payment_amount_numeric
                 logger.info(f"  [{idx}] UPDATED existing transaction: {transaction_type} | {date} | {reservation_id or 'N/A'}")
             
-            if DatabaseService._save_entity(db, existing_transaction, f"transaction {reservation_id or date or 'unknown'}"):
-                saved_transactions.append(existing_transaction)
-                logger.debug(f"  [{idx}] ✓ Saved successfully")
-            else:
-                logger.warning(f"  [{idx}] ✗ Failed to save transaction: {transaction_type} | {date} | {reservation_id or 'N/A'}")
+            saved_transactions.append(existing_transaction)
         
-        logger.info(f"Saved {len(saved_transactions)} transactions for account {account.user_id}")
+        try:
+            db.commit()
+            for transaction in saved_transactions:
+                db.refresh(transaction)
+            logger.info(f"Saved {len(saved_transactions)} transactions for account {account.user_id}")
+        except IntegrityError as e:
+            logger.error(f"Integrity error saving transactions: {e}")
+            db.rollback()
+            return []
+        except Exception as e:
+            logger.error(f"Error saving transactions: {e}")
+            db.rollback()
+            return []
+        
         return saved_transactions
     
     @staticmethod
     def save_scraped_data(db: Session, user_id: int, email: str, scraped_data: Dict[str, Any]) -> bool:
-        """Save all scraped data to database."""
+        """
+        Save all scraped data to database.
+        
+        Note: This method uses a best-effort per-section approach. Each section
+        (vehicles, trips, reviews, earnings, transactions, receipts) commits
+        independently. If one section fails, earlier sections are already committed
+        and will remain in the database. This is intentional to maximize data
+        preservation even if one section has issues.
+        
+        For true all-or-nothing behavior, wrap this in a transaction boundary
+        and modify individual save_* methods to use flush() instead of commit().
+        """
         try:
             account = DatabaseService.get_or_create_account(db, user_id, email)
             

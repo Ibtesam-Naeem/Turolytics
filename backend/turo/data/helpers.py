@@ -129,8 +129,7 @@ async def search_for_error_messages(page: Page, iframe_content: Optional[Frame] 
     targets = [page]
     if iframe_content:
         targets.append(iframe_content)
-    
-    # First, try direct text matching
+
     for target in targets:
         for error_msg in error_messages:
             try:
@@ -143,8 +142,7 @@ async def search_for_error_messages(page: Page, iframe_content: Optional[Frame] 
                     return error_msg
             except Exception:
                 continue
-    
-    # Then, search through error selector elements
+
     for target in targets:
         for selector in error_selectors:
             try:
@@ -276,8 +274,7 @@ async def select_earnings_year(page: Page, year: str) -> bool:
         )
         
         logger.info(f"Selecting year {year} from earnings dropdown...")
-        
-        # Click the dropdown button to open the menu
+
         dropdown_button = await page.wait_for_selector(
             EARNINGS_YEAR_DROPDOWN_BUTTON,
             timeout=TIMEOUT_SELECTOR_WAIT
@@ -285,12 +282,10 @@ async def select_earnings_year(page: Page, year: str) -> bool:
         if not dropdown_button:
             logger.error(f"Could not find year dropdown button")
             return False
-        
-        # Ensure button is in view and ready
+
         await dropdown_button.scroll_into_view_if_needed()
         await page.wait_for_timeout(DELAY_SHORT)
-        
-        # Verify button is actually visible and clickable
+
         is_visible = await dropdown_button.is_visible()
         if not is_visible:
             logger.error("Dropdown button is not visible")
@@ -299,27 +294,21 @@ async def select_earnings_year(page: Page, year: str) -> bool:
         logger.debug("Clicking dropdown button...")
         await dropdown_button.click(force=True)
         await page.wait_for_timeout(DELAY_MEDIUM)
-        
-        # Wait for dropdown items to appear (more reliable than waiting for menu container)
-        # Try multiple approaches to find the dropdown items
+
         year_items = []
         max_retries = 5
-        
+
         for attempt in range(max_retries):
             try:
-                # Try to find dropdown items directly - wait for at least one to be visible
                 try:
-                    # Wait for first item to be visible (Playwright waits for visible by default)
                     await page.wait_for_selector(
                         EARNINGS_YEAR_DROPDOWN_ITEM,
                         timeout=2000
                     )
                 except:
-                    # If that fails, just query for items anyway
                     pass
-                
+
                 year_items = await page.query_selector_all(EARNINGS_YEAR_DROPDOWN_ITEM)
-                # Filter to only visible items
                 visible_items = []
                 for item in year_items:
                     try:
@@ -333,11 +322,9 @@ async def select_earnings_year(page: Page, year: str) -> bool:
                     logger.debug(f"Found {len(year_items)} visible dropdown items on attempt {attempt + 1}")
                     break
                 elif year_items:
-                    # If we found items but they're not visible, still use them (might be in a portal/overlay)
                     logger.debug(f"Found {len(year_items)} dropdown items (may not be visible) on attempt {attempt + 1}")
                     break
-                
-                # If no items found, wait a bit and try again
+
                 if attempt < max_retries - 1:
                     await page.wait_for_timeout(DELAY_MEDIUM)
             except Exception as e:
@@ -347,7 +334,6 @@ async def select_earnings_year(page: Page, year: str) -> bool:
         
         if not year_items:
             logger.error("Could not find any dropdown items after clicking dropdown button")
-            # Try to take a screenshot or get page HTML for debugging
             try:
                 page_html = await page.content()
                 if EARNINGS_YEAR_DROPDOWN_ITEM.replace('[', '').replace(']', '') in page_html:
@@ -355,29 +341,25 @@ async def select_earnings_year(page: Page, year: str) -> bool:
             except:
                 pass
             return False
-        
-        # Find and click the year option
+
         available_years = []
         for item in year_items:
             try:
-                # Try to get the label text directly from the item or its child
                 label_element = await item.query_selector(EARNINGS_YEAR_DROPDOWN_LABEL)
                 if label_element:
                     label_text = await label_element.text_content()
                 else:
-                    # Fallback: try to get text directly from the button
                     label_text = await item.text_content()
-                
+
                 if label_text:
                     label_text = label_text.strip()
                     available_years.append(label_text)
                     logger.debug(f"Found dropdown item with text: '{label_text}'")
                     if label_text == year:
-                        # Scroll item into view if needed
                         await item.scroll_into_view_if_needed()
                         await page.wait_for_timeout(DELAY_SHORT)
                         await item.click()
-                        await page.wait_for_timeout(DELAY_LONG)  # Wait for page to update
+                        await page.wait_for_timeout(DELAY_LONG)
                         logger.info(f"Successfully selected year {year}")
                         return True
             except Exception as e:

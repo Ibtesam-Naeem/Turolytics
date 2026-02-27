@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from ..service import BouncieService
-from ..helpers import format_date_for_api, get_odometer_at_time_from_trips
+from ..helpers import format_date_for_api, get_odometer_at_time_from_trips, normalize_imei
 from ..schemas import APIResponse
 from core.database import get_db
 from core.database.models import BouncieVehicleMapping, Account, VehicleOdometerHistory
@@ -55,7 +55,7 @@ async def get_trips_proxy(
     if not imei:
         raise HTTPException(status_code=400, detail="IMEI parameter is required by Bouncie API")
     
-    normalized_imei = imei.strip().replace("-", "").replace(" ", "")
+    normalized_imei = normalize_imei(imei)
     
     mapping = db.query(BouncieVehicleMapping).filter(
         BouncieVehicleMapping.account_id == current_user.id,
@@ -236,7 +236,7 @@ async def get_odometer_at_time(
     """Get odometer reading at a specific timestamp using Bouncie trips."""
     _ensure_access_token(service)
     
-    normalized_imei = imei.strip().replace("-", "").replace(" ", "")
+    normalized_imei = normalize_imei(imei)
     
     mapping = db.query(BouncieVehicleMapping).filter(
         BouncieVehicleMapping.account_id == current_user.id,

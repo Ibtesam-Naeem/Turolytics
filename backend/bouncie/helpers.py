@@ -28,6 +28,12 @@ def parse_bouncie_datetime(iso_string: str) -> Optional[datetime]:
 def format_date_for_api(date: datetime) -> str:
     return date.strftime("%Y-%m-%d")
 
+def normalize_imei(imei: Optional[str]) -> Optional[str]:
+    """Normalize IMEI: strip and remove spaces/dashes. Returns None for None."""
+    if imei is None:
+        return None
+    return imei.strip().replace("-", "").replace(" ", "")
+
 # ------------------------------ GPS/POLYLINE CONVERSION ------------------------------
 
 def get_trip_coordinates(trip: Dict[str, Any]) -> List[Tuple[float, float]]:

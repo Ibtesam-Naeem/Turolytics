@@ -19,3 +19,4 @@ class AccountDeletionLog(Base):
     def __repr__(self):
         return f"<AccountDeletionLog(id={self.id}, account_id={self.account_id}, user_id={self.user_id}, deleted_at={self.deleted_at})>"
 
+# ------------------------------ END OF FILE ------------------------------

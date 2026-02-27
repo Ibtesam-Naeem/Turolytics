@@ -18,7 +18,6 @@ CODE_INPUT_SELECTOR = '#challengeCode'
 FINAL_CONTINUE_BUTTON = 'button:has-text("Submit")'
 CONTINUE_BUTTON_TEXT_SELECTOR = "button:has-text('Continue')"
 
-# Login success indicators 
 LOGIN_SUCCESS_URLS = [
     "**/dashboard", "**/trips", "**/trips/booked", 
     "**/trips/booked?recentUpdates=true", "**/account", "**/profile"
@@ -39,41 +38,41 @@ TRIP_CARD = '[data-testid="baseTripCard"]'
 VEHICLE_CARD = '[data-testid="vehicle-listing-details-card"]'
 
 MONTH_HEADER_SELECTORS = [
-    '[data-testid="month-header"]',  # Primary
-    '.css-4pg9bw-StyledText'         # Fallback
+    '[data-testid="month-header"]',
+    '.css-4pg9bw-StyledText'
 ]
 DATE_HEADER_SELECTORS = [
-    '[data-testid="date-header"]',  # Primary
-    '.css-14bos0l-StyledText'       # Fallback
+    '[data-testid="date-header"]',
+    '.css-14bos0l-StyledText'
 ]
 
 # ------------------------------ TRIP CARD SELECTORS ------------------------------
 
 TRIP_DATE_SELECTORS = [
-    '.css-uhvnse-StyledText-TripHistoryCard',  # Completed trips
-    '.css-iinurx-StyledText-TripHistoryCard',  # Cancelled trips
-    '[class*="TripHistoryCard"]',              # Fallback
-    'p:first-child'                            # Fallback
+    '.css-uhvnse-StyledText-TripHistoryCard',
+    '.css-iinurx-StyledText-TripHistoryCard',
+    '[class*="TripHistoryCard"]',
+    'p:first-child'
 ]
 
 VEHICLE_SELECTORS = [
-    '.css-1s9awq7-StyledText',                 # Primary
-    '[class*="StyledText"]:not([class*="TripHistoryCard"])',  # Alternative
-    'p:nth-child(2)'                          # Fallback
+    '.css-1s9awq7-StyledText',
+    '[class*="StyledText"]:not([class*="TripHistoryCard"])',
+    'p:nth-child(2)'
 ]
 
 CUSTOMER_SELECTORS = [
-    '.css-sc8osv-StyledText',                  # Primary
-    '[class*="StyledText"]',                   # Alternative
-    'p'                                        # Fallback
+    '.css-sc8osv-StyledText',
+    '[class*="StyledText"]',
+    'p'
 ]
 
 CANCELLATION_SELECTOR = '.css-x4dp90-StyledText'
 
 LICENSE_PLATE_SELECTORS = [
-    '.css-15h68s2-StyledText',                # Primary
-    'p:last-child',                           # Fallback
-    '[class*="StyledText"]:last-child'        # Fallback
+    '.css-15h68s2-StyledText',
+    'p:last-child',
+    '[class*="StyledText"]:last-child'
 ]
 
 # ------------------------------ BOOKED TRIPS SELECTORS ------------------------------
@@ -130,9 +129,9 @@ RECEIPT_ROW_DETAILS_SELECTOR = '.css-1ockuyw-StyledText-printItems, .css-1vaws8n
 # ------------------------------ VEHICLE CARD SELECTORS ------------------------------
 
 VEHICLE_STATUS_SELECTORS = [
-    '.css-116zd9t-VehicleDetailsCard div',  # Snoozed/Listed status
-    '.css-1fx8k8t',                         # Listed status
-    '.css-1h7k5xv'                          # Snoozed status
+    '.css-116zd9t-VehicleDetailsCard div',
+    '.css-1fx8k8t',
+    '.css-1h7k5xv'
 ]
 
 VEHICLE_NAME_SELECTORS = ['.css-1s9awq7-StyledText'] + [
@@ -183,8 +182,8 @@ RATINGS_RATINGS_COUNT_SELECTOR = '[data-testid="ratingsDetails-ratings"] p.css-1
 RATINGS_AVERAGE_SELECTOR = '[data-testid="ratingsDetails-average"] .css-xbnzaw-StyledText-categoryAverageMetricStyles'
 
 REVIEWS_HEADER_SELECTORS = [
-    '[data-testid="reviews-header"]',                    # Primary
-    '.css-1rqnw09-reviewsColumnHeaderStyles h2'          # Fallback
+    '[data-testid="reviews-header"]',
+    '.css-1rqnw09-reviewsColumnHeaderStyles h2'
 ]
 REVIEWS_CATEGORY_SELECTOR = '.css-1rqnw09-reviewsColumnHeaderStyles p.css-v7tkns-StyledText'
 
@@ -222,13 +221,11 @@ VEHICLE_EARNINGS_NAME_SELECTOR = 'p.css-nmsfeq-StyledText-StyledMakeModelYear'
 VEHICLE_EARNINGS_DETAILS_SELECTOR = 'p.css-47w2m9-StyledText-StyledMakeModelYear-StyledLicenseAndTrim'
 VEHICLE_EARNINGS_AMOUNT_SELECTOR = 'p.css-14bos0l-StyledText span'
 
-# Year dropdown selectors
 EARNINGS_YEAR_DROPDOWN_BUTTON = '[data-testid="test-button-dropdown"]'
 EARNINGS_YEAR_DROPDOWN_MENU = '.css-rx670o-Dropdown-Menu'
 EARNINGS_YEAR_DROPDOWN_ITEM = '[data-testid="dropdown-item"]'
 EARNINGS_YEAR_DROPDOWN_LABEL = '.css-iiw7vn-DropdownButtonLabel'
 
-# Transactions page year select (it's a <select> element, not a dropdown)
 TRANSACTIONS_YEAR_SELECT = 'select#earningsTableYearFilter'
 TRANSACTIONS_YEAR_SELECT_OPTION = 'select#earningsTableYearFilter option'
 
@@ -238,25 +235,21 @@ TRANSACTIONS_URL = "https://turo.com/us/en/earnings"
 TRANSACTION_HISTORY_LINK = 'li.earningsResources-listItem a[href="/us/en/earnings"]'
 TRANSACTION_HISTORY_LINK_TEXT = 'span.earningsResources-link:has-text("Transaction history"), span.css-u3ehcp-StyledText:has-text("Transaction history")'
 
-# Transaction table selectors
 TRANSACTIONS_TABLE_CONTAINER = '.css-1o66zyy-earningsTableStyles'
 TRANSACTIONS_TABLE_SCROLLABLE = '.css-1o66zyy-earningsTableStyles > div[style*="overflow: auto"]'
 TRANSACTIONS_TABLE_ROW = '[data-testid="earningsTableDesktop-row"]'
 
-# Transaction row cell selectors
 TRANSACTION_TYPE_CELL = '.e1p6hp1s5.css-qgt3bj-TD-TypeCell'
 TRANSACTION_RESERVATION_CELL = '.e1p6hp1s4.css-vxxe06-TD-ReservationCell'
 TRANSACTION_DATE_CELL = '.e1p6hp1s3.css-hs1krk-TD-DateCell'
 TRANSACTION_EARNINGS_CELL = '[data-testid="earningsTableDesktop-earningsCell"]'
 TRANSACTION_PAYMENT_CELL = '[data-testid="earningsTableDesktop-paymentCell"]'
 
-# Transaction type content selectors
 TRANSACTION_TRIP_LINK = 'a.e1p6hp1s0.css-1r8iimq-StyledText-DescriptionLink'
 TRANSACTION_TRIP_VEHICLE = 'p.ejw37iq0.css-1bhh7id-StyledText-TrimText'
 TRANSACTION_PAYMENT_TYPE = 'p.css-1s9awq7-StyledText'
 TRANSACTION_PAYMENT_DETAILS = 'p.ejw37iq0.css-1bhh7id-StyledText-TrimText'
 
-# Transaction amount selectors
 TRANSACTION_EARNINGS_AMOUNT = 'span'
 TRANSACTION_PAYMENT_AMOUNT = 'span'
 

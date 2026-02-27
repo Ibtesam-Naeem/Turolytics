@@ -42,8 +42,7 @@ async def extract_trip_cards_data(page: Page, card_selector: str, list_selector:
             extract_complete_trip_data,
             item_type=f"{page_name} trip card"
         )
-        
-        # Filter out trips we already have
+
         new_trips = [trip for trip in trips_list if trip.get('trip_id') not in existing_trip_ids]
         skipped_count = len(trips_list) - len(new_trips)
         
@@ -142,8 +141,7 @@ async def enrich_trips_with_details(page: Page, trips_list: List[Dict[str, Any]]
                 logger.warning(f"Trip missing trip_id, skipping")
                 enriched_trips.append(trip)
                 continue
-            
-            # Generate trip URL from trip_id
+
             trip_url = f"https://turo.com/us/en/reservation/{trip_id}"
             
             valid_trips.append(trip)
@@ -181,8 +179,7 @@ async def scrape_trip_history(page: Page, include_details: bool = True, existing
     if not await navigate_to_page(page, TRIPS_HISTORY_URL, "Trip History"):
         logger.error("Failed to navigate to trip history page")
         return None
-    
-    # Scroll to bottom to load all trips
+
     await page.wait_for_timeout(3000)
     await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
     await page.wait_for_timeout(2000)

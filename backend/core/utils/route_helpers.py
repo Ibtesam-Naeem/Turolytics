@@ -25,18 +25,15 @@ def handle_route_errors(operation_name: str, rollback_db: bool = False):
             try:
                 return await func(*args, **kwargs)
             except HTTPException:
-                # Re-raise HTTPExceptions as-is (they're already properly formatted)
                 raise
             except Exception as e:
-                # Attempt to rollback database if requested
                 if rollback_db:
-                    # Try to find db session in kwargs or args
                     db = kwargs.get('db') or next((arg for arg in args if hasattr(arg, 'rollback')), None)
                     if db:
                         try:
                             db.rollback()
                         except Exception:
-                            pass  # Ignore rollback errors
+                            pass  
                 
                 logger.exception(f"Error in {operation_name}: {e}")
                 raise HTTPException(
@@ -57,9 +54,7 @@ def parse_amount(amount_str: Optional[str]) -> Optional[float]:
     if not amount_str:
         return None
     try:
-        # Remove currency symbols (including CA$ prefix), commas, and ALL whitespace
         cleaned = str(amount_str).replace("CA$", "").replace("$", "").replace(",", "").replace(" ", "")
-        # Handle empty string after cleaning (e.g., "CA$0" -> "0")
         if not cleaned:
             return 0.0
         return float(cleaned)

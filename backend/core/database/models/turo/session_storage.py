@@ -25,3 +25,4 @@ class SessionStorage(Base):
     def __repr__(self):
         return f"<SessionStorage(id={self.id}, account_id={self.account_id})>"
 
+# ------------------------------ END OF FILE ------------------------------

@@ -37,3 +37,4 @@ class Review(Base):
     def __repr__(self):
         return f"<Review(id={self.id}, customer_name={self.customer_name}, rating={self.rating})>"
 
+# ------------------------------ END OF FILE ------------------------------

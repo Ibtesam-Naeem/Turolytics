@@ -150,10 +150,7 @@ const Auth = () => {
     const isSignUpMode = searchParams.get("mode") === "signup";
     setIsSignUp(isSignUpMode);
     
-    // Redirect signup mode to waitlist
-    if (isSignUpMode) {
-      navigate("/waitlist", { replace: true });
-    }
+    // Signup mode stays on Auth page (no redirect)
   }, [searchParams, navigate]);
 
   const validatePassword = (password: string): string | null => {

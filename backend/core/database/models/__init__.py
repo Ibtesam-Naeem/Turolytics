@@ -22,7 +22,6 @@ from .s3 import Document
 from .user_session import UserSession
 from .vehicle_odometer_history import VehicleOdometerHistory
 from .roi_calculation import ROICalculation
-from .waitlist import Waitlist
 
 __all__ = [
     "Account",
@@ -46,5 +45,6 @@ __all__ = [
     "Document",
     "UserSession",
     "ROICalculation",
-    "Waitlist",
 ]
+
+# ------------------------------ END OF FILE ------------------------------     

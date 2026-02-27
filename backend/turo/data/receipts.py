@@ -34,8 +34,7 @@ async def scrape_receipts_data(page: Page, trip_ids: List[str] = None, batch_siz
     
     receipts_data = {}
     context = page.context
-    
-    # Process in batches to avoid overwhelming the browser
+
     for i in range(0, len(trip_ids), batch_size):
         batch = trip_ids[i:i + batch_size]
         batch_num = (i // batch_size) + 1
@@ -52,11 +51,9 @@ async def scrape_receipts_data(page: Page, trip_ids: List[str] = None, batch_siz
                 new_page = await context.new_page()
                 receipt_url = get_receipt_url(trip_id)
                 receipt_data = await extract_receipt_data(new_page, receipt_url)
-                # Ensure reservation_id is set (use trip_id if not already set)
                 if receipt_data and 'reservation_id' not in receipt_data:
                     receipt_data['reservation_id'] = trip_id
-                
-                # Small delay before closing to ensure data is fully processed
+
                 await asyncio.sleep(0.5)
                 
                 return trip_id, receipt_data
@@ -66,13 +63,11 @@ async def scrape_receipts_data(page: Page, trip_ids: List[str] = None, batch_siz
             finally:
                 if new_page:
                     try:
-                        # Small delay before closing page
                         await asyncio.sleep(0.3)
                         await new_page.close()
                     except Exception:
                         pass
-        
-        # Process batch in parallel
+
         for trip_id in batch:
             batch_tasks.append(process_receipt(trip_id))
         
@@ -90,10 +85,9 @@ async def scrape_receipts_data(page: Page, trip_ids: List[str] = None, batch_siz
                     logger.debug(f"Successfully scraped receipt for trip {trip_id}")
                 else:
                     logger.warning(f"Failed to scrape receipt for trip {trip_id}: {receipt_data.get('error', 'Unknown error')}")
-        
-        # Delay between batches to avoid rate limiting
+
         if i + batch_size < len(trip_ids):
-            await asyncio.sleep(2)  # 2 second delay between batches
+            await asyncio.sleep(2)
     
     logger.info(f"Successfully scraped {len(receipts_data)} receipts out of {len(trip_ids)} trips")
     

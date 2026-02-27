@@ -11,6 +11,7 @@ import asyncio
 from datetime import datetime, timezone
 
 from ..service import BouncieService
+from ..helpers import normalize_imei
 from ..trip_processor import process_bouncie_link
 from ..constants import WEBHOOK_TRIP_MATCH_DAYS_BACK
 from ..schemas import APIResponse
@@ -170,9 +171,8 @@ async def handle_bouncie_webhook(
     account_id = None
     vehicle_id = None
     if imei is not None:
-        normalized_imei = imei.strip().replace("-", "").replace(" ", "")
         mapping = db.query(BouncieVehicleMapping).filter(
-            BouncieVehicleMapping.imei == normalized_imei
+            BouncieVehicleMapping.imei == normalize_imei(imei)
         ).first()
         if mapping:
             account_id = mapping.account_id
@@ -271,7 +271,7 @@ async def _handle_mil_event(
     )
     occurred_at = _parse_webhook_timestamp(timestamp_str)
     
-    normalized_imei = imei.strip().replace("-", "").replace(" ", "") if imei else None
+    normalized_imei = normalize_imei(imei)
     existing_code = db.query(BouncieDTCCode).filter(
         BouncieDTCCode.account_id == account_id,
         BouncieDTCCode.imei == normalized_imei,
@@ -353,7 +353,7 @@ async def _handle_vin_change(
         logger.warning(f"No VIN found in vin_change payload: {payload}")
         return
     
-    normalized_imei = imei.strip().replace("-", "").replace(" ", "") if imei else None
+    normalized_imei = normalize_imei(imei)
     mapping = db.query(BouncieVehicleMapping).filter(
         BouncieVehicleMapping.account_id == account_id,
         BouncieVehicleMapping.vehicle_id == vehicle_id,

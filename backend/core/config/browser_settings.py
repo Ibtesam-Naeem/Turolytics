@@ -11,8 +11,6 @@ logger = logging.getLogger(__name__)
 # ------------------------------ USER AGENT ------------------------------
 USER_AGENT = settings.scraping.user_agent
 
-# Increased viewport size for better virtual scrolling performance
-# Larger viewport = more rows rendered at once = better scraping
 DEFAULT_VIEWPORT = {"width": 1920, "height": 1080}
 DEFAULT_TIMEOUT = 30000
 

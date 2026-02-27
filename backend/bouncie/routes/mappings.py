@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, Query, Depends, Path
 import logging
 
 from ..schemas import APIResponse, VehicleMappingRequest, VehicleMappingUpdateRequest
+from ..helpers import normalize_imei
 from core.database import get_db
 from core.database.models import BouncieVehicleMapping, Account, Vehicle
 from core.security.auth import get_current_active_user
@@ -88,7 +89,7 @@ async def create_vehicle_mapping(
     db: Session = Depends(get_db)
 ):
     """Create a new vehicle mapping (link Turo vehicle to Bouncie IMEI)."""
-    normalized_imei = (request.imei or "").strip().replace("-", "").replace(" ", "")
+    normalized_imei = normalize_imei(request.imei) or ""
     
     vehicle = db.query(Vehicle).filter(
         Vehicle.id == request.vehicle_id,
@@ -194,7 +195,7 @@ async def update_vehicle_mapping(
         mapping.vehicle_id = request.vehicle_id
     
     if request.imei is not None and request.imei != mapping.imei:
-        normalized_imei = (request.imei or "").strip().replace("-", "").replace(" ", "")
+        normalized_imei = normalize_imei(request.imei) or ""
         if normalized_imei != mapping.imei:
             existing_imei = _check_mapping_exists(db, current_user.id, imei=normalized_imei, exclude_id=mapping_id)
             if existing_imei:

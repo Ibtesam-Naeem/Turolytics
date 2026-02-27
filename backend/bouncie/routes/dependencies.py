@@ -4,7 +4,7 @@ from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 
 from ..service import BouncieService
-from ..helpers import trip_to_dict
+from ..helpers import trip_to_dict, normalize_imei
 from ..schemas import (
     BouncieTripMatchOut, BouncieTripMatchDetailOut,
     BouncieVehicleMappingOut, BouncieDTCCodeOut, APIResponse
@@ -125,8 +125,7 @@ def _check_mapping_exists(
     if vehicle_id is not None:
         query = query.filter(BouncieVehicleMapping.vehicle_id == vehicle_id)
     if imei is not None:
-        normalized_imei = imei.strip().replace("-", "").replace(" ", "")
-        query = query.filter(BouncieVehicleMapping.imei == normalized_imei)
+        query = query.filter(BouncieVehicleMapping.imei == normalize_imei(imei))
     if exclude_id is not None:
         query = query.filter(BouncieVehicleMapping.id != exclude_id)
     return query.first()

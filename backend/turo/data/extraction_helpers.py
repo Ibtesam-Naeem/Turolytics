@@ -582,10 +582,8 @@ async def extract_complete_trip_detail_data(page: Page, trip_url: str) -> Dict[s
 async def extract_receipt_row_data(row) -> Optional[Dict[str, Any]]:
     """Extract data from a receipt row (cost details or earnings row)."""
     try:
-        # Try to find label - it might be directly in the row or in a nested div
         label_element = await row.query_selector(RECEIPT_ROW_LABEL_SELECTOR)
         if not label_element:
-            # Try alternative: look for label in nested structure
             item_div = await row.query_selector('.css-1ffy8gg-StyledItemDottedLine')
             if item_div:
                 label_element = await item_div.query_selector(RECEIPT_ROW_LABEL_SELECTOR)
@@ -596,15 +594,12 @@ async def extract_receipt_row_data(row) -> Optional[Dict[str, Any]]:
         label_text = (await label_element.text_content() or '').strip()
         if not label_text:
             return None
-        
-        # Try to get value from different selectors
-        # Try all selectors and use the one with actual content
+
         value_text = None
         value_numeric = None
-        
-        # Try all selectors in order of specificity
+
         selectors_to_try = [
-            (RECEIPT_ROW_VALUE_NEGATIVE_SELECTOR, "negative"),  # Try negative first for fees
+            (RECEIPT_ROW_VALUE_NEGATIVE_SELECTOR, "negative"),
             (RECEIPT_ROW_VALUE_TOTAL_SELECTOR, "total"),
             (RECEIPT_ROW_VALUE_EARNED_SELECTOR, "earned"),
             (RECEIPT_ROW_VALUE_SELECTOR, "regular")
@@ -613,33 +608,27 @@ async def extract_receipt_row_data(row) -> Optional[Dict[str, Any]]:
         for selector, selector_type in selectors_to_try:
             element = await row.query_selector(selector)
             if not element:
-                # Try alternative: look for value in nested structure
                 value_div = await row.query_selector('.css-2bo7kd-StyledValueDottedLine')
                 if value_div:
                     element = await value_div.query_selector(selector)
             
             if element:
                 text = (await element.text_content() or '').strip()
-                # Only use this value if it has actual content
                 if text:
                     value_text = text
                     value_numeric = parse_amount(text)
                     logger.debug(f"Found value using {selector_type} selector: '{text}' -> {value_numeric}")
-                    break  # Found a value, stop trying other selectors
-        
-        # If still no value found, try searching for any value element in the row
+                    break
+
         if not value_text:
-            # Try to find value div and get any text content from it
             value_div = await row.query_selector('.css-2bo7kd-StyledValueDottedLine')
             if value_div:
-                # Get all text from the value div
                 div_text = (await value_div.text_content() or '').strip()
                 if div_text:
                     value_text = div_text
                     value_numeric = parse_amount(div_text)
                     logger.debug(f"Found value from value div: '{div_text}' -> {value_numeric}")
-        
-        # Get details text if available (e.g., "6 days @ CA$43.83/day")
+
         details_text = None
         details_element = await row.query_selector(RECEIPT_ROW_DETAILS_SELECTOR)
         if details_element:
@@ -684,21 +673,18 @@ async def extract_receipt_data(page: Page, receipt_url: str) -> Dict[str, Any]:
     
     try:
         await page.goto(receipt_url, wait_until="domcontentloaded", timeout=TIMEOUT_PAGE_LOAD)
-        await page.wait_for_timeout(3000)  # Wait for page to fully load (increased to 3 seconds)
-        
-        # Wait for receipt content to be visible
+        await page.wait_for_timeout(3000)
+
         try:
-            # Wait for either the header or trip details section to appear
             await page.wait_for_selector(
                 f"{RECEIPT_HEADER_SELECTOR}, {RECEIPT_TRIP_DETAILS_SECTION}",
                 timeout=5000,
                 state="visible"
             )
-            await page.wait_for_timeout(1000)  # Additional wait for dynamic content
+            await page.wait_for_timeout(1000)
         except Exception as e:
             logger.debug(f"Receipt elements not found immediately, continuing anyway: {e}")
-        
-        # Extract reservation ID from header
+
         try:
             header = await page.query_selector(RECEIPT_HEADER_SELECTOR)
             if header:
@@ -712,57 +698,47 @@ async def extract_receipt_data(page: Page, receipt_url: str) -> Dict[str, Any]:
                             break
         except Exception as e:
             logger.debug(f"Error extracting reservation ID: {e}")
-        
-        # Extract trip details section
+
         try:
             trip_details = await page.query_selector(RECEIPT_TRIP_DETAILS_SECTION)
             if trip_details:
-                # Host name
                 host_elem = await trip_details.query_selector(RECEIPT_HOST_NAME_SELECTOR)
                 if host_elem:
                     receipt_data['host_name'] = (await host_elem.text_content() or '').strip()
-                
-                # Vehicle name and year
+
                 vehicle_elem = await trip_details.query_selector(RECEIPT_VEHICLE_NAME_SELECTOR)
                 if vehicle_elem:
                     vehicle_text = (await vehicle_elem.text_content() or '').strip()
                     receipt_data['vehicle_name'] = vehicle_text
-                    # Extract year if present - only match valid years (1900-2099) to avoid false matches like "7020" from "Genesis G70"
                     year_match = extract_with_regex(vehicle_text, r'(19\d{2}|20\d{2})')
                     if year_match:
                         year_int = int(year_match)
-                        # Validate year is in reasonable range
                         if 1900 <= year_int <= 2099:
                             receipt_data['vehicle_year'] = year_match
-                
-                # Booked date
+
                 booked_elem = await trip_details.query_selector(RECEIPT_BOOKED_DATE_SELECTOR)
                 if booked_elem:
                     booked_text = (await booked_elem.text_content() or '').strip()
                     if 'booked' in booked_text.lower():
                         receipt_data['booked_date'] = booked_text
-                
-                # Trip dates and locations - look for rows with labels
+
                 rows = await trip_details.query_selector_all('[data-testid="row"]')
                 current_label = None
                 
                 logger.debug(f"Found {len(rows)} rows in trip details section")
                 
                 for row in rows:
-                    # Check if this row has a label (section header)
                     label_elem = await row.query_selector('.css-1z3l1r-StyledRow-titleRowStyles, .css-1uqof5-StyledText-styledSectionTitleStyles')
                     if label_elem:
                         current_label = (await label_elem.text_content() or '').strip()
                         logger.debug(f"Found label: {current_label}")
                         continue
-                    
-                    # If we have cells, extract data based on current label
+
                     cells = await row.query_selector_all('.css-on31fw, [data-testid="row"] > div')
                     if len(cells) >= 2:
                         cell1_text = (await cells[0].text_content() or '').strip()
                         cell2_text = (await cells[1].text_content() or '').strip()
-                        
-                        # Match based on label
+
                         if current_label:
                             label_lower = current_label.lower()
                             if 'trip start' in label_lower or 'trip dates' in label_lower:
@@ -773,18 +749,15 @@ async def extract_receipt_data(page: Page, receipt_url: str) -> Dict[str, Any]:
                                 receipt_data['pickup_location'] = cell1_text
                                 receipt_data['return_location'] = cell2_text
                                 logger.debug(f"Extracted locations: {cell1_text} | {cell2_text}")
-                    
-                    # Also try to find by text content directly
+
                     row_text = (await row.text_content() or '').strip()
                     if row_text and ('Trip start' in row_text or 'Trip end' in row_text):
-                        # Try to extract dates from the row
                         date_parts = [p.strip() for p in row_text.split('\n') if p.strip()]
                         if len(date_parts) >= 2:
                             receipt_data['trip_start'] = date_parts[0]
                             receipt_data['trip_end'] = date_parts[1]
                             logger.debug(f"Extracted trip dates from text: {date_parts[0]} | {date_parts[1]}")
                     elif row_text and ('Pickup' in row_text or 'Return' in row_text):
-                        # Try to extract locations from the row
                         location_parts = [p.strip() for p in row_text.split('\n') if p.strip()]
                         if len(location_parts) >= 2:
                             receipt_data['pickup_location'] = location_parts[0]
@@ -792,8 +765,7 @@ async def extract_receipt_data(page: Page, receipt_url: str) -> Dict[str, Any]:
                             logger.debug(f"Extracted locations from text: {location_parts[0]} | {location_parts[1]}")
         except Exception as e:
             logger.debug(f"Error extracting trip details: {e}")
-        
-        # Extract guest section
+
         try:
             guest_section = await page.query_selector(RECEIPT_GUEST_SECTION)
             if guest_section:
@@ -809,8 +781,7 @@ async def extract_receipt_data(page: Page, receipt_url: str) -> Dict[str, Any]:
                         receipt_data['guest_name'] = guest_name
         except Exception as e:
             logger.debug(f"Error extracting guest info: {e}")
-        
-        # Extract mileage section
+
         try:
             mileage_section = await page.query_selector(RECEIPT_MILEAGE_SECTION)
             if mileage_section:
@@ -824,12 +795,10 @@ async def extract_receipt_data(page: Page, receipt_url: str) -> Dict[str, Any]:
                         value = (await value_elem.text_content() or '').strip()
                         
                         if 'Distance included' in label:
-                            # Extract number and unit
                             km_match = extract_with_regex(value, r'(\d+)\s*km')
                             if km_match:
                                 receipt_data['distance_included'] = int(km_match)
-                        
-                        # Extract overage rate from details
+
                         details_elem = await row.query_selector(RECEIPT_ROW_DETAILS_SELECTOR)
                         if details_elem:
                             details_text = (await details_elem.text_content() or '').strip()
@@ -839,8 +808,7 @@ async def extract_receipt_data(page: Page, receipt_url: str) -> Dict[str, Any]:
                                     receipt_data['overage_rate'] = float(rate_match)
         except Exception as e:
             logger.debug(f"Error extracting mileage info: {e}")
-        
-        # Extract cost details section
+
         try:
             cost_section = await page.query_selector(RECEIPT_COST_DETAILS_SECTION)
             if cost_section:
@@ -864,26 +832,22 @@ async def extract_receipt_data(page: Page, receipt_url: str) -> Dict[str, Any]:
                         elif 'delivery fee' in label or 'delivery' in label:
                             receipt_data['delivery_fee'] = value_numeric
                             logger.debug(f"Extracted delivery_fee: {value_numeric}")
-                        # Check for turo fees first (most specific)
                         elif 'turo' in label and ('fee' in label or 'fees' in label):
                             if value_numeric is not None:
                                 receipt_data['turo_fees'] = value_numeric
                                 logger.info(f"✓ Extracted turo_fees: {value_numeric} from label '{row_data.get('label')}'")
                             else:
                                 logger.warning(f"✗ turo_fees label found but value_numeric is None. Value text: '{value_text}'")
-                        # Check for sales tax
                         elif 'sales tax' in label or ('tax' in label and 'sales' in label):
                             if value_numeric is not None:
                                 receipt_data['sales_tax'] = value_numeric
                                 logger.info(f"✓ Extracted sales_tax: {value_numeric} from label '{row_data.get('label')}'")
                             else:
                                 logger.warning(f"✗ sales_tax label found but value_numeric is None. Value text: '{value_text}'")
-                        # Fallback for turo (without explicit fee)
                         elif 'turo' in label:
                             if value_numeric is not None and not receipt_data.get('turo_fees'):
                                 receipt_data['turo_fees'] = value_numeric
                                 logger.debug(f"Extracted turo_fees (fallback): {value_numeric}")
-                        # Fallback for tax (without explicit sales)
                         elif 'tax' in label and not receipt_data.get('sales_tax'):
                             if value_numeric is not None:
                                 receipt_data['sales_tax'] = value_numeric
@@ -892,8 +856,7 @@ async def extract_receipt_data(page: Page, receipt_url: str) -> Dict[str, Any]:
                             receipt_data['cost_details'].append(row_data)
         except Exception as e:
             logger.debug(f"Error extracting cost details: {e}")
-        
-        # Extract earnings section
+
         try:
             earnings_section = await page.query_selector(RECEIPT_EARNINGS_SECTION)
             if earnings_section:
@@ -907,32 +870,27 @@ async def extract_receipt_data(page: Page, receipt_url: str) -> Dict[str, Any]:
                         value_text = row_data.get('value', '')
                         
                         logger.debug(f"Earnings row - label: '{row_data.get('label')}', value: {value_text}, numeric: {value_numeric}")
-                        
-                        # Check for turo fees first (most specific)
+
                         if 'turo' in label and ('fee' in label or 'fees' in label):
                             if value_numeric is not None:
                                 receipt_data['turo_fees'] = value_numeric
                                 logger.info(f"✓ Extracted turo_fees: {value_numeric} from label '{row_data.get('label')}'")
                             else:
                                 logger.warning(f"✗ turo_fees label found but value_numeric is None. Value text: '{value_text}'")
-                        # Check for sales tax
                         elif 'sales tax' in label or ('tax' in label and 'sales' in label):
                             if value_numeric is not None:
                                 receipt_data['sales_tax'] = value_numeric
                                 logger.info(f"✓ Extracted sales_tax: {value_numeric} from label '{row_data.get('label')}'")
                             else:
                                 logger.warning(f"✗ sales_tax label found but value_numeric is None. Value text: '{value_text}'")
-                        # Check for you earned
                         elif 'you earned' in label:
                             if value_numeric is not None:
                                 receipt_data['you_earned'] = value_numeric
                                 logger.debug(f"Extracted you_earned: {value_numeric}")
-                        # Fallback for turo (without explicit fee)
                         elif 'turo' in label:
                             if value_numeric is not None and not receipt_data.get('turo_fees'):
                                 receipt_data['turo_fees'] = value_numeric
                                 logger.debug(f"Extracted turo_fees (fallback): {value_numeric}")
-                        # Fallback for tax (without explicit sales)
                         elif 'tax' in label and not receipt_data.get('sales_tax'):
                             if value_numeric is not None:
                                 receipt_data['sales_tax'] = value_numeric
@@ -945,8 +903,7 @@ async def extract_receipt_data(page: Page, receipt_url: str) -> Dict[str, Any]:
             logger.debug(f"Error extracting earnings: {e}")
         
         receipt_data['scraped_at'] = datetime.utcnow().isoformat()
-        
-        # Log summary of extracted data
+
         logger.info(
             f"Receipt extraction summary for {receipt_data.get('reservation_id', 'unknown')}: "
             f"trip_price={receipt_data.get('trip_price')}, "
